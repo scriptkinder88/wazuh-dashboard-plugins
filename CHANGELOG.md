@@ -2,9 +2,10 @@
 
 ### Added
 
-| Issue | Comment                 |
-| ----- | ----------------------- |
-|       | Support for Wazuh 5.1.0 |
+| Issue | Comment                                                            |
+| ----- | ------------------------------------------------------------------ |
+| #2090 | Enable PDF report generation for Security Configuration Assessment |
+|       | Support for Wazuh 5.1.0                                            |
 
 ## Prior versions
 
