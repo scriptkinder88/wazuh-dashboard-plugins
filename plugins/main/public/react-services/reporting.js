@@ -138,6 +138,53 @@ export class ReportingService {
     return store.getState().reportingReducers?.dataSourceSearchContext;
   }
 
+  async startScaReport(agentId) {
+    try {
+      if (!agentId) {
+        return null;
+      }
+
+      const visualizations = await this.getVisualizationsFromDOM();
+      const browserTimezone = moment.tz.guess(true);
+      const config = this.wazuhConfig.getConfig();
+
+      const data = {
+        array: visualizations,
+        filters: [],
+        searchBar: '',
+        tables: [],
+        tab: 'sca',
+        section: 'agents',
+        agents: agentId,
+        browserTimezone,
+        indexPatternTitle:
+          config?.pattern || config?.['wazuh.pattern'] || 'wazuh-alerts-*',
+        apiId: JSON.parse(AppState.getCurrentAPI()).id,
+      };
+
+      const response = await WzRequest.genericReq(
+        'POST',
+        '/reports/modules/sca',
+        data,
+      );
+
+      this.renderSucessReportsToast({ filename: response.data.filename });
+    } catch (error) {
+      const options = {
+        context: `${ReportingService.name}.startScaReport`,
+        level: UI_LOGGER_LEVELS.ERROR,
+        severity: UI_ERROR_SEVERITIES.BUSINESS,
+        store: true,
+        error: {
+          error: error,
+          message: error.message || error,
+          title: `Error creating the report`,
+        },
+      };
+      getErrorOrchestrator().handleError(options);
+    }
+  }
+
   async startVis2Png(
     tab,
     /** @type {Agent['id'] | false} */ agents = false,

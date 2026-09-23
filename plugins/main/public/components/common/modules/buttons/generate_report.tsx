@@ -24,14 +24,21 @@ const mapStateToProps = state => ({
 
 export const ButtonModuleGenerateReport = connect(mapStateToProps)(
   ({ agent, moduleID, dataSourceSearchContext }) => {
-    const disabledReport = ![
-      !dataSourceSearchContext?.isSearching,
-      dataSourceSearchContext?.totalResults,
-      dataSourceSearchContext?.indexPattern,
-    ].every(Boolean);
+    const isScaReport = moduleID === 'sca';
+    const disabledReport = isScaReport
+      ? !agent?.id
+      : ![
+          !dataSourceSearchContext?.isSearching,
+          dataSourceSearchContext?.totalResults,
+          dataSourceSearchContext?.indexPattern,
+        ].every(Boolean);
     const totalResults = dataSourceSearchContext?.totalResults;
     const action = useAsyncAction(async () => {
       const reportingService = new ReportingService();
+      const generateReport = () =>
+        isScaReport
+          ? reportingService.startScaReport(agent?.id)
+          : reportingService.startVis2Png(moduleID, agent?.id || false);
       const isDarkModeTheme = getUiSettings().get('theme:darkMode');
       if (isDarkModeTheme) {
         //Patch to fix white text in dark-mode pdf reports
@@ -47,7 +54,7 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
         try {
           $labels.css('color', 'black');
           $vizBackground.css('background-color', 'transparent');
-          await reportingService.startVis2Png(moduleID, agent?.id || false);
+          await generateReport();
           $vizBackground.css('background-color', defaultVizBackground);
           $labels.css('color', defaultTextColor);
         } catch (e) {
@@ -55,9 +62,9 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
           $vizBackground.css('background-color', defaultVizBackground);
         }
       } else {
-        await reportingService.startVis2Png(moduleID, agent?.id || false);
+        await generateReport();
       }
-    }, [agent]);
+    }, [agent, moduleID]);
 
     return (
       <WzButton
