@@ -178,7 +178,7 @@ const Dashboard = ({ currentAgentData }) => {
                     title
                     description
                     betaBadgeLabel={lookingPolicy.name}
-                    className='sca-module-card-visualization'
+                    className='visualization sca-module-card-visualization'
                   >
                     <VisualizationBasic
                       type='donut'
