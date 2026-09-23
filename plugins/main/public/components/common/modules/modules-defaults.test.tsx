@@ -1,3 +1,7 @@
+jest.mock('../wazuh-discover/wz-discover', () => ({
+  WazuhDiscover: () => null,
+}));
+
 import { TAB_VIEW_ID_DASHBOARD } from '../../../../common/constants';
 import { ModulesDefaults } from './modules-defaults';
 
