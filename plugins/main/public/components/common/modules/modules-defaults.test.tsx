@@ -1,3 +1,4 @@
+// Fork CI trigger: verify pull_request workflows on this branch.
 import { TAB_VIEW_ID_DASHBOARD } from '../../../../common/constants';
 import { ModulesDefaults } from './modules-defaults';
 
