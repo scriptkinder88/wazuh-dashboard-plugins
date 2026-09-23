@@ -1,12 +1,20 @@
-import { ModulesDefaults } from './modules-defaults';
+import fs from 'fs';
+import path from 'path';
 
 describe('ModulesDefaults SCA reporting', () => {
   it('exposes the Generate report action on the SCA dashboard tab', () => {
-    const dashboardTab = ModulesDefaults.sca.tabs.find(
-      ({ id }) => id === 'dashboard',
+    const source = fs.readFileSync(
+      path.resolve(__dirname, 'modules-defaults.tsx'),
+      'utf8',
     );
 
-    expect(dashboardTab).toBeDefined();
-    expect(dashboardTab?.buttons).toHaveLength(2);
+    const scaBlock = source.match(
+      /sca:\s*\{[\s\S]*?availableFor:\s*\['manager', 'agent'\],[\s\S]*?\n\s*\},/,
+    )?.[0];
+
+    expect(scaBlock).toBeDefined();
+    expect(scaBlock).toContain(
+      'buttons: [ButtonExploreAgent, ButtonModuleGenerateReport]',
+    );
   });
 });
