@@ -21,6 +21,10 @@ describe('SCA multi-server report wiring', () => {
       path.resolve(__dirname, '../../../public/react-services/reporting.js'),
       'utf8',
     );
+    const controllerSource = fs.readFileSync(
+      path.resolve(__dirname, '../../controllers/wazuh-reporting.ts'),
+      'utf8',
+    );
 
     expect(buttonSource).toContain('<ScaReportAgentSelector');
     expect(buttonSource).toContain('await action.run(agentIds)');
@@ -34,6 +38,11 @@ describe('SCA multi-server report wiring', () => {
 
     expect(reportingSource).toContain('async startScaReport(agentIds)');
     expect(reportingSource).toContain('agents,');
+
+    expect(controllerSource).toContain('Array.isArray(agents)');
+    expect(controllerSource).toContain(
+      'await addScaChecksToReport(context, printer, agents, apiId)',
+    );
   });
 
   it('accepts an array of validated agent IDs on the reporting route', () => {
@@ -43,5 +52,16 @@ describe('SCA multi-server report wiring', () => {
     );
 
     expect(routeSource).toContain('schema.arrayOf(agentIDValidation)');
+  });
+
+  it('keeps SCA reports on the shared configurable branding pipeline', () => {
+    const printerSource = fs.readFileSync(
+      path.resolve(__dirname, 'printer.ts'),
+      'utf8',
+    );
+
+    expect(printerSource).toContain("'customization.logo.reports'");
+    expect(printerSource).toContain("'customization.reports.header'");
+    expect(printerSource).toContain("'customization.reports.footer'");
   });
 });
