@@ -39,7 +39,7 @@ const checkBucket = (
 ) => ({
   key: {
     agent_id: agentId,
-    policy,
+    policy_id: policy.toLowerCase().replace(/\s+/g, '_'),
     check_id: checkId,
   },
   latest: {
