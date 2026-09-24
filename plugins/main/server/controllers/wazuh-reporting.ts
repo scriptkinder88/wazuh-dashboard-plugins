@@ -26,6 +26,7 @@ import {
   buildAgentsTable,
 } from '../lib/reporting/extended-information';
 import { ReportPrinter } from '../lib/reporting/printer';
+import { addScaChecksToReport } from '../lib/reporting/sca-report';
 import {
   AUTHORIZED_AGENTS,
   API_NAME_AGENT_STATUS,
@@ -364,6 +365,10 @@ export class WazuhReportingCtrl {
         }
 
         printer.addVisualizations(array, agents, moduleID);
+
+        if (moduleID === 'sca' && typeof agents === 'string') {
+          await addScaChecksToReport(context, printer, agents, apiId);
+        }
 
         if (tables) {
           printer.addTables([...tables, ...(additionalTables || [])]);
