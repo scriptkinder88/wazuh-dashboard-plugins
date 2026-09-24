@@ -5,6 +5,7 @@
 | Issue | Comment                 |
 | ----- | ----------------------- |
 |       | Support for Wazuh 5.0.1 |
+| [#2090](https://github.com/wazuh/wazuh-dashboard-plugins/issues/2090) | Add multi-server SCA PDF reporting |
 
 ## Prior versions
 
