@@ -6,6 +6,9 @@
 name: Manual build
 
 on:
+  push:
+    branches:
+      - fix/fork-safe-package-build-4.14.7
   workflow_call:
     inputs:
       reference:
@@ -29,7 +32,7 @@ jobs:
     permissions:
       pull-requests: write
     with:
-      reference: ${{ inputs.reference }}
+      reference: ${{ github.event_name == 'push' && github.sha || inputs.reference }}
       command: 'yarn build'
       artifact_name: 'wazuh-dashboard-plugins'
     secrets: inherit
@@ -43,13 +46,13 @@ jobs:
       - name: Step 01 - Download the plugin's source code
         uses: actions/checkout@v4
         with:
-          repository: wazuh/wazuh-dashboard-plugins
-          ref: ${{ inputs.reference }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.reference }}
           path: wazuh
 
       - name: Step 02 - Set variables
         run: |
-          echo "githubReference=$(echo ${{ inputs.reference }} | sed 's/\//-/g')" >> $GITHUB_ENV
+          echo "githubReference=$(echo ${{ github.event_name == 'push' && github.sha || inputs.reference }} | sed 's/\//-/g')" >> $GITHUB_ENV
           echo "currentDir=$(pwd -P)" >> $GITHUB_ENV
           echo "version=$(jq -r '.version' $(pwd)/wazuh/plugins/main/package.json)" >> $GITHUB_ENV
           echo "revision=$(jq -r '.revision' $(pwd)/wazuh/plugins/main/package.json)" >> $GITHUB_ENV
