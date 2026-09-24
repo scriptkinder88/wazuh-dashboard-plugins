@@ -18,7 +18,7 @@ import {
 } from '@elastic/eui';
 import { WzRequest } from '../../../../react-services';
 
-const AGENTS_PAGE_SIZE = 500;
+const AGENTS_PAGE_SIZE = 100;
 
 type ScaReportAgentSelectorProps = {
   initialAgentId?: string;
@@ -58,6 +58,7 @@ export const ScaReportAgentSelector = ({
               offset: loadedAgents.length,
               limit: AGENTS_PAGE_SIZE,
               sort: '+name',
+              select: 'id,name,status,os.name,os.version',
             },
           });
 
