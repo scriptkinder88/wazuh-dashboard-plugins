@@ -351,7 +351,7 @@ export class WazuhReportingCtrl {
           );
         }
 
-        if (time) {
+        if (time && moduleID !== 'sca') {
           additionalTables = await extendedInformation(
             context,
             printer,
@@ -373,7 +373,14 @@ export class WazuhReportingCtrl {
           moduleID === 'sca' &&
           (typeof agents === 'string' || Array.isArray(agents))
         ) {
-          await addScaChecksToReport(context, printer, agents, apiId);
+          await addScaChecksToReport(
+            context,
+            printer,
+            agents,
+            indexPatternTitle ||
+              context.wazuh_core.configuration.getSettingValue('pattern'),
+            serverSideQuery,
+          );
         }
 
         if (tables) {
