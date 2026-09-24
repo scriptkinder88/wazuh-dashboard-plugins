@@ -1,0 +1,85 @@
+name: Publish Wazuh 4.14.7 SCA PDF v5
+
+on:
+  push:
+    branches:
+      - ci/release-sca-large-selection-v5
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout merged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download validated v5 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 36000032479 \
+            --name wazuh-4.14.7-sca-pdf-5-installable \
+            --dir validated-artifact
+
+          package="validated-artifact/wazuh-4.14.7-sca-pdf.5-installable.zip"
+          checksum="validated-artifact/wazuh-4.14.7-sca-pdf.5-installable.sha256"
+          test -f "$package"
+          test -f "$checksum"
+          unzip -t "$package"
+
+          expected=$(awk '{print $1}' "$checksum")
+          actual=$(sha256sum "$package" | awk '{print $1}')
+          test "$expected" = "$actual"
+
+          cp "$package" .
+          cp "$checksum" .
+
+      - name: Create stable tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v4.14.7-sca-pdf.5" >/dev/null 2>&1; then
+            echo "Tag already exists"
+          else
+            git tag -a v4.14.7-sca-pdf.5 4560f4c0dcf41350667fc2ed4a50a76d637bc325 -m "Wazuh 4.14.7 SCA PDF v5 - large selection stability"
+            git push origin v4.14.7-sca-pdf.5
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v4.14.7-sca-pdf.5 >/dev/null 2>&1; then
+            gh release upload v4.14.7-sca-pdf.5 \
+              wazuh-4.14.7-sca-pdf.5-installable.zip \
+              wazuh-4.14.7-sca-pdf.5-installable.sha256 \
+              --clobber
+          else
+            gh release create v4.14.7-sca-pdf.5 \
+              wazuh-4.14.7-sca-pdf.5-installable.zip \
+              wazuh-4.14.7-sca-pdf.5-installable.sha256 \
+              --title "Wazuh 4.14.7 SCA PDF v5" \
+              --notes "Large-selection stability release for multi-server SCA PDF reporting. Adds batched agent metadata, API pacing and HTTP 429 retry, 500-row SCA pagination, a long-running report timeout, partial-report resilience, and landscape PDF tables with explicit widths to prevent clipped columns. Validated with focused SCA tests, full Jest regression, official Wazuh build and ZIP integrity checks."
+          fi
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-4.14.7-sca-pdf-5-release
+          path: |
+            wazuh-4.14.7-sca-pdf.5-installable.zip
+            wazuh-4.14.7-sca-pdf.5-installable.sha256
+          if-no-files-found: error
+          retention-days: 30
