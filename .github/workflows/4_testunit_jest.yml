@@ -1,41 +1,52 @@
-# This workflow run the unit tests of the app using Jest.
-# Any branch, tag or commit SHA existing in the origin can be used.
-#
-# This workflow is based on the `4_builderprecompiled_base-dev-environment` workflow.
-#
-# Jest is a third-party software https://jestjs.io/
-
+# Fork-compatible Wazuh 4.x Jest workflow.
+# Uses the official Wazuh OpenSearch Dashboards development image instead of
+# Wazuh's private CodeBuild runner.
 name: (4.x) Run unit test
+
 permissions:
-  pull-requests: write
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
       reference:
         required: true
         type: string
-        default: 4.14.1
+        default: 4.14.7
         description: Source code reference (branch, tag or commit SHA)
-      command:
-        required: true
-        type: choice
-        default: 'yarn test:jest'
-        description: Select the type of test to run.
-        options:
-          - 'yarn test:jest'
   pull_request:
     branches:
       - 4.*
     types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
-  # Run unit tests with Jest
   test:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Run unit tests
-    uses: ./.github/workflows/4_builderprecompiled_base-dev-environment.yml
-    with:
-      reference: ${{ github.event.inputs.reference }}
-      command: ${{ github.event.inputs.command || 'yarn test:jest' }}
-      notify_jest_coverage_summary: true
-    secrets: inherit
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.reference || github.sha }}
+
+      - name: Run Jest in official Wazuh dev environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown 1000:1000 -R plugins/main
+          platform_version=$(jq -r '.pluginPlatform.version' plugins/main/package.json)
+
+          echo "Using Wazuh OSD dev image: quay.io/wazuh/osd-dev:${platform_version}"
+
+          docker run -t --rm \
+            -e OPENSEARCH_DASHBOARDS_VERSION="${platform_version}" \
+            -v "$(pwd)/plugins/main:/home/node/kbn/plugins/wazuh" \
+            quay.io/wazuh/osd-dev:"${platform_version}" \
+            bash -c '
+              set -euo pipefail
+              yarn config set registry https://registry.yarnpkg.com
+              cd /home/node/kbn/plugins/wazuh
+              yarn install --non-interactive
+              yarn test:jest
+            '
