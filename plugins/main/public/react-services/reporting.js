@@ -158,7 +158,9 @@ export class ReportingService {
       const dataSourceContext = await this.getDataSourceSearchContext();
 
       if (!dataSourceContext?.indexPattern) {
-        throw new Error('The SCA index pattern is not available for reporting.');
+        throw new Error(
+          'The SCA index pattern is not available for reporting.',
+        );
       }
 
       // Preserve the dashboard query and RBAC filters, but remove only the

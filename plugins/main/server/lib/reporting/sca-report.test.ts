@@ -72,10 +72,7 @@ const checkBucket = (
   },
 });
 
-const buildContext = (
-  inventoryBuckets: any[],
-  checkBuckets: any[],
-) => {
+const buildContext = (inventoryBuckets: any[], checkBuckets: any[]) => {
   const search = jest.fn(async request => {
     if (request.body.aggs.sca_agents) {
       return {
@@ -129,12 +126,7 @@ describe('SCA indexed report controls', () => {
           cis: '1.1.1',
           pci_dss_v4: { 0: '2.2.1,2.2.2' },
         }),
-        checkBucket(
-          '003',
-          'CIS Linux benchmark',
-          '2',
-          'not applicable',
-        ),
+        checkBucket('003', 'CIS Linux benchmark', '2', 'not applicable'),
         checkBucket('003', 'CIS Linux benchmark', '3', 'passed'),
       ],
     );

@@ -63,9 +63,7 @@ describe('SCA multi-server report wiring', () => {
       "moduleID === 'sca' && Array.isArray(agents) ? false : agents",
     );
     expect(controllerSource).toContain("time && moduleID !== 'sca'");
-    expect(controllerSource).toContain(
-      'await addScaChecksToReport(',
-    );
+    expect(controllerSource).toContain('await addScaChecksToReport(');
 
     expect(scaSource).toContain('forEachLatestScaCheck');
     expect(scaSource).toContain('getScaAgentInventory');

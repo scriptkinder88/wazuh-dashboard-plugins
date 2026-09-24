@@ -1,8 +1,5 @@
 import { ReportPrinter } from './printer';
-import {
-  forEachLatestScaCheck,
-  getScaAgentInventory,
-} from './sca-request';
+import { forEachLatestScaCheck, getScaAgentInventory } from './sca-request';
 
 const normalizeAgentIds = (agentIds: string | string[]) => [
   ...new Set(
@@ -307,16 +304,10 @@ export async function addScaChecksToReport(
       }
 
       activeItems.push({
-        id: String(
-          key?.check_id ||
-            source?.data?.sca?.check?.id ||
-            '-',
-        ),
+        id: String(key?.check_id || source?.data?.sca?.check?.id || '-'),
         result,
         title: source?.data?.sca?.check?.title || '-',
-        compliance: formatCompliance(
-          source?.data?.sca?.check?.compliance,
-        ),
+        compliance: formatCompliance(source?.data?.sca?.check?.compliance),
       });
     },
   );

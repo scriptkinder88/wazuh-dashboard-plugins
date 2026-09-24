@@ -200,9 +200,9 @@ describe('SCA indexed reporting queries', () => {
     );
 
     expect(search).toHaveBeenCalledTimes(2);
-    expect(
-      search.mock.calls[0][0].body.aggs.sca_checks.composite.size,
-    ).toBe(SCA_INDEX_COMPOSITE_PAGE_SIZE);
+    expect(search.mock.calls[0][0].body.aggs.sca_checks.composite.size).toBe(
+      SCA_INDEX_COMPOSITE_PAGE_SIZE,
+    );
     expect(
       search.mock.calls[1][0].body.aggs.sca_checks.composite.after,
     ).toEqual({
