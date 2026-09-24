@@ -1,0 +1,215 @@
+import {
+  buildScaIndexQuery,
+  forEachLatestScaCheck,
+  getScaAgentInventory,
+  SCA_INDEX_COMPOSITE_PAGE_SIZE,
+} from './sca-request';
+
+const buildContext = search => ({
+  core: {
+    opensearch: {
+      client: {
+        asCurrentUser: {
+          search,
+        },
+      },
+    },
+  },
+});
+
+describe('SCA indexed reporting queries', () => {
+  it('keeps existing authorization filters and intersects them with the selected servers', () => {
+    const authorizedFilter = {
+      terms: {
+        'agent.id': ['003', '004', '005'],
+      },
+    };
+
+    const query = buildScaIndexQuery(
+      {
+        bool: {
+          must: [],
+          filter: [authorizedFilter],
+        },
+      },
+      ['003', '004'],
+    );
+
+    expect(query.bool.filter).toEqual(
+      expect.arrayContaining([
+        authorizedFilter,
+        { term: { 'rule.groups': 'sca' } },
+        { terms: { 'agent.id': ['003', '004'] } },
+        { exists: { field: 'data.sca.check.id' } },
+      ]),
+    );
+  });
+
+  it('uses one indexed agent aggregation for a 600-server inventory', async () => {
+    const agentIds = Array.from({ length: 600 }, (_, index) =>
+      String(index + 1).padStart(3, '0'),
+    );
+
+    const search = jest.fn(async request => ({
+      body: {
+        aggregations: {
+          sca_agents: {
+            buckets: [
+              {
+                key: '003',
+                latest: {
+                  hits: {
+                    hits: [
+                      {
+                        _source: {
+                          agent: {
+                            id: '003',
+                            name: 'server-003',
+                            ip: '10.0.0.3',
+                          },
+                          timestamp: '2026-09-24T10:00:00.000Z',
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    }));
+
+    const inventory = await getScaAgentInventory(
+      buildContext(search),
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+      agentIds,
+    );
+
+    expect(search).toHaveBeenCalledTimes(1);
+    const request = search.mock.calls[0][0];
+    expect(request.index).toBe('wazuh-alerts-*');
+    expect(request.body.query.bool.filter).toContainEqual({
+      terms: { 'agent.id': agentIds },
+    });
+    expect(request.body.aggs.sca_agents.terms.size).toBe(600);
+    expect(inventory.get('003')).toEqual(
+      expect.objectContaining({
+        id: '003',
+        name: 'server-003',
+      }),
+    );
+  });
+
+  it('paginates latest check state with composite aggregation instead of per-agent API calls', async () => {
+    const search = jest
+      .fn()
+      .mockResolvedValueOnce({
+        body: {
+          aggregations: {
+            sca_checks: {
+              buckets: [
+                {
+                  key: {
+                    agent_id: '003',
+                    policy: 'CIS Linux',
+                    check_id: '1',
+                  },
+                  latest: {
+                    hits: {
+                      hits: [
+                        {
+                          _source: {
+                            timestamp: '2026-09-24T10:00:00.000Z',
+                            agent: { id: '003', name: 'server-003' },
+                            data: {
+                              sca: {
+                                policy: 'CIS Linux',
+                                check: {
+                                  id: '1',
+                                  title: 'Control 1',
+                                  result: 'passed',
+                                },
+                              },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+              after_key: {
+                agent_id: '003',
+                policy: 'CIS Linux',
+                check_id: '1',
+              },
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        body: {
+          aggregations: {
+            sca_checks: {
+              buckets: [
+                {
+                  key: {
+                    agent_id: '004',
+                    policy: 'CIS Windows',
+                    check_id: '2',
+                  },
+                  latest: {
+                    hits: {
+                      hits: [
+                        {
+                          _source: {
+                            timestamp: '2026-09-24T10:01:00.000Z',
+                            agent: { id: '004', name: 'server-004' },
+                            data: {
+                              sca: {
+                                policy: 'CIS Windows',
+                                check: {
+                                  id: '2',
+                                  title: 'Control 2',
+                                  result: 'failed',
+                                },
+                              },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+    const entries: any[] = [];
+
+    await forEachLatestScaCheck(
+      buildContext(search),
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+      ['003', '004'],
+      entry => entries.push(entry),
+    );
+
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(
+      search.mock.calls[0][0].body.aggs.sca_checks.composite.size,
+    ).toBe(SCA_INDEX_COMPOSITE_PAGE_SIZE);
+    expect(
+      search.mock.calls[1][0].body.aggs.sca_checks.composite.after,
+    ).toEqual({
+      agent_id: '003',
+      policy: 'CIS Linux',
+      check_id: '1',
+    });
+    expect(entries.map(entry => entry.key.agent_id)).toEqual(['003', '004']);
+  });
+});
