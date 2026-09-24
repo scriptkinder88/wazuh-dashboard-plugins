@@ -433,8 +433,7 @@ describe('SCA indexed report controls', () => {
       }),
     );
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text:
-        'Coverage: Incomplete (2/2 checks) | Passed: 2 | Failed: 0 | Not applicable: 0',
+      text: 'Coverage: Incomplete (2/2 checks) | Passed: 2 | Failed: 0 | Not applicable: 0',
       style: 'standard',
     });
   });
