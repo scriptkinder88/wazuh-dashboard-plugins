@@ -202,8 +202,8 @@ export const ScaReportAgentSelector = ({
       <EuiModalBody>
         <EuiText size='s'>
           Select all servers to include in one PDF. Wazuh 5 will render the SCA
-          overview dashboard using the complete selected server list as a
-          single filter.
+          overview dashboard using the complete selected server list as a single
+          filter.
         </EuiText>
 
         <EuiSpacer size='m' />
