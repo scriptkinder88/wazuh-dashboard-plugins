@@ -206,7 +206,11 @@ function addAgentSectionHeader(
   addPageBreak: boolean,
 ) {
   if (addPageBreak) {
-    printer.addContent({ text: '', pageBreak: 'before' });
+    printer.addContent({
+      text: '',
+      pageBreak: 'before',
+      pageOrientation: 'landscape',
+    });
   }
 
   const agentName = agent?.name || 'Unknown server';

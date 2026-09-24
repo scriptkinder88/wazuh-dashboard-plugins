@@ -296,6 +296,11 @@ describe('SCA report controls', () => {
         style: 'h2',
       }),
     );
+    expect(printer.addContent).toHaveBeenCalledWith({
+      text: '',
+      pageBreak: 'before',
+      pageOrientation: 'landscape',
+    });
   });
 
   it('continues when one selected server has unavailable SCA data', async () => {
