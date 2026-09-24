@@ -10,11 +10,12 @@
  * Find more information about this on the LICENSE file.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useAsyncAction } from '../../hooks';
 import { ReportingService } from '../../../../react-services';
 import { WzButton } from '../../../common/buttons';
 import { connect } from 'react-redux';
+import { ScaReportAgentSelector } from './sca-report-agent-selector';
 
 const mapStateToProps = state => ({
   dataSourceSearchContext: state.reportingReducers.dataSourceSearchContext,
@@ -22,34 +23,67 @@ const mapStateToProps = state => ({
 
 export const ButtonModuleGenerateReport = connect(mapStateToProps)(
   ({ agent, moduleID, dataSourceSearchContext }) => {
-    const disabledReport = ![
-      !dataSourceSearchContext?.isSearching,
-      dataSourceSearchContext?.totalResults,
-      dataSourceSearchContext?.indexPattern,
-    ].every(Boolean);
+    const [isScaSelectorOpen, setIsScaSelectorOpen] = useState(false);
+    const isScaReport = moduleID === 'sca';
+
+    const disabledReport = isScaReport
+      ? Boolean(
+          dataSourceSearchContext?.isSearching ||
+            !dataSourceSearchContext?.indexPattern ||
+            !dataSourceSearchContext?.overviewDashboardSavedObjectId,
+        )
+      : ![
+          !dataSourceSearchContext?.isSearching,
+          dataSourceSearchContext?.totalResults,
+          dataSourceSearchContext?.indexPattern,
+        ].every(Boolean);
+
     const totalResults = dataSourceSearchContext?.totalResults;
-    const action = useAsyncAction(async () => {
-      await new ReportingService()?.generateInContextPDFReport();
-    }, [agent]);
+    const action = useAsyncAction(
+      async (scaAgentIds: string[] = []) => {
+        const reportingService = new ReportingService();
+
+        if (isScaReport) {
+          await reportingService.generateScaMultiServerPDFReport(scaAgentIds);
+          return;
+        }
+
+        await reportingService.generateInContextPDFReport();
+      },
+      [agent, moduleID],
+    );
 
     return (
-      <WzButton
-        buttonType='empty'
-        iconType='document'
-        isLoading={action.running}
-        onClick={action.run}
-        isDisabled={disabledReport}
-        tooltip={
-          disabledReport && totalResults === 0
-            ? {
-                position: 'top',
-                content: 'No results match for this search criteria.',
-              }
-            : undefined
-        }
-      >
-        Generate report
-      </WzButton>
+      <>
+        <WzButton
+          buttonType='empty'
+          iconType='document'
+          isLoading={action.running}
+          onClick={isScaReport ? () => setIsScaSelectorOpen(true) : action.run}
+          isDisabled={disabledReport}
+          tooltip={
+            disabledReport && !isScaReport && totalResults === 0
+              ? {
+                  position: 'top',
+                  content: 'No results match for this search criteria.',
+                }
+              : undefined
+          }
+        >
+          Generate report
+        </WzButton>
+
+        {isScaReport && isScaSelectorOpen && (
+          <ScaReportAgentSelector
+            initialAgentId={agent?.id}
+            onCancel={() => setIsScaSelectorOpen(false)}
+            onGenerate={async agentIds => {
+              await action.run(agentIds);
+              setIsScaSelectorOpen(false);
+            }}
+          />
+        )}
+      </>
     );
   },
 );
