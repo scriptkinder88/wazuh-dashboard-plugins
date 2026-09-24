@@ -194,9 +194,7 @@ export const ScaReportAgentSelector = ({
   return (
     <EuiModal onClose={onCancel} maxWidth={900}>
       <EuiModalHeader>
-        <EuiModalHeaderTitle>
-          Select servers for the SCA report
-        </EuiModalHeaderTitle>
+        <EuiModalHeaderTitle>Select servers for the SCA report</EuiModalHeaderTitle>
       </EuiModalHeader>
 
       <EuiModalBody>
