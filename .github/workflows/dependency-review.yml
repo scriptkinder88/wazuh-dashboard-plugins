@@ -3,7 +3,7 @@
 # Fork-safe behavior:
 # - Skip the GitHub dependency-review API when a PR does not change dependency manifests/lockfiles.
 # - If dependency files do change, keep the official action fail-closed.
-name: 'Dependency Review'
+name: Dependency Review
 
 on:
   pull_request:
@@ -12,22 +12,29 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: dependency-review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   dependency-review:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     if: github.event.pull_request.draft == false
     steps:
-      - name: 'Checkout Repository'
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 'Detect dependency file changes'
+      - name: Detect dependency file changes
         id: dependency_changes
         shell: bash
         run: |
           set -euo pipefail
-          changed_files="$(git diff --name-only             "${{ github.event.pull_request.base.sha }}"             "${{ github.event.pull_request.head.sha }}")"
+          changed_files="$(
+            git diff --name-only               "${{ github.event.pull_request.base.sha }}"               "${{ github.event.pull_request.head.sha }}"
+          )"
 
           printf '%s\n' "$changed_files"
 
@@ -39,10 +46,10 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 'No dependency changes'
+      - name: No dependency changes
         if: steps.dependency_changes.outputs.changed != 'true'
         run: echo "No dependency manifests or lockfiles changed; dependency review API call is not required."
 
-      - name: 'Dependency Review'
+      - name: Dependency Review
         if: steps.dependency_changes.outputs.changed == 'true'
         uses: actions/dependency-review-action@v4

@@ -1,4 +1,9 @@
-name: (5.x) Prettier
+# Fork-compatible Wazuh 5.x formatting workflow.
+# Same-repository PRs are formatted automatically; external PRs are checked only.
+name: Wazuh 5.x / Format
+
+permissions:
+  contents: write
 
 on:
   pull_request:
@@ -8,43 +13,80 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: wazuh-5x-format-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  prettier:
-    name: Ensure the code format on the changed files
+  format:
+    name: Format changed files
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     if: github.event.pull_request.draft == false
     steps:
-      # https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-      - name: Checkout code
+      - name: Checkout PR head
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
 
-      # - https://github.com/actions/setup-node/blob/main/docs/advanced-usage.md#node-version-file
       - name: Install NodeJS
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
 
-      - name: Verify the changed files
+      - name: Resolve changed files
+        shell: bash
         run: |
-          REMOTE_NAME=origin
-          echo "Base ref: $GITHUB_BASE_REF"
-          echo "Head ref: $GITHUB_HEAD_REF"
-          echo "Fetching branch: $GITHUB_BASE_REF"
-          git fetch origin $GITHUB_BASE_REF
-          echo "Fetching branch: $GITHUB_HEAD_REF"
-          git fetch origin $GITHUB_HEAD_REF
-          echo "Listing branches"
-          git branch -a
-          echo "Getting diff files ignoring deleted and getting the changed or renamed files"
-          CHANGED_FILES=$(git diff --name-status --diff-filter d ${REMOTE_NAME}/${GITHUB_BASE_REF}..${REMOTE_NAME}/${GITHUB_HEAD_REF} | awk '{print $NF}')
-          echo "Changed files:"
-          echo "${CHANGED_FILES}"
-          git checkout $GITHUB_HEAD_REF
-          plugin_package_json=$(ls -d plugins/* | head -n1)
-          echo "Installing dependencies from plugin: ${plugin_package_json}"
-          SKIP_DOWNLOAD_INDEXER_RESOURCES=true yarn --cwd "${plugin_package_json}" --modules-folder ../../node_modules
-          echo "Running prettier on the changed files"
-          npx prettier ${CHANGED_FILES} --check --ignore-unknown --config .prettierrc
+          set -euo pipefail
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags upstream "${GITHUB_BASE_REF}"
+
+          mapfile -t changed_files < <(
+            git diff --name-only --diff-filter=d               "upstream/${GITHUB_BASE_REF}...HEAD"
+          )
+
+          printf '%s\n' "${changed_files[@]}"
+          printf '%s\0' "${changed_files[@]}" > /tmp/wazuh_changed_files
+
+      - name: Install plugin dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin_dir=$(find plugins -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          test -n "$plugin_dir"
+          SKIP_DOWNLOAD_INDEXER_RESOURCES=true             yarn --cwd "$plugin_dir" --modules-folder ../../node_modules
+
+      - name: Format changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t changed_files < /tmp/wazuh_changed_files
+
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "No changed files to format."
+            exit 0
+          fi
+
+          npx prettier "${changed_files[@]}"             --write             --ignore-unknown             --config .prettierrc
+
+          if git diff --quiet; then
+            echo "Formatting already clean."
+            exit 0
+          fi
+
+          echo "Prettier changed files:"
+          git diff --name-only
+
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "::error::Formatting changes are required. External PRs cannot be auto-updated."
+            git diff --check
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "${changed_files[@]}"
+          git commit -m "chore(ci): format PR changes"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
