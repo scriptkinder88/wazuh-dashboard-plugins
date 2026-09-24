@@ -113,7 +113,7 @@ describe('SCA indexed reporting queries', () => {
                 {
                   key: {
                     agent_id: '003',
-                    policy: 'CIS Linux',
+                    policy_id: 'cis_linux',
                     check_id: '1',
                   },
                   latest: {
@@ -125,7 +125,7 @@ describe('SCA indexed reporting queries', () => {
                             agent: { id: '003', name: 'server-003' },
                             data: {
                               sca: {
-                                policy: 'CIS Linux',
+                                policy_id: 'cis_linux',
                                 check: {
                                   id: '1',
                                   title: 'Control 1',
@@ -142,7 +142,7 @@ describe('SCA indexed reporting queries', () => {
               ],
               after_key: {
                 agent_id: '003',
-                policy: 'CIS Linux',
+                policy_id: 'cis_linux',
                 check_id: '1',
               },
             },
@@ -157,7 +157,7 @@ describe('SCA indexed reporting queries', () => {
                 {
                   key: {
                     agent_id: '004',
-                    policy: 'CIS Windows',
+                    policy_id: 'cis_windows',
                     check_id: '2',
                   },
                   latest: {
@@ -169,7 +169,7 @@ describe('SCA indexed reporting queries', () => {
                             agent: { id: '004', name: 'server-004' },
                             data: {
                               sca: {
-                                policy: 'CIS Windows',
+                                policy_id: 'cis_windows',
                                 check: {
                                   id: '2',
                                   title: 'Control 2',
@@ -207,7 +207,7 @@ describe('SCA indexed reporting queries', () => {
       search.mock.calls[1][0].body.aggs.sca_checks.composite.after,
     ).toEqual({
       agent_id: '003',
-      policy: 'CIS Linux',
+      policy_id: 'cis_linux',
       check_id: '1',
     });
     expect(entries.map(entry => entry.key.agent_id)).toEqual(['003', '004']);
