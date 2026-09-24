@@ -15,7 +15,10 @@ import { WazuhConfig } from '../react-services/wazuh-config';
 import { AppState } from './app-state';
 import { WzRequest } from './wz-request';
 import { getCore, getHttp, getToasts, getUiSettings } from '../kibana-services';
-import {\n  DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,\n  UI_LOGGER_LEVELS,\n} from '../../common/constants';
+import {
+  DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,
+  UI_LOGGER_LEVELS,
+} from '../../common/constants';
 import { UI_ERROR_SEVERITIES } from './error-orchestrator/types';
 import { getErrorOrchestrator } from './common-services';
 import store from '../redux/store';
