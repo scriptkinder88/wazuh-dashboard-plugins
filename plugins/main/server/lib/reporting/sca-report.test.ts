@@ -98,6 +98,26 @@ describe('SCA report controls', () => {
     await addScaChecksToReport(context, printer as any, '003', 'default');
 
     expect(request).toHaveBeenCalledTimes(4);
+    expect(request).toHaveBeenCalledWith(
+      'GET',
+      '/sca/003',
+      {
+        params: expect.objectContaining({
+          select: 'policy_id,name,score,pass,fail,invalid',
+        }),
+      },
+      { apiHostID: 'default' },
+    );
+    expect(request).toHaveBeenCalledWith(
+      'GET',
+      '/sca/003/checks/policy_1',
+      {
+        params: expect.objectContaining({
+          select: 'id,title,result,compliance',
+        }),
+      },
+      { apiHostID: 'default' },
+    );
     expect(printer.addSimpleTable).toHaveBeenCalledTimes(1);
 
     const table = printer.addSimpleTable.mock.calls[0][0];
