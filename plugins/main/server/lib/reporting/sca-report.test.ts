@@ -259,7 +259,9 @@ describe('SCA report controls', () => {
     expect(agentRequests[0][2].params.agents_list).toBe('003,004');
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
-    const inventory = tables.find(table => table.title === 'Selected servers (2)');
+    const inventory = tables.find(
+      table => table.title === 'Selected servers (2)',
+    );
     const controls = tables.filter(table => table.title === 'Controls (1)');
 
     expect(inventory).toBeDefined();

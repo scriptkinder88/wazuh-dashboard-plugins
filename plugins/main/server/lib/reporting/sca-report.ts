@@ -61,7 +61,9 @@ async function executeScaApiRequest(
       );
 
       context.wazuh.logger?.debug?.(
-        `SCA report API rate limited on ${endpoint}. Retry ${attempt + 1}/${SCA_API_MAX_RETRIES} in ${retryDelay}ms`,
+        `SCA report API rate limited on ${endpoint}. Retry ${
+          attempt + 1
+        }/${SCA_API_MAX_RETRIES} in ${retryDelay}ms`,
       );
 
       await sleep(retryDelay);
@@ -162,11 +164,7 @@ async function fetchAllAffectedItems(context, endpoint, apiId, params = {}) {
   return items;
 }
 
-async function fetchAgentsMetadata(
-  context,
-  agentIds: string[],
-  apiId: string,
-) {
+async function fetchAgentsMetadata(context, agentIds: string[], apiId: string) {
   const agentsById = new Map<string, any>();
 
   for (const agentBatch of chunk(agentIds, AGENT_METADATA_BATCH_SIZE)) {
@@ -186,7 +184,9 @@ async function fetchAgentsMetadata(
       });
     } catch (error) {
       context.wazuh.logger?.debug?.(
-        `Unable to load metadata batch for SCA report: ${error.message || error}`,
+        `Unable to load metadata batch for SCA report: ${
+          error.message || error
+        }`,
       );
     }
   }
@@ -195,9 +195,7 @@ async function fetchAgentsMetadata(
 }
 
 function formatOperatingSystem(agent: any) {
-  return (
-    [agent?.os?.name, agent?.os?.version].filter(Boolean).join(' ') || '-'
-  );
+  return [agent?.os?.name, agent?.os?.version].filter(Boolean).join(' ') || '-';
 }
 
 function addAgentSectionHeader(
