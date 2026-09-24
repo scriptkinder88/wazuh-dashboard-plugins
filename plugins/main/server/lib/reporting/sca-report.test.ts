@@ -140,7 +140,7 @@ describe('SCA indexed report controls', () => {
       { bool: { must: [], filter: [] } },
     );
 
-    expect(search).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledTimes(3);
     expect(printer.addContent).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'Security configuration assessment controls',
@@ -150,7 +150,48 @@ describe('SCA indexed report controls', () => {
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    const grouped = tables.find(table => table.title === 'Grouped SCA result');
+    const serverResults = tables.find(
+      table => table.title === 'Selected server results (1)',
+    );
+    const policyResults = tables.find(
+      table => table.title === 'Grouped by policy (1)',
+    );
     const controls = tables.find(table => table.title === 'Controls (3)');
+
+    expect(grouped.items[0]).toEqual({
+      selected: 1,
+      withData: 1,
+      withoutData: 0,
+      controls: 3,
+      passed: 1,
+      failed: 1,
+      notApplicable: 1,
+      score: '50%',
+    });
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        id: '003',
+        name: 'server-003',
+        score: '50%',
+        passed: 1,
+        failed: 1,
+        notApplicable: 1,
+        controls: 3,
+        sca: 'Available',
+      }),
+    );
+    expect(policyResults.items[0]).toEqual(
+      expect.objectContaining({
+        policy: 'CIS Linux benchmark',
+        servers: 1,
+        controls: 3,
+        passed: 1,
+        failed: 1,
+        notApplicable: 1,
+        score: '50%',
+      }),
+    );
 
     expect(controls).toBeDefined();
     expect(controls.widths).toEqual([42, 72, '*', 220]);
@@ -189,23 +230,27 @@ describe('SCA indexed report controls', () => {
       { bool: { must: [], filter: [] } },
     );
 
-    expect(search).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledTimes(3);
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
-    const inventory = tables.find(
-      table => table.title === 'Selected servers (2)',
+    const serverResults = tables.find(
+      table => table.title === 'Selected server results (2)',
     );
     const controls = tables.filter(table => table.title === 'Controls (1)');
 
-    expect(inventory.items).toEqual([
+    expect(serverResults.items).toEqual([
       expect.objectContaining({
         id: '003',
         name: 'server-003',
+        score: '100%',
+        controls: 1,
         sca: 'Available',
       }),
       expect.objectContaining({
         id: '004',
         name: 'server-004',
+        score: '0%',
+        controls: 1,
         sca: 'Available',
       }),
     ]);
@@ -245,13 +290,15 @@ describe('SCA indexed report controls', () => {
       { bool: { must: [], filter: [] } },
     );
 
-    const inventory = printer.addSimpleTable.mock.calls
+    const serverResults = printer.addSimpleTable.mock.calls
       .map(call => call[0])
-      .find(table => table.title === 'Selected servers (2)');
+      .find(table => table.title === 'Selected server results (2)');
 
-    expect(inventory.items[1]).toEqual(
+    expect(serverResults.items[1]).toEqual(
       expect.objectContaining({
         id: '004',
+        score: '-',
+        controls: 0,
         sca: 'No indexed SCA data',
       }),
     );
