@@ -1,6 +1,89 @@
 import { ReportPrinter } from './printer';
 
-const SCA_REPORT_PAGE_SIZE = 100;
+const SCA_REPORT_PAGE_SIZE = 500;
+const AGENT_METADATA_BATCH_SIZE = 100;
+// Keep report traffic below the default Wazuh API ceiling of 300 requests/minute.
+const SCA_API_MIN_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 0 : 250;
+const SCA_API_RETRY_BASE_MS = process.env.NODE_ENV === 'test' ? 1 : 1000;
+const SCA_API_MAX_RETRIES = 7;
+
+let scaApiQueue: Promise<any> = Promise.resolve();
+let lastScaApiRequestAt = 0;
+
+const sleep = (milliseconds: number) =>
+  new Promise(resolve => setTimeout(resolve, milliseconds));
+
+const isRateLimitError = error => {
+  const status =
+    error?.status ||
+    error?.statusCode ||
+    error?.response?.status ||
+    error?.response?.statusCode ||
+    error?.data?.statusCode;
+  const message = String(error?.message || error || '');
+
+  return (
+    Number(status) === 429 ||
+    /status code 429|too many requests|rate.?limit/i.test(message)
+  );
+};
+
+async function executeScaApiRequest(
+  context,
+  endpoint: string,
+  apiId: string,
+  params: any,
+) {
+  for (let attempt = 0; attempt <= SCA_API_MAX_RETRIES; attempt++) {
+    const elapsed = Date.now() - lastScaApiRequestAt;
+    const pacingDelay = Math.max(0, SCA_API_MIN_INTERVAL_MS - elapsed);
+
+    if (pacingDelay) {
+      await sleep(pacingDelay);
+    }
+
+    lastScaApiRequestAt = Date.now();
+
+    try {
+      return await context.wazuh.api.client.asCurrentUser.request(
+        'GET',
+        endpoint,
+        { params },
+        { apiHostID: apiId },
+      );
+    } catch (error) {
+      if (!isRateLimitError(error) || attempt === SCA_API_MAX_RETRIES) {
+        throw error;
+      }
+
+      const retryDelay = Math.min(
+        SCA_API_RETRY_BASE_MS * Math.pow(2, attempt),
+        30000,
+      );
+
+      context.wazuh.logger?.debug?.(
+        `SCA report API rate limited on ${endpoint}. Retry ${
+          attempt + 1
+        }/${SCA_API_MAX_RETRIES} in ${retryDelay}ms`,
+      );
+
+      await sleep(retryDelay);
+    }
+  }
+}
+
+function scaApiRequest(context, endpoint: string, apiId: string, params: any) {
+  const task = scaApiQueue
+    .catch(() => undefined)
+    .then(() => executeScaApiRequest(context, endpoint, apiId, params));
+
+  scaApiQueue = task.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return task;
+}
 
 const formatCompliance = compliance => {
   if (!Array.isArray(compliance) || !compliance.length) {
@@ -42,23 +125,26 @@ const normalizeAgentIds = (agentIds: string | string[]) => [
   ),
 ];
 
+const chunk = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
 async function fetchAllAffectedItems(context, endpoint, apiId, params = {}) {
   const items = [];
   let totalAffectedItems = null;
 
   do {
-    const response = await context.wazuh.api.client.asCurrentUser.request(
-      'GET',
-      endpoint,
-      {
-        params: {
-          ...params,
-          offset: items.length,
-          limit: SCA_REPORT_PAGE_SIZE,
-        },
-      },
-      { apiHostID: apiId },
-    );
+    const response = await scaApiRequest(context, endpoint, apiId, {
+      ...params,
+      offset: items.length,
+      limit: SCA_REPORT_PAGE_SIZE,
+    });
 
     const data = response?.data?.data || {};
     const page = data.affected_items || [];
@@ -79,20 +165,38 @@ async function fetchAllAffectedItems(context, endpoint, apiId, params = {}) {
   return items;
 }
 
-async function fetchAgent(context, agentId: string, apiId: string) {
-  const response = await context.wazuh.api.client.asCurrentUser.request(
-    'GET',
-    '/agents',
-    {
-      params: {
-        q: `id=${agentId}`,
-        select: 'id,name,status,group,os.name,os.version',
-      },
-    },
-    { apiHostID: apiId },
-  );
+async function fetchAgentsMetadata(context, agentIds: string[], apiId: string) {
+  const agentsById = new Map<string, any>();
 
-  return response?.data?.data?.affected_items?.[0];
+  for (const agentBatch of chunk(agentIds, AGENT_METADATA_BATCH_SIZE)) {
+    try {
+      const response = await scaApiRequest(context, '/agents', apiId, {
+        agents_list: agentBatch.join(','),
+        limit: agentBatch.length,
+        select: 'id,name,status,group,os.name,os.version',
+      });
+
+      const agents = response?.data?.data?.affected_items || [];
+
+      agents.forEach(agent => {
+        if (agent?.id) {
+          agentsById.set(String(agent.id), agent);
+        }
+      });
+    } catch (error) {
+      context.wazuh.logger?.debug?.(
+        `Unable to load metadata batch for SCA report: ${
+          error.message || error
+        }`,
+      );
+    }
+  }
+
+  return agentsById;
+}
+
+function formatOperatingSystem(agent: any) {
+  return [agent?.os?.name, agent?.os?.version].filter(Boolean).join(' ') || '-';
 }
 
 function addAgentSectionHeader(
@@ -114,11 +218,7 @@ function addAgentSectionHeader(
 
   const details = [
     agent?.status ? `Status: ${agent.status}` : '',
-    agent?.os?.name
-      ? `Operating system: ${[agent.os.name, agent.os.version]
-          .filter(Boolean)
-          .join(' ')}`
-      : '',
+    agent?.os?.name ? `Operating system: ${formatOperatingSystem(agent)}` : '',
     Array.isArray(agent?.group) && agent.group.length
       ? `Groups: ${agent.group.join(', ')}`
       : '',
@@ -146,25 +246,47 @@ export async function addScaChecksToReport(
     `Fetching SCA policies and checks for ${normalizedAgentIds.length} selected agents`,
   );
 
-  printer.addContentWithNewLine({
+  const agentsById = await fetchAgentsMetadata(
+    context,
+    normalizedAgentIds,
+    apiId,
+  );
+
+  printer.addContent({
     text: 'Security configuration assessment controls',
     style: 'h1',
+    pageBreak: 'before',
+    pageOrientation: 'landscape',
+  });
+  printer.addNewLine();
+
+  printer.addSimpleTable({
+    title: `Selected servers (${normalizedAgentIds.length})`,
+    columns: [
+      { id: 'id', label: 'ID' },
+      { id: 'name', label: 'Server' },
+      { id: 'status', label: 'Status' },
+      { id: 'os', label: 'Operating system' },
+    ],
+    items: normalizedAgentIds.map(agentId => {
+      const agent = agentsById.get(agentId);
+
+      return {
+        id: agentId,
+        name: agent?.name || 'Unknown server',
+        status: agent?.status || '-',
+        os: formatOperatingSystem(agent),
+      };
+    }),
+    widths: [45, 190, 70, '*'],
+    fontSize: 7,
+    maxTextLength: 42,
   });
 
-  for (const [agentIndex, agentId] of normalizedAgentIds.entries()) {
-    let agent;
+  for (const agentId of normalizedAgentIds) {
+    const agent = agentsById.get(agentId);
 
-    try {
-      agent = await fetchAgent(context, agentId, apiId);
-    } catch (error) {
-      printer.logger.debug(
-        `Unable to load metadata for agent ${agentId}: ${
-          error.message || error
-        }`,
-      );
-    }
-
-    addAgentSectionHeader(printer, agentId, agent, agentIndex > 0);
+    addAgentSectionHeader(printer, agentId, agent, true);
 
     let policies = [];
 
@@ -271,6 +393,9 @@ export async function addScaChecksToReport(
           title: check.title || '-',
           compliance: formatCompliance(check.compliance),
         })),
+        widths: [42, 72, '*', 220],
+        fontSize: 7,
+        maxTextLength: 42,
       });
     }
   }

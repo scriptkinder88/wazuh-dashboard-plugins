@@ -21,8 +21,20 @@ describe('SCA multi-server report wiring', () => {
       path.resolve(__dirname, '../../../public/react-services/reporting.js'),
       'utf8',
     );
+    const requestSource = fs.readFileSync(
+      path.resolve(__dirname, '../../../public/react-services/wz-request.ts'),
+      'utf8',
+    );
     const controllerSource = fs.readFileSync(
       path.resolve(__dirname, '../../controllers/wazuh-reporting.ts'),
+      'utf8',
+    );
+    const scaSource = fs.readFileSync(
+      path.resolve(__dirname, 'sca-report.ts'),
+      'utf8',
+    );
+    const printerSource = fs.readFileSync(
+      path.resolve(__dirname, 'printer.ts'),
       'utf8',
     );
 
@@ -41,12 +53,27 @@ describe('SCA multi-server report wiring', () => {
     );
 
     expect(reportingSource).toContain('async startScaReport(agentIds)');
-    expect(reportingSource).toContain('agents,');
+    expect(reportingSource).toContain('30 * 60 * 1000');
+    expect(reportingSource).toContain('timeout: reportTimeout');
+    expect(requestSource).toContain('timeout?: number');
 
+    expect(controllerSource).toContain(
+      "moduleID === 'sca' && Array.isArray(agents) ? false : agents",
+    );
     expect(controllerSource).toContain('Array.isArray(agents)');
     expect(controllerSource).toContain(
       'await addScaChecksToReport(context, printer, agents, apiId)',
     );
+
+    expect(scaSource).toContain('const SCA_REPORT_PAGE_SIZE = 500');
+    expect(scaSource).toContain('const AGENT_METADATA_BATCH_SIZE = 100');
+    expect(scaSource).toContain('const SCA_API_MIN_INTERVAL_MS');
+    expect(scaSource).toContain('isRateLimitError');
+    expect(scaSource).toContain("agents_list: agentBatch.join(',')");
+    expect(scaSource).toContain("widths: [42, 72, '*', 220]");
+
+    expect(printerSource).toContain('widths: requestedWidths');
+    expect(printerSource).toContain('maxTextLength = 60');
   });
 
   it('accepts an array of validated agent IDs on the reporting route', () => {
