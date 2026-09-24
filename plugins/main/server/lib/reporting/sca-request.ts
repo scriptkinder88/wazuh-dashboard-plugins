@@ -154,9 +154,9 @@ export async function forEachLatestScaCheck(
           },
         },
         {
-          policy: {
+          policy_id: {
             terms: {
-              field: 'data.sca.policy',
+              field: 'data.sca.policy_id',
             },
           },
         },
