@@ -1,0 +1,85 @@
+name: Publish Wazuh 4.14.7 indexed SCA PDF v7
+
+on:
+  push:
+    branches:
+      - ci/release-sca-indexed-v7
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download validated v7 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 36012800449 \
+            --name wazuh-4.14.7-sca-pdf-7-installable \
+            --dir validated-artifact
+
+          package="validated-artifact/wazuh-4.14.7-sca-pdf.7-installable.zip"
+          checksum="validated-artifact/wazuh-4.14.7-sca-pdf.7-installable.sha256"
+          test -f "$package"
+          test -f "$checksum"
+          unzip -t "$package"
+
+          expected=$(awk '{print $1}' "$checksum")
+          actual=$(sha256sum "$package" | awk '{print $1}')
+          test "$expected" = "$actual"
+
+          cp "$package" .
+          cp "$checksum" .
+
+      - name: Create stable tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v4.14.7-sca-pdf.7" >/dev/null 2>&1; then
+            echo "Tag already exists"
+          else
+            git tag -a v4.14.7-sca-pdf.7 6b7c9d46fdb83f736cbb2edb5c49f6fb9bc87f68 -m "Wazuh 4.14.7 indexed multi-server SCA PDF v7"
+            git push origin v4.14.7-sca-pdf.7
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v4.14.7-sca-pdf.7 >/dev/null 2>&1; then
+            gh release upload v4.14.7-sca-pdf.7 \
+              wazuh-4.14.7-sca-pdf.7-installable.zip \
+              wazuh-4.14.7-sca-pdf.7-installable.sha256 \
+              --clobber
+          else
+            gh release create v4.14.7-sca-pdf.7 \
+              wazuh-4.14.7-sca-pdf.7-installable.zip \
+              wazuh-4.14.7-sca-pdf.7-installable.sha256 \
+              --title "Wazuh 4.14.7 SCA PDF v7" \
+              --notes "Indexed multi-server SCA reporting for large selections. Reads SCA controls from OpenSearch using the same server-side search model as compliance reporting, preserves authorization filters, uses composite aggregation for latest control state, adds grouped and per-server summaries, and renders detailed SCA tables in landscape with constrained widths. Validated with the official Wazuh OpenSearch Dashboards development image."
+          fi
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-4.14.7-sca-pdf-7-release
+          path: |
+            wazuh-4.14.7-sca-pdf.7-installable.zip
+            wazuh-4.14.7-sca-pdf.7-installable.sha256
+          if-no-files-found: error
+          retention-days: 30
