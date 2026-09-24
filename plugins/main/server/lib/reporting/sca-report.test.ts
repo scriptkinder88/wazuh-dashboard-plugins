@@ -113,7 +113,7 @@ describe('SCA report controls', () => {
       '/sca/003/checks/policy_1',
       {
         params: expect.objectContaining({
-          select: 'id,title,result,compliance',
+          select: 'id,title,result,compliance.key,compliance.value',
         }),
       },
       { apiHostID: 'default' },
