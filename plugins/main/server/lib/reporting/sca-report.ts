@@ -243,9 +243,12 @@ export async function addScaChecksToReport(
           observed: 0,
           expected: null,
           status: 'unverified',
+          ...createPolicyCounters(),
         });
       }
-      policyInstanceCoverage.get(instanceKey).observed++;
+      const instanceCoverage = policyInstanceCoverage.get(instanceKey);
+      instanceCoverage.observed++;
+      addResultToCounters(instanceCoverage, result);
 
       if (!policySummaries.has(policyKey)) {
         policySummaries.set(policyKey, {
@@ -271,14 +274,20 @@ export async function addScaChecksToReport(
         observed: 0,
         expected: latestSummary.totalChecks,
         status: 'unverified',
+        ...createPolicyCounters(),
       });
     }
 
     const coverage = policyInstanceCoverage.get(instanceKey);
     coverage.expected = latestSummary.totalChecks;
+    const summaryCountsMatch =
+      coverage.passed === latestSummary.passed &&
+      coverage.failed === latestSummary.failed &&
+      coverage.notApplicable === latestSummary.invalid &&
+      coverage.other === 0;
     coverage.status =
       typeof latestSummary.totalChecks === 'number'
-        ? coverage.observed === latestSummary.totalChecks
+        ? coverage.observed === latestSummary.totalChecks && summaryCountsMatch
           ? 'complete'
           : 'incomplete'
         : 'unverified';
