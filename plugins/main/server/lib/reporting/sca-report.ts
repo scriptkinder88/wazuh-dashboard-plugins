@@ -140,10 +140,7 @@ const addResultToCounters = (counters, result: string) => {
 };
 
 const getCountersTotal = counters =>
-  counters.passed +
-  counters.failed +
-  counters.notApplicable +
-  counters.other;
+  counters.passed + counters.failed + counters.notApplicable + counters.other;
 
 const getCountersScore = counters => {
   const denominator = counters.passed + counters.failed;
