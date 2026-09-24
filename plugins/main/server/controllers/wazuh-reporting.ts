@@ -326,12 +326,15 @@ export class WazuhReportingCtrl {
           `downloads/reports/${context.wazuhEndpointParams.hashUsername}`,
         );
 
+        const headerAgents =
+          moduleID === 'sca' && Array.isArray(agents) ? false : agents;
+
         await this.renderHeader(
           context,
           printer,
           section,
           moduleID,
-          agents,
+          headerAgents,
           apiId,
         );
 
