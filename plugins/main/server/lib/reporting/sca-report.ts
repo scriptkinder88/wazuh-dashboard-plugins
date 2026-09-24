@@ -2,6 +2,7 @@ import { ReportPrinter } from './printer';
 
 const SCA_REPORT_PAGE_SIZE = 500;
 const AGENT_METADATA_BATCH_SIZE = 100;
+// Keep report traffic below the default Wazuh API ceiling of 300 requests/minute.
 const SCA_API_MIN_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 0 : 250;
 const SCA_API_RETRY_BASE_MS = process.env.NODE_ENV === 'test' ? 1 : 1000;
 const SCA_API_MAX_RETRIES = 7;
