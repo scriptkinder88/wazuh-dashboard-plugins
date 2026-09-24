@@ -192,7 +192,7 @@ export async function addScaChecksToReport(
         apiId,
         {
           sort: '+id',
-          select: 'id,title,result,compliance',
+          select: 'id,title,result,compliance.key,compliance.value',
         },
       );
 
