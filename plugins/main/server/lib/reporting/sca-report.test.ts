@@ -7,8 +7,106 @@ const createPrinter = () => ({
   addContent: jest.fn().mockReturnThis(),
   addContentWithNewLine: jest.fn().mockReturnThis(),
   addSimpleTable: jest.fn().mockReturnThis(),
-});
 
+  it('continues the multi-server report when one server has unavailable SCA data', async () => {
+    const request = jest.fn(async (_method, endpoint, options) => {
+      if (endpoint === '/agents') {
+        const agentId = options.params.q.split('=')[1];
+
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  id: agentId,
+                  name: `server-${agentId}`,
+                  status: 'active',
+                  group: ['servers'],
+                  os: { name: 'Linux', version: '12' },
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      if (endpoint === '/sca/003') {
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  policy_id: 'policy_1',
+                  name: 'Server benchmark',
+                  score: 100,
+                  pass: 1,
+                  fail: 0,
+                  invalid: 0,
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      if (endpoint === '/sca/003/checks/policy_1') {
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  id: 1,
+                  title: 'Control for 003',
+                  result: 'passed',
+                  compliance: [],
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      if (endpoint === '/sca/004') {
+        throw new Error('SCA database unavailable');
+      }
+
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
+    });
+
+    const context = {
+      wazuh: {
+        api: {
+          client: {
+            asCurrentUser: {
+              request,
+            },
+          },
+        },
+      },
+    };
+
+    const printer = createPrinter();
+
+    await expect(
+      addScaChecksToReport(
+        context,
+        printer as any,
+        ['003', '004'],
+        'default',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(printer.addSimpleTable).toHaveBeenCalledTimes(1);
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Unable to retrieve SCA policies for this server.',
+      style: 'standard',
+    });
+  });
+
+});
 describe('SCA report controls', () => {
   it('adds every control with its result and compliance mapping', async () => {
     const checks = Array.from({ length: 101 }, (_, index) => ({
