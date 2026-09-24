@@ -32,7 +32,7 @@ const ensureBoolQuery = query => {
   };
 };
 
-export const buildScaIndexQuery = (
+export const buildScaBaseIndexQuery = (
   serverSideQuery: any,
   agentIds: string | string[],
 ) => {
@@ -50,9 +50,41 @@ export const buildScaIndexQuery = (
         'agent.id': normalizedAgentIds,
       },
     },
+  );
+
+  return query;
+};
+
+export const buildScaIndexQuery = (
+  serverSideQuery: any,
+  agentIds: string | string[],
+) => {
+  const query = buildScaBaseIndexQuery(serverSideQuery, agentIds);
+
+  query.bool.filter.push({
+    exists: {
+      field: 'data.sca.check.id',
+    },
+  });
+
+  return query;
+};
+
+export const buildScaSummaryIndexQuery = (
+  serverSideQuery: any,
+  agentIds: string | string[],
+) => {
+  const query = buildScaBaseIndexQuery(serverSideQuery, agentIds);
+
+  query.bool.filter.push(
     {
       exists: {
-        field: 'data.sca.check.id',
+        field: 'data.sca.policy_id',
+      },
+    },
+    {
+      exists: {
+        field: 'data.sca.total_checks',
       },
     },
   );
@@ -79,7 +111,7 @@ export async function getScaAgentInventory(
     index: pattern,
     body: {
       size: 0,
-      query: buildScaIndexQuery(serverSideQuery, normalizedAgentIds),
+      query: buildScaBaseIndexQuery(serverSideQuery, normalizedAgentIds),
       aggs: {
         sca_agents: {
           terms: {
@@ -125,6 +157,134 @@ export async function getScaAgentInventory(
   }
 
   return inventory;
+}
+
+export async function getLatestScaPolicySummaries(
+  context,
+  pattern: string,
+  serverSideQuery: any,
+  agentIds: string | string[],
+) {
+  const normalizedAgentIds = normalizeAgentIds(agentIds);
+  const summaries = new Map<string, any>();
+
+  if (!normalizedAgentIds.length) {
+    return summaries;
+  }
+
+  let afterKey: any = undefined;
+
+  do {
+    const composite: any = {
+      size: SCA_COMPOSITE_PAGE_SIZE,
+      sources: [
+        {
+          agent_id: {
+            terms: {
+              field: 'agent.id',
+            },
+          },
+        },
+        {
+          policy_id: {
+            terms: {
+              field: 'data.sca.policy_id',
+            },
+          },
+        },
+      ],
+    };
+
+    if (afterKey) {
+      composite.after = afterKey;
+    }
+
+    const response = await context.core.opensearch.client.asCurrentUser.search({
+      index: pattern,
+      body: {
+        size: 0,
+        query: buildScaSummaryIndexQuery(
+          serverSideQuery,
+          normalizedAgentIds,
+        ),
+        aggs: {
+          sca_policy_summaries: {
+            composite,
+            aggs: {
+              latest: {
+                top_hits: {
+                  size: 1,
+                  sort: [{ timestamp: { order: 'desc' } }],
+                  _source: {
+                    includes: [
+                      'timestamp',
+                      'agent.id',
+                      'agent.name',
+                      'agent.ip',
+                      'data.sca.scan_id',
+                      'data.sca.policy',
+                      'data.sca.policy_id',
+                      'data.sca.total_checks',
+                      'data.sca.passed',
+                      'data.sca.failed',
+                      'data.sca.invalid',
+                      'data.sca.score',
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const aggregation = getAggregation(response, 'sca_policy_summaries');
+    const buckets = aggregation?.buckets || [];
+
+    for (const bucket of buckets) {
+      const source = bucket?.latest?.hits?.hits?.[0]?._source || {};
+      const agentId = String(
+        bucket?.key?.agent_id || source?.agent?.id || '',
+      );
+      const policyId = String(
+        bucket?.key?.policy_id || source?.data?.sca?.policy_id || '',
+      );
+
+      if (!agentId || !policyId) {
+        continue;
+      }
+
+      const rawTotalChecks = source?.data?.sca?.total_checks;
+      const parsedTotalChecks = Number(rawTotalChecks);
+
+      summaries.set(`${agentId}::${policyId}`, {
+        agentId,
+        policyId,
+        policy:
+          source?.data?.sca?.policy ||
+          source?.data?.sca?.name ||
+          policyId,
+        totalChecks: Number.isFinite(parsedTotalChecks)
+          ? parsedTotalChecks
+          : null,
+        passed: Number(source?.data?.sca?.passed || 0),
+        failed: Number(source?.data?.sca?.failed || 0),
+        invalid: Number(source?.data?.sca?.invalid || 0),
+        score:
+          source?.data?.sca?.score === null ||
+          typeof source?.data?.sca?.score === 'undefined'
+            ? null
+            : Number(source?.data?.sca?.score),
+        scanId: source?.data?.sca?.scan_id,
+        timestamp: source?.timestamp,
+      });
+    }
+
+    afterKey = buckets.length ? aggregation?.after_key : undefined;
+  } while (afterKey);
+
+  return summaries;
 }
 
 export async function forEachLatestScaCheck(
