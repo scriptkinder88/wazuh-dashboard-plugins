@@ -35,6 +35,10 @@ describe('SCA multi-server report wiring', () => {
     expect(selectorSource).toContain('selectedAgentIds');
     expect(selectorSource).toContain('Select all filtered');
     expect(selectorSource).toContain('await onGenerate(selectedAgentIds)');
+    expect(selectorSource).toContain('const AGENTS_PAGE_SIZE = 100');
+    expect(selectorSource).toContain(
+      "select: 'id,name,status,os.name,os.version'",
+    );
 
     expect(reportingSource).toContain('async startScaReport(agentIds)');
     expect(reportingSource).toContain('agents,');
