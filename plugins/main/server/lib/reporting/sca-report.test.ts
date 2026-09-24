@@ -115,10 +115,9 @@ describe('SCA report controls', () => {
   });
 
   it('creates an independent SCA section for every selected server', async () => {
-    const request = jest.fn(async (_method, endpoint) => {
+    const request = jest.fn(async (_method, endpoint, options) => {
       if (endpoint === '/agents') {
-        const agentId = request.mock.calls[request.mock.calls.length - 1][2]
-          .params.q.split('=')[1];
+        const agentId = options.params.q.split('=')[1];
 
         return {
           data: {
