@@ -5,6 +5,7 @@
 | Issue | Comment                                                            |
 | ----- | ------------------------------------------------------------------ |
 | #2090 | Enable PDF report generation for Security Configuration Assessment |
+|       | Add dynamic multi-server SCA PDF selection using the Wazuh 5 Reporting plugin |
 |       | Support for Wazuh 5.0.1                                            |
 
 ## Prior versions
