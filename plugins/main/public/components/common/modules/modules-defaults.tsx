@@ -294,7 +294,7 @@ export const ModulesDefaults = {
       {
         id: TAB_VIEW_ID_DASHBOARD,
         name: TAB_VIEW_NAME_DASHBOARD,
-        buttons: [ButtonExploreAgent],
+        buttons: [ButtonExploreAgent, ButtonModuleGenerateReport],
         component: SCADashboard,
       },
       {
