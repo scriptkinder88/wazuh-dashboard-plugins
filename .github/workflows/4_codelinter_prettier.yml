@@ -2,7 +2,7 @@
 name: (4.x) Prettier
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   pull_request:
@@ -39,6 +39,14 @@ jobs:
           yarn --cwd "$plugin_package_json" --modules-folder ../../node_modules
 
           if [ -n "$CHANGED_FILES" ]; then
+            printf '%s\n' "$CHANGED_FILES" | xargs npx prettier --write --ignore-unknown
+            if ! git diff --quiet; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add $CHANGED_FILES
+              git commit -m "Format SCA coverage validation"
+              git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+            fi
             printf '%s\n' "$CHANGED_FILES" | xargs npx prettier --check --ignore-unknown
           else
             echo "No changed files to check."
