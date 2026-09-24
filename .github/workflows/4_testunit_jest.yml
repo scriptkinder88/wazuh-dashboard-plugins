@@ -47,6 +47,7 @@ jobs:
               cd /home/node/kbn/plugins/wazuh
               yarn install --non-interactive
               yarn test:jest --coverage=false --runTestsByPath \
+                server/lib/reporting/sca-request.test.ts \
                 server/lib/reporting/sca-report.test.ts \
                 server/lib/reporting/sca-multi-server-wiring.test.ts \
                 server/routes/wazuh-reporting.test.ts \
