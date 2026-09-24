@@ -170,7 +170,10 @@ export async function addScaChecksToReport(
       context,
       `/sca/${agentId}`,
       apiId,
-      { sort: '+policy_id' },
+      {
+        sort: '+policy_id',
+        select: 'policy_id,name,score,pass,fail,invalid',
+      },
     );
 
     if (!policies.length) {
@@ -187,7 +190,10 @@ export async function addScaChecksToReport(
         context,
         `/sca/${agentId}/checks/${encodeURIComponent(policyId)}`,
         apiId,
-        { sort: '+id' },
+        {
+          sort: '+id',
+          select: 'id,title,result,compliance',
+        },
       );
 
       printer.addContentWithNewLine({
