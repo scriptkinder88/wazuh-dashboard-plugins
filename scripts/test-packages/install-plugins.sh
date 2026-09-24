@@ -1,10 +1,14 @@
 set -e
 
-plugins=$(find /tmp -maxdepth 1 -type f -name '*.zip' -print)
-for plugin in $plugins; do
+set -- /tmp/*.zip
+if [ ! -f "$1" ]; then
+  echo "No plugin ZIP packages found in /tmp" >&2
+  exit 1
+fi
+
+for plugin do
   echo "$plugin"
   /usr/share/opensearch-dashboards/bin/opensearch-dashboards-plugin install "file://$plugin"
 done
 
-test -n "$plugins"
 echo "All plugins installed successfully"
