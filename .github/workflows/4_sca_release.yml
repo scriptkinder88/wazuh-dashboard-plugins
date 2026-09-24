@@ -1,0 +1,124 @@
+name: Wazuh 4.x / SCA Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Numeric SCA PDF release revision, for example 4
+        required: true
+        type: string
+      publish:
+        description: Publish the validated package as a GitHub release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wazuh-4x-sca-release
+  cancel-in-progress: false
+
+jobs:
+  validate-build-release:
+    name: Validate, build and package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "4.14.7" ]; then
+            echo "::error::Run this release workflow from the 4.14.7 branch."
+            exit 1
+          fi
+          if ! [[ "${{ inputs.revision }}" =~ ^[0-9]+$ ]]; then
+            echo "::error::revision must be numeric."
+            exit 1
+          fi
+
+      - name: Checkout 4.14.7
+        uses: actions/checkout@v4
+        with:
+          ref: 4.14.7
+          fetch-depth: 0
+
+      - name: Validate and build in official Wazuh dev image
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown 1000:1000 -R plugins/main
+          platform_version=$(jq -r '.pluginPlatform.version' plugins/main/package.json)
+
+          docker run -t --rm \
+            -e OPENSEARCH_DASHBOARDS_VERSION="${platform_version}" \
+            -v "$(pwd)/plugins/main:/home/node/kbn/plugins/wazuh" \
+            quay.io/wazuh/osd-dev:"${platform_version}" \
+            bash -c '
+              set -euo pipefail
+              yarn config set registry https://registry.yarnpkg.com
+              cd /home/node/kbn/plugins/wazuh
+              yarn install --non-interactive
+              yarn test:jest --coverage=false --runTestsByPath \
+                server/lib/reporting/sca-report.test.ts \
+                server/lib/reporting/sca-multi-server-wiring.test.ts \
+                server/routes/wazuh-reporting.test.ts \
+                public/components/common/modules/modules-defaults.test.tsx
+              yarn test:jest --coverage=false
+              yarn build
+            '
+
+      - name: Create deterministic installable package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="${{ inputs.revision }}"
+          source_package=$(find plugins/main/build -maxdepth 1 -type f -name '*.zip' | head -n 1)
+          test -n "$source_package"
+          unzip -t "$source_package"
+
+          package="wazuh-4.14.7-sca-pdf.${revision}-installable.zip"
+          checksum="wazuh-4.14.7-sca-pdf.${revision}-installable.sha256"
+
+          cp "$source_package" "$package"
+          sha256sum "$package" > "$checksum"
+
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+          echo "tag=v4.14.7-sca-pdf.${revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validated package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.tag }}
+          path: |
+            ${{ steps.package.outputs.package }}
+            ${{ steps.package.outputs.checksum }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.package.outputs.tag }}
+          PACKAGE: ${{ steps.package.outputs.package }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. Use the next numeric revision."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "${GITHUB_SHA}" -m "$TAG"
+          git push origin "$TAG"
+
+          gh release create "$TAG"             "$PACKAGE"             "$CHECKSUM"             --title "Wazuh 4.14.7 SCA PDF ${TAG##*.}"             --notes "Validated Wazuh 4.14.7 SCA multi-server PDF package. Built from the maintained 4.14.7 branch using the official Wazuh development image."

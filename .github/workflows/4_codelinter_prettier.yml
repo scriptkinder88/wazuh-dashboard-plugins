@@ -1,8 +1,9 @@
-# Fork-compatible Wazuh 4.x Prettier workflow.
-name: (4.x) Prettier
+# Fork-compatible Wazuh 4.x formatting workflow.
+# Same-repository PRs are formatted automatically; external PRs are checked only.
+name: Wazuh 4.x / Format
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   pull_request:
@@ -10,15 +11,22 @@ on:
       - 4.*
     types: [opened, synchronize, reopened, ready_for_review]
 
+concurrency:
+  group: wazuh-4x-format-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  prettier:
-    name: Ensure the code format on the changed files
+  format:
+    name: Format changed files
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     if: github.event.pull_request.draft == false
     steps:
-      - name: Checkout code
+      - name: Checkout PR head
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Install NodeJS
@@ -26,20 +34,58 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
-      - name: Verify the changed files
+      - name: Resolve changed files
         shell: bash
         run: |
           set -euo pipefail
-          CHANGED_FILES=$(git diff --name-only --diff-filter=d             "${{ github.event.pull_request.base.sha }}"             "${{ github.event.pull_request.head.sha }}")
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags upstream "${GITHUB_BASE_REF}"
 
-          echo "Changed files:"
-          printf '%s\n' "$CHANGED_FILES"
+          mapfile -t changed_files < <(
+            git diff --name-only --diff-filter=d               "upstream/${GITHUB_BASE_REF}...HEAD"
+          )
 
-          plugin_package_json=$(ls -d plugins/* | head -n1)
-          yarn --cwd "$plugin_package_json" --modules-folder ../../node_modules
+          printf '%s\n' "${changed_files[@]}"
+          printf '%s\0' "${changed_files[@]}" > /tmp/wazuh_changed_files
 
-          if [ -n "$CHANGED_FILES" ]; then
-            printf '%s\n' "$CHANGED_FILES" | xargs npx prettier --check --ignore-unknown
-          else
-            echo "No changed files to check."
+      - name: Install plugin dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin_dir=$(find plugins -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          test -n "$plugin_dir"
+          SKIP_DOWNLOAD_INDEXER_RESOURCES=true             yarn --cwd "$plugin_dir" --modules-folder ../../node_modules
+
+      - name: Format changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t changed_files < /tmp/wazuh_changed_files
+
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "No changed files to format."
+            exit 0
           fi
+
+          npx prettier "${changed_files[@]}"             --write             --ignore-unknown             --config .prettierrc
+
+          if git diff --quiet; then
+            echo "Formatting already clean."
+            exit 0
+          fi
+
+          echo "Prettier changed files:"
+          git diff --name-only
+
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "::error::Formatting changes are required. External PRs cannot be auto-updated."
+            git diff --check
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "${changed_files[@]}"
+          git commit -m "chore(ci): format PR changes"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
