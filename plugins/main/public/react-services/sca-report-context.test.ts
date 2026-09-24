@@ -1,3 +1,4 @@
+import { PatternDataSourceFilterManager } from '../components/common/data-source/pattern/pattern-data-source-filter-manager';
 import {
   buildScaMultiServerReportContext,
   normalizeScaReportAgentIds,
@@ -54,12 +55,44 @@ describe('SCA multi-server reporting context', () => {
     expect(selectedAgentsFilter.meta).toEqual(
       expect.objectContaining({
         key: SCA_REPORT_AGENT_FIELD,
-        params: ['003', '004'],
         controlledBy: SCA_REPORT_FILTER_CONTROLLED_BY,
-        alias: 'Selected servers (2): 003, 004',
+        alias: 'Selected servers (2)',
+        value: '2 selected',
+        type: 'custom',
       }),
     );
-    expect(selectedAgentsFilter.query.bool.should).toHaveLength(2);
+    expect(selectedAgentsFilter.query).toEqual({
+      terms: {
+        [SCA_REPORT_AGENT_FIELD]: ['003', '004'],
+      },
+    });
+  });
+
+  it('keeps a 600-server report filter compact and index-backed', () => {
+    const agentIds = Array.from({ length: 600 }, (_, index) =>
+      String(index + 1).padStart(3, '0'),
+    );
+    const result = buildScaMultiServerReportContext(
+      {
+        overviewDashboardSavedObjectId: 'sca-overview-dashboard',
+        indexPattern: { id: 'wazuh-states-sca' },
+        filters: [],
+      },
+      agentIds,
+    );
+
+    const selectedAgentsFilter = result.filters[0];
+    expect(
+      selectedAgentsFilter.query.terms[SCA_REPORT_AGENT_FIELD],
+    ).toHaveLength(600);
+    expect(selectedAgentsFilter.query.bool).toBeUndefined();
+    expect(selectedAgentsFilter.meta.alias).toBe('Selected servers (600)');
+
+    const encodedFilters = PatternDataSourceFilterManager.filtersToURLFormat([
+      selectedAgentsFilter,
+    ]);
+    expect(encodedFilters.length).toBeLessThan(10000);
+    expect(encodedFilters).not.toContain('match_phrase');
   });
 
   it('requires at least one selected server', () => {
