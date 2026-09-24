@@ -48,5 +48,5 @@ jobs:
               yarn config set registry https://registry.yarnpkg.com
               cd /home/node/kbn/plugins/wazuh
               yarn install --non-interactive
-              yarn test:jest
+              yarn test:jest --coverage=false
             '
