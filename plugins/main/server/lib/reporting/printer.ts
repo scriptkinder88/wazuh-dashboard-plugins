@@ -536,10 +536,16 @@ export class ReportPrinter {
     columns,
     items,
     title,
+    widths: requestedWidths,
+    fontSize = 8,
+    maxTextLength = 60,
   }: {
     columns: { id: string; label: string }[];
     title?: string | { text: string; style: string };
     items: any[];
+    widths?: Array<number | string>;
+    fontSize?: number;
+    maxTextLength?: number;
   }) {
     if (title) {
       this.addContent(
@@ -559,41 +565,53 @@ export class ReportPrinter {
       return { text: column.label, style: 'whiteColor', border: [0, 0, 0, 0] };
     });
 
-    const tableRows = items.map((item, index) => {
+    const tableRows = items.map(item => {
       return columns.map(column => {
         const cellValue = item[column.id];
         return {
           text: this.processLongText(
             typeof cellValue !== 'undefined' ? String(cellValue) : '-',
+            maxTextLength,
           ),
           style: 'standard',
         };
       });
     });
 
-    // 385 is the max initial width per column
-    let totalLength = columns.length - 1;
-    const widthColumn = 385 / totalLength;
-    let totalWidth = totalLength * widthColumn;
+    let widths: Array<number | string> = [];
 
-    const widths: number[] = [];
+    if (
+      Array.isArray(requestedWidths) &&
+      requestedWidths.length === columns.length
+    ) {
+      widths = requestedWidths;
+    } else {
+      // 385 is the max initial width per column in portrait reports.
+      let totalLength = columns.length - 1;
+      const widthColumn = 385 / totalLength;
+      let totalWidth = totalLength * widthColumn;
 
-    for (let step = 0; step < columns.length - 1; step++) {
-      let columnLength = this.getColumnWidth(columns[step], tableRows, step);
+      for (let step = 0; step < columns.length - 1; step++) {
+        const columnLength = this.getColumnWidth(
+          columns[step],
+          tableRows,
+          step,
+        );
 
-      if (columnLength <= Math.round(totalWidth / totalLength)) {
-        widths.push(columnLength);
-        totalWidth -= columnLength;
-      } else {
-        widths.push(Math.round(totalWidth / totalLength));
-        totalWidth -= Math.round(totalWidth / totalLength);
+        if (columnLength <= Math.round(totalWidth / totalLength)) {
+          widths.push(columnLength);
+          totalWidth -= columnLength;
+        } else {
+          widths.push(Math.round(totalWidth / totalLength));
+          totalWidth -= Math.round(totalWidth / totalLength);
+        }
+        totalLength--;
       }
-      totalLength--;
+      widths.push('*');
     }
-    widths.push('*');
 
     this.addContent({
-      fontSize: 8,
+      fontSize,
       table: {
         headerRows: 1,
         widths,
