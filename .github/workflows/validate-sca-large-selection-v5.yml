@@ -1,0 +1,56 @@
+name: Validate SCA large-selection package 4.14.7 v5
+
+on:
+  push:
+    branches:
+      - ci/sca-large-selection-build-v5-4.14.7
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate and build in official Wazuh dev image
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown 1000:1000 -R plugins/main
+          platform_version=$(jq -r '.pluginPlatform.version' plugins/main/package.json)
+
+          docker run -t --rm \
+            -e OPENSEARCH_DASHBOARDS_VERSION="${platform_version}" \
+            -v "$(pwd)/plugins/main:/home/node/kbn/plugins/wazuh" \
+            quay.io/wazuh/osd-dev:"${platform_version}" \
+            bash -c '
+              set -euo pipefail
+              yarn config set registry https://registry.yarnpkg.com
+              cd /home/node/kbn/plugins/wazuh
+              yarn install --non-interactive
+              yarn test:jest --coverage=false
+              yarn build
+            '
+
+      - name: Verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          package=$(find plugins/main/build -maxdepth 1 -type f -name '*.zip' | head -n 1)
+          test -n "$package"
+          unzip -t "$package"
+          cp "$package" wazuh-4.14.7-sca-pdf.5-installable.zip
+          sha256sum wazuh-4.14.7-sca-pdf.5-installable.zip | tee wazuh-4.14.7-sca-pdf.5-installable.sha256
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-4.14.7-sca-pdf-5-installable
+          path: |
+            wazuh-4.14.7-sca-pdf.5-installable.zip
+            wazuh-4.14.7-sca-pdf.5-installable.sha256
+          if-no-files-found: error
+          retention-days: 30
