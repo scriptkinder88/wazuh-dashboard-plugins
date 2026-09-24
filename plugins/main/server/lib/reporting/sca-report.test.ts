@@ -340,12 +340,7 @@ describe('SCA report controls', () => {
     const printer = createPrinter();
 
     await expect(
-      addScaChecksToReport(
-        context,
-        printer as any,
-        ['003', '004'],
-        'default',
-      ),
+      addScaChecksToReport(context, printer as any, ['003', '004'], 'default'),
     ).resolves.toBeUndefined();
 
     expect(printer.addSimpleTable).toHaveBeenCalledTimes(1);
