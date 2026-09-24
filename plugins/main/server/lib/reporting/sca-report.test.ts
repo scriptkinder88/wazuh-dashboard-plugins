@@ -10,135 +10,145 @@ const createPrinter = () => ({
   addNewLine: jest.fn().mockReturnThis(),
 });
 
-const buildAgent = (id: string) => ({
-  id,
-  name: `server-${id}`,
-  status: 'active',
-  group: ['servers'],
-  os: { name: 'Linux', version: '12' },
+const inventoryBucket = (id: string) => ({
+  key: id,
+  latest: {
+    hits: {
+      hits: [
+        {
+          _source: {
+            agent: {
+              id,
+              name: `server-${id}`,
+              ip: `10.0.0.${Number(id)}`,
+            },
+            timestamp: '2026-09-24T10:00:00.000Z',
+          },
+        },
+      ],
+    },
+  },
 });
 
-describe('SCA report controls', () => {
-  it('adds every control with pagination and constrained landscape columns', async () => {
-    const checks = Array.from({ length: 501 }, (_, index) => ({
-      id: index + 1,
-      title: `Control ${index + 1}`,
-      result:
-        index === 0 ? 'failed' : index === 1 ? 'not applicable' : 'passed',
-      compliance:
-        index === 0
-          ? [
-              { key: 'cis', value: '1.1.1' },
-              { key: 'pci_dss', value: '2.2.1' },
-            ]
-          : [],
-    }));
-
-    const request = jest.fn(
-      async (_method, endpoint, { params: { offset = 0, ...params } }) => {
-        if (endpoint === '/agents') {
-          return {
+const checkBucket = (
+  agentId: string,
+  policy: string,
+  checkId: string,
+  result: string,
+  compliance: any = {},
+) => ({
+  key: {
+    agent_id: agentId,
+    policy,
+    check_id: checkId,
+  },
+  latest: {
+    hits: {
+      hits: [
+        {
+          _source: {
+            timestamp: '2026-09-24T10:00:00.000Z',
+            agent: {
+              id: agentId,
+              name: `server-${agentId}`,
+              ip: `10.0.0.${Number(agentId)}`,
+            },
             data: {
-              data: {
-                affected_items: [buildAgent('003')],
-                total_affected_items: 1,
+              sca: {
+                policy,
+                policy_id: policy.toLowerCase().replace(/\s+/g, '_'),
+                check: {
+                  id: checkId,
+                  title: `Control ${checkId}`,
+                  result,
+                  compliance,
+                },
               },
             },
-          };
-        }
-
-        if (endpoint === '/sca/003') {
-          return {
-            data: {
-              data: {
-                affected_items: [
-                  {
-                    policy_id: 'policy_1',
-                    name: 'CIS Linux benchmark',
-                    score: 78,
-                    pass: 80,
-                    fail: 20,
-                    invalid: 1,
-                  },
-                ],
-                total_affected_items: 1,
-              },
-            },
-          };
-        }
-
-        if (endpoint === '/sca/003/checks/policy_1') {
-          return {
-            data: {
-              data: {
-                affected_items: checks.slice(offset, offset + 500),
-                total_affected_items: checks.length,
-              },
-            },
-          };
-        }
-
-        throw new Error(
-          `Unexpected endpoint: ${endpoint} with ${JSON.stringify(params)}`,
-        );
-      },
-    );
-
-    const context = {
-      wazuh: {
-        logger: {
-          debug: jest.fn(),
+          },
         },
-        api: {
+      ],
+    },
+  },
+});
+
+const buildContext = (
+  inventoryBuckets: any[],
+  checkBuckets: any[],
+) => {
+  const search = jest.fn(async request => {
+    if (request.body.aggs.sca_agents) {
+      return {
+        body: {
+          aggregations: {
+            sca_agents: {
+              buckets: inventoryBuckets,
+            },
+          },
+        },
+      };
+    }
+
+    if (request.body.aggs.sca_checks) {
+      return {
+        body: {
+          aggregations: {
+            sca_checks: {
+              buckets: checkBuckets,
+            },
+          },
+        },
+      };
+    }
+
+    throw new Error('Unexpected OpenSearch request');
+  });
+
+  return {
+    context: {
+      core: {
+        opensearch: {
           client: {
             asCurrentUser: {
-              request,
+              search,
             },
           },
         },
       },
-    };
+    },
+    search,
+  };
+};
 
+describe('SCA indexed report controls', () => {
+  it('renders current indexed controls with constrained landscape columns', async () => {
+    const { context, search } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', 'CIS Linux benchmark', '1', 'failed', {
+          cis: '1.1.1',
+          pci_dss_v4: { 0: '2.2.1,2.2.2' },
+        }),
+        checkBucket(
+          '003',
+          'CIS Linux benchmark',
+          '2',
+          'not applicable',
+        ),
+        checkBucket('003', 'CIS Linux benchmark', '3', 'passed'),
+      ],
+    );
     const printer = createPrinter();
 
-    await addScaChecksToReport(context, printer as any, '003', 'default');
-
-    expect(request).toHaveBeenCalledTimes(4);
-    expect(request).toHaveBeenCalledWith(
-      'GET',
-      '/agents',
-      {
-        params: expect.objectContaining({
-          agents_list: '003',
-          limit: 1,
-          select: 'id,name,status,group,os.name,os.version',
-        }),
-      },
-      { apiHostID: 'default' },
-    );
-    expect(request).toHaveBeenCalledWith(
-      'GET',
-      '/sca/003',
-      {
-        params: expect.objectContaining({
-          limit: 500,
-          select: 'policy_id,name,score,pass,fail,invalid',
-        }),
-      },
-      { apiHostID: 'default' },
-    );
-    expect(request).toHaveBeenCalledWith(
-      'GET',
-      '/sca/003/checks/policy_1',
-      {
-        params: expect.objectContaining({
-          limit: 500,
-          select: 'id,title,result,compliance.key,compliance.value',
-        }),
-      },
-      { apiHostID: 'default' },
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      '003',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
     );
 
+    expect(search).toHaveBeenCalledTimes(2);
     expect(printer.addContent).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'Security configuration assessment controls',
@@ -147,116 +157,47 @@ describe('SCA report controls', () => {
       }),
     );
 
-    const controlsTable = printer.addSimpleTable.mock.calls
-      .map(call => call[0])
-      .find(table => table.title === 'Controls (501)');
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    const controls = tables.find(table => table.title === 'Controls (3)');
 
-    expect(controlsTable).toBeDefined();
-    expect(controlsTable.items).toHaveLength(501);
-    expect(controlsTable.widths).toEqual([42, 72, '*', 220]);
-    expect(controlsTable.fontSize).toBe(7);
-    expect(controlsTable.maxTextLength).toBe(42);
-    expect(controlsTable.items[0]).toEqual({
+    expect(controls).toBeDefined();
+    expect(controls.widths).toEqual([42, 72, '*', 220]);
+    expect(controls.fontSize).toBe(7);
+    expect(controls.maxTextLength).toBe(38);
+    expect(controls.items[0]).toEqual({
       id: '1',
       result: 'Failed',
       title: 'Control 1',
-      compliance: 'cis: 1.1.1\npci_dss: 2.2.1',
+      compliance: 'cis: 1.1.1\npci_dss_v4: 2.2.1, 2.2.2',
     });
-    expect(controlsTable.items[1].result).toBe('Not applicable');
-    expect(controlsTable.items[2].result).toBe('Passed');
+    expect(controls.items[1].result).toBe('Not applicable');
+    expect(controls.items[2].result).toBe('Passed');
+
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
+      style: 'standard',
+    });
   });
 
-  it('loads selected server metadata in one batch and creates an independent section per server', async () => {
-    const request = jest.fn(async (_method, endpoint, options) => {
-      if (endpoint === '/agents') {
-        const agentIds = options.params.agents_list.split(',');
-
-        return {
-          data: {
-            data: {
-              affected_items: agentIds.map(buildAgent),
-              total_affected_items: agentIds.length,
-            },
-          },
-        };
-      }
-
-      const policyMatch = endpoint.match(/^\/sca\/(003|004)$/);
-      if (policyMatch) {
-        return {
-          data: {
-            data: {
-              affected_items: [
-                {
-                  policy_id: 'policy_1',
-                  name: 'Server benchmark',
-                  score: 90,
-                  pass: 9,
-                  fail: 1,
-                  invalid: 0,
-                },
-              ],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      const checksMatch = endpoint.match(
-        /^\/sca\/(003|004)\/checks\/policy_1$/,
-      );
-      if (checksMatch) {
-        const agentId = checksMatch[1];
-
-        return {
-          data: {
-            data: {
-              affected_items: [
-                {
-                  id: 1,
-                  title: `Control for ${agentId}`,
-                  result: agentId === '003' ? 'passed' : 'failed',
-                  compliance: [],
-                },
-              ],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      throw new Error(`Unexpected endpoint: ${endpoint}`);
-    });
-
-    const context = {
-      wazuh: {
-        logger: {
-          debug: jest.fn(),
-        },
-        api: {
-          client: {
-            asCurrentUser: {
-              request,
-            },
-          },
-        },
-      },
-    };
-
+  it('creates one section for every selected server from a single indexed stream', async () => {
+    const { context, search } = buildContext(
+      [inventoryBucket('003'), inventoryBucket('004')],
+      [
+        checkBucket('003', 'CIS Linux', '1', 'passed'),
+        checkBucket('004', 'CIS Windows', '2', 'failed'),
+      ],
+    );
     const printer = createPrinter();
 
     await addScaChecksToReport(
       context,
       printer as any,
       ['003', '004', '003'],
-      'default',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
     );
 
-    const agentRequests = request.mock.calls.filter(
-      ([, endpoint]) => endpoint === '/agents',
-    );
-    expect(agentRequests).toHaveLength(1);
-    expect(agentRequests[0][2].params.agents_list).toBe('003,004');
+    expect(search).toHaveBeenCalledTimes(2);
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
     const inventory = tables.find(
@@ -264,25 +205,19 @@ describe('SCA report controls', () => {
     );
     const controls = tables.filter(table => table.title === 'Controls (1)');
 
-    expect(inventory).toBeDefined();
     expect(inventory.items).toEqual([
-      expect.objectContaining({ id: '003', name: 'server-003' }),
-      expect.objectContaining({ id: '004', name: 'server-004' }),
+      expect.objectContaining({
+        id: '003',
+        name: 'server-003',
+        sca: 'Available',
+      }),
+      expect.objectContaining({
+        id: '004',
+        name: 'server-004',
+        sca: 'Available',
+      }),
     ]);
-    expect(inventory.widths).toEqual([45, 190, 70, '*']);
     expect(controls).toHaveLength(2);
-    expect(controls[0].items[0]).toEqual(
-      expect.objectContaining({
-        result: 'Passed',
-        title: 'Control for 003',
-      }),
-    );
-    expect(controls[1].items[0]).toEqual(
-      expect.objectContaining({
-        result: 'Failed',
-        title: 'Control for 004',
-      }),
-    );
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -298,184 +233,34 @@ describe('SCA report controls', () => {
     );
   });
 
-  it('continues when one selected server has unavailable SCA data', async () => {
-    const request = jest.fn(async (_method, endpoint, options) => {
-      if (endpoint === '/agents') {
-        const agentIds = options.params.agents_list.split(',');
-
-        return {
-          data: {
-            data: {
-              affected_items: agentIds.map(buildAgent),
-              total_affected_items: agentIds.length,
-            },
-          },
-        };
-      }
-
-      if (endpoint === '/sca/003') {
-        return {
-          data: {
-            data: {
-              affected_items: [
-                {
-                  policy_id: 'policy_1',
-                  name: 'Server benchmark',
-                  score: 100,
-                  pass: 1,
-                  fail: 0,
-                  invalid: 0,
-                },
-              ],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      if (endpoint === '/sca/003/checks/policy_1') {
-        return {
-          data: {
-            data: {
-              affected_items: [
-                {
-                  id: 1,
-                  title: 'Control for 003',
-                  result: 'passed',
-                  compliance: [],
-                },
-              ],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      if (endpoint === '/sca/004') {
-        throw new Error('SCA database unavailable');
-      }
-
-      throw new Error(`Unexpected endpoint: ${endpoint}`);
-    });
-
-    const context = {
-      wazuh: {
-        logger: {
-          debug: jest.fn(),
-        },
-        api: {
-          client: {
-            asCurrentUser: {
-              request,
-            },
-          },
-        },
-      },
-    };
-
+  it('keeps selected servers with no indexed SCA controls visible in the report', async () => {
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [checkBucket('003', 'CIS Linux', '1', 'passed')],
+    );
     const printer = createPrinter();
 
-    await expect(
-      addScaChecksToReport(context, printer as any, ['003', '004'], 'default'),
-    ).resolves.toBeUndefined();
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003', '004'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
 
-    const controls = printer.addSimpleTable.mock.calls
+    const inventory = printer.addSimpleTable.mock.calls
       .map(call => call[0])
-      .filter(table => table.title === 'Controls (1)');
+      .find(table => table.title === 'Selected servers (2)');
 
-    expect(controls).toHaveLength(1);
+    expect(inventory.items[1]).toEqual(
+      expect.objectContaining({
+        id: '004',
+        sca: 'No indexed SCA data',
+      }),
+    );
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text: 'Unable to retrieve SCA policies for this server.',
+      text: 'No indexed SCA controls were found for this server.',
       style: 'standard',
     });
-  });
-
-  it('retries a Wazuh API request after a 429 response', async () => {
-    let policyAttempts = 0;
-
-    const request = jest.fn(async (_method, endpoint) => {
-      if (endpoint === '/agents') {
-        return {
-          data: {
-            data: {
-              affected_items: [buildAgent('003')],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      if (endpoint === '/sca/003') {
-        policyAttempts++;
-
-        if (policyAttempts === 1) {
-          const error: any = new Error('Request failed with status code 429');
-          error.response = { status: 429 };
-          throw error;
-        }
-
-        return {
-          data: {
-            data: {
-              affected_items: [
-                {
-                  policy_id: 'policy_1',
-                  name: 'Server benchmark',
-                  score: 100,
-                  pass: 1,
-                  fail: 0,
-                  invalid: 0,
-                },
-              ],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      if (endpoint === '/sca/003/checks/policy_1') {
-        return {
-          data: {
-            data: {
-              affected_items: [
-                {
-                  id: 1,
-                  title: 'Control',
-                  result: 'passed',
-                  compliance: [],
-                },
-              ],
-              total_affected_items: 1,
-            },
-          },
-        };
-      }
-
-      throw new Error(`Unexpected endpoint: ${endpoint}`);
-    });
-
-    const context = {
-      wazuh: {
-        logger: {
-          debug: jest.fn(),
-        },
-        api: {
-          client: {
-            asCurrentUser: {
-              request,
-            },
-          },
-        },
-      },
-    };
-
-    const printer = createPrinter();
-
-    await addScaChecksToReport(context, printer as any, '003', 'default');
-
-    expect(policyAttempts).toBe(2);
-    expect(context.wazuh.logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('SCA report API rate limited'),
-    );
   });
 });
