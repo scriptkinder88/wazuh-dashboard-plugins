@@ -83,9 +83,7 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
           buttonType='empty'
           iconType='document'
           isLoading={action.running}
-          onClick={
-            isScaReport ? () => setIsScaSelectorOpen(true) : action.run
-          }
+          onClick={isScaReport ? () => setIsScaSelectorOpen(true) : action.run}
           isDisabled={disabledReport}
           tooltip={
             disabledReport && totalResults === 0
