@@ -26,6 +26,8 @@ export const Dashboard = props => {
     dashboardSavedObjectId: hasPinnedAgent
       ? props.getDashboardPanels[0].agentDashboardId
       : props.getDashboardPanels[0].dashboardId,
+    overviewDashboardSavedObjectId: props.getDashboardPanels[0].dashboardId,
+    agentDashboardSavedObjectId: props.getDashboardPanels[0].agentDashboardId,
     filters: props.dataSource.fetchFilters,
     query: props.dataSource.query,
     time: {
