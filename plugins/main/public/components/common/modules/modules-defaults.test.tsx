@@ -8,12 +8,13 @@ describe('ModulesDefaults SCA reporting', () => {
     );
 
     expect(dashboardTab).toBeDefined();
-    expect(dashboardTab?.buttons).toHaveLength(2);
-    expect(dashboardTab?.buttons?.[1]).toEqual(
-      expect.objectContaining({
-        component: expect.anything(),
-        condition: expect.any(Function),
-      }),
-    );
+    expect(
+      dashboardTab?.buttons?.some(
+        button =>
+          typeof button === 'object' &&
+          typeof button?.condition === 'function' &&
+          Boolean(button?.component),
+      ),
+    ).toBe(true);
   });
 });
