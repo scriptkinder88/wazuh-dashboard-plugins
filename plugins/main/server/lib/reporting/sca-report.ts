@@ -185,7 +185,7 @@ export async function addScaChecksToReport(
   const seenAgents = new Set<string>();
   let activeAgentId = '';
   let activePolicy = '';
-  let activePolicyId = '';
+  let activePolicyKey = '';
   let activeAgent: any = null;
   let activeItems: any[] = [];
   let counters = createPolicyCounters();
@@ -205,7 +205,7 @@ export async function addScaChecksToReport(
     printer.addContentWithNewLine({
       text:
         activePolicy ||
-        (activePolicyId ? `Policy ${activePolicyId}` : 'SCA policy'),
+        (activePolicyKey ? `Policy ${activePolicyKey}` : 'SCA policy'),
       style: 'h3',
     });
 
@@ -250,9 +250,11 @@ export async function addScaChecksToReport(
     ({ key, source }) => {
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(
-        key?.policy || source?.data?.sca?.policy || 'Unknown SCA policy',
+        source?.data?.sca?.policy || 'Unknown SCA policy',
       );
-      const policyId = String(source?.data?.sca?.policy_id || '');
+      const policyKey = String(
+        key?.policy_id || source?.data?.sca?.policy_id || policy,
+      );
 
       if (!agentId) {
         return;
@@ -263,7 +265,7 @@ export async function addScaChecksToReport(
 
         activeAgentId = agentId;
         activePolicy = '';
-        activePolicyId = '';
+        activePolicyKey = '';
         activeAgent = {
           ...(inventory.get(agentId) || {}),
           ...(source?.agent || {}),
@@ -281,10 +283,10 @@ export async function addScaChecksToReport(
         seenAgents.add(agentId);
       }
 
-      if (policy !== activePolicy) {
+      if (policyKey !== activePolicyKey) {
         flushPolicy();
         activePolicy = policy;
-        activePolicyId = policyId;
+        activePolicyKey = policyKey;
       }
 
       const rawResult =
