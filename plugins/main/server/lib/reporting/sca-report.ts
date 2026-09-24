@@ -321,7 +321,9 @@ export async function addScaChecksToReport(
       return {
         instances,
         complete: true,
-        label: `Complete (${instances.length} ${instances.length === 1 ? 'policy' : 'policies'})`,
+        label: `Complete (${instances.length} ${
+          instances.length === 1 ? 'policy' : 'policies'
+        })`,
       };
     }
 
@@ -329,14 +331,18 @@ export async function addScaChecksToReport(
       return {
         instances,
         complete: false,
-        label: `Incomplete history (${incompleteCount} ${incompleteCount === 1 ? 'policy' : 'policies'})`,
+        label: `Incomplete history (${incompleteCount} ${
+          incompleteCount === 1 ? 'policy' : 'policies'
+        })`,
       };
     }
 
     return {
       instances,
       complete: false,
-      label: `Unverified (${unverifiedCount} ${unverifiedCount === 1 ? 'policy' : 'policies'})`,
+      label: `Unverified (${unverifiedCount} ${
+        unverifiedCount === 1 ? 'policy' : 'policies'
+      })`,
     };
   };
 
@@ -363,8 +369,7 @@ export async function addScaChecksToReport(
   printer.addNewLine();
 
   printer.addContentWithNewLine({
-    text:
-      'Indexed SCA state is reconstructed from check events and verified against the latest scan total_checks. Scores are withheld when coverage is incomplete or unverified.',
+    text: 'Indexed SCA state is reconstructed from check events and verified against the latest scan total_checks. Scores are withheld when coverage is incomplete or unverified.',
     style: 'standard',
   });
 

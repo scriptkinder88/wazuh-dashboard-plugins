@@ -10,8 +10,7 @@ const createPrinter = () => ({
   addNewLine: jest.fn().mockReturnThis(),
 });
 
-const policyId = (policy: string) =>
-  policy.toLowerCase().replace(/\s+/g, '_');
+const policyId = (policy: string) => policy.toLowerCase().replace(/\s+/g, '_');
 
 const inventoryBucket = (id: string) => ({
   key: id,
@@ -277,8 +276,7 @@ describe('SCA indexed report controls', () => {
     expect(controls.items[2].result).toBe('Passed');
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text:
-        'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
+      text: 'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
       style: 'standard',
     });
   });
@@ -398,8 +396,7 @@ describe('SCA indexed report controls', () => {
       }),
     );
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text:
-        'Coverage: Incomplete (1/2 checks) | Passed: 1 | Failed: 0 | Not applicable: 0',
+      text: 'Coverage: Incomplete (1/2 checks) | Passed: 1 | Failed: 0 | Not applicable: 0',
       style: 'standard',
     });
   });
@@ -432,8 +429,7 @@ describe('SCA indexed report controls', () => {
       }),
     );
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text:
-        'Coverage: Unverified (no indexed scan summary) | Passed: 1 | Failed: 0 | Not applicable: 0',
+      text: 'Coverage: Unverified (no indexed scan summary) | Passed: 1 | Failed: 0 | Not applicable: 0',
       style: 'standard',
     });
   });

@@ -203,10 +203,7 @@ export async function getLatestScaPolicySummaries(
       index: pattern,
       body: {
         size: 0,
-        query: buildScaSummaryIndexQuery(
-          serverSideQuery,
-          normalizedAgentIds,
-        ),
+        query: buildScaSummaryIndexQuery(serverSideQuery, normalizedAgentIds),
         aggs: {
           sca_policy_summaries: {
             composite,
@@ -244,9 +241,7 @@ export async function getLatestScaPolicySummaries(
 
     for (const bucket of buckets) {
       const source = bucket?.latest?.hits?.hits?.[0]?._source || {};
-      const agentId = String(
-        bucket?.key?.agent_id || source?.agent?.id || '',
-      );
+      const agentId = String(bucket?.key?.agent_id || source?.agent?.id || '');
       const policyId = String(
         bucket?.key?.policy_id || source?.data?.sca?.policy_id || '',
       );
@@ -262,9 +257,7 @@ export async function getLatestScaPolicySummaries(
         agentId,
         policyId,
         policy:
-          source?.data?.sca?.policy ||
-          source?.data?.sca?.name ||
-          policyId,
+          source?.data?.sca?.policy || source?.data?.sca?.name || policyId,
         totalChecks: Number.isFinite(parsedTotalChecks)
           ? parsedTotalChecks
           : null,
