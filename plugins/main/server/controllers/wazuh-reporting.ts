@@ -366,7 +366,10 @@ export class WazuhReportingCtrl {
 
         printer.addVisualizations(array, agents, moduleID);
 
-        if (moduleID === 'sca' && typeof agents === 'string') {
+        if (
+          moduleID === 'sca' &&
+          (typeof agents === 'string' || Array.isArray(agents))
+        ) {
           await addScaChecksToReport(context, printer, agents, apiId);
         }
 
@@ -387,10 +390,15 @@ export class WazuhReportingCtrl {
         return ErrorResponse(error.message || error, 5029, 500, response);
       }
     },
-    ({ body: { agents }, params: { moduleID } }) =>
-      `wazuh-module-${
-        agents ? `agents-${agents}` : 'overview'
-      }-${moduleID}-${this.generateReportTimestamp()}.pdf`,
+    ({ body: { agents }, params: { moduleID } }) => {
+      const agentsLabel = Array.isArray(agents)
+        ? `agents-${agents.length}-selected`
+        : agents
+        ? `agents-${agents}`
+        : 'overview';
+
+      return `wazuh-module-${agentsLabel}-${moduleID}-${this.generateReportTimestamp()}.pdf`;
+    },
   );
 
   /**
