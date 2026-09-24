@@ -56,7 +56,7 @@ describe('SCA multi-server reporting context', () => {
         key: SCA_REPORT_AGENT_FIELD,
         params: ['003', '004'],
         controlledBy: SCA_REPORT_FILTER_CONTROLLED_BY,
-        alias: 'Selected servers (2)',
+        alias: 'Selected servers (2): 003, 004',
       }),
     );
     expect(selectedAgentsFilter.query.bool.should).toHaveLength(2);
