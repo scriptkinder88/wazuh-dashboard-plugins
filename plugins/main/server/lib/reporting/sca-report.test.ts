@@ -401,6 +401,43 @@ describe('SCA indexed report controls', () => {
     });
   });
 
+  it('withholds scores when result distribution disagrees with the latest scan summary', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'passed'),
+        checkBucket('003', policy, '2', 'passed'),
+      ],
+      [summaryBucket('003', policy, 2, 1, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const serverResults = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Selected server results (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        controls: 2,
+        score: '-',
+        sca: 'Incomplete history (1 policy)',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage: Incomplete (2/2 checks) | Passed: 2 | Failed: 0 | Not applicable: 0',
+      style: 'standard',
+    });
+  });
+
   it('marks reconstructed checks unverified when no indexed scan summary exists', async () => {
     const policy = 'CIS Linux';
     const { context } = buildContext(
