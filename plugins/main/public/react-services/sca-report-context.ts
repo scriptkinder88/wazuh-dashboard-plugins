@@ -32,7 +32,9 @@ export const buildScaMultiServerReportContext = (
   }
 
   if (!context?.overviewDashboardSavedObjectId) {
-    throw new Error('The SCA overview dashboard is not available for reporting.');
+    throw new Error(
+      'The SCA overview dashboard is not available for reporting.',
+    );
   }
 
   const filters = (context?.filters || []).filter(
