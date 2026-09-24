@@ -7,11 +7,20 @@ const createPrinter = () => ({
   addContent: jest.fn().mockReturnThis(),
   addContentWithNewLine: jest.fn().mockReturnThis(),
   addSimpleTable: jest.fn().mockReturnThis(),
+  addNewLine: jest.fn().mockReturnThis(),
+});
+
+const buildAgent = (id: string) => ({
+  id,
+  name: `server-${id}`,
+  status: 'active',
+  group: ['servers'],
+  os: { name: 'Linux', version: '12' },
 });
 
 describe('SCA report controls', () => {
-  it('adds every control with its result and compliance mapping', async () => {
-    const checks = Array.from({ length: 101 }, (_, index) => ({
+  it('adds every control with pagination and constrained landscape columns', async () => {
+    const checks = Array.from({ length: 501 }, (_, index) => ({
       id: index + 1,
       title: `Control ${index + 1}`,
       result:
@@ -26,20 +35,12 @@ describe('SCA report controls', () => {
     }));
 
     const request = jest.fn(
-      async (_method, endpoint, { params: { offset = 0 } }) => {
+      async (_method, endpoint, { params: { offset = 0, ...params } }) => {
         if (endpoint === '/agents') {
           return {
             data: {
               data: {
-                affected_items: [
-                  {
-                    id: '003',
-                    name: 'server-003',
-                    status: 'active',
-                    group: ['servers'],
-                    os: { name: 'Windows Server', version: '2022' },
-                  },
-                ],
+                affected_items: [buildAgent('003')],
                 total_affected_items: 1,
               },
             },
@@ -53,7 +54,7 @@ describe('SCA report controls', () => {
                 affected_items: [
                   {
                     policy_id: 'policy_1',
-                    name: 'CIS Windows benchmark',
+                    name: 'CIS Linux benchmark',
                     score: 78,
                     pass: 80,
                     fail: 20,
@@ -70,19 +71,24 @@ describe('SCA report controls', () => {
           return {
             data: {
               data: {
-                affected_items: checks.slice(offset, offset + 100),
+                affected_items: checks.slice(offset, offset + 500),
                 total_affected_items: checks.length,
               },
             },
           };
         }
 
-        throw new Error(`Unexpected endpoint: ${endpoint}`);
+        throw new Error(
+          `Unexpected endpoint: ${endpoint} with ${JSON.stringify(params)}`,
+        );
       },
     );
 
     const context = {
       wazuh: {
+        logger: {
+          debug: jest.fn(),
+        },
         api: {
           client: {
             asCurrentUser: {
@@ -100,9 +106,22 @@ describe('SCA report controls', () => {
     expect(request).toHaveBeenCalledTimes(4);
     expect(request).toHaveBeenCalledWith(
       'GET',
+      '/agents',
+      {
+        params: expect.objectContaining({
+          agents_list: '003',
+          limit: 1,
+          select: 'id,name,status,group,os.name,os.version',
+        }),
+      },
+      { apiHostID: 'default' },
+    );
+    expect(request).toHaveBeenCalledWith(
+      'GET',
       '/sca/003',
       {
         params: expect.objectContaining({
+          limit: 500,
           select: 'policy_id,name,score,pass,fail,invalid',
         }),
       },
@@ -113,45 +132,50 @@ describe('SCA report controls', () => {
       '/sca/003/checks/policy_1',
       {
         params: expect.objectContaining({
+          limit: 500,
           select: 'id,title,result,compliance.key,compliance.value',
         }),
       },
       { apiHostID: 'default' },
     );
-    expect(printer.addSimpleTable).toHaveBeenCalledTimes(1);
 
-    const table = printer.addSimpleTable.mock.calls[0][0];
+    expect(printer.addContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Security configuration assessment controls',
+        pageBreak: 'before',
+        pageOrientation: 'landscape',
+      }),
+    );
 
-    expect(table.title).toBe('Controls (101)');
-    expect(table.items).toHaveLength(101);
-    expect(table.items[0]).toEqual({
+    const controlsTable = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Controls (501)');
+
+    expect(controlsTable).toBeDefined();
+    expect(controlsTable.items).toHaveLength(501);
+    expect(controlsTable.widths).toEqual([42, 72, '*', 220]);
+    expect(controlsTable.fontSize).toBe(7);
+    expect(controlsTable.maxTextLength).toBe(42);
+    expect(controlsTable.items[0]).toEqual({
       id: '1',
       result: 'Failed',
       title: 'Control 1',
       compliance: 'cis: 1.1.1\npci_dss: 2.2.1',
     });
-    expect(table.items[1].result).toBe('Not applicable');
-    expect(table.items[2].result).toBe('Passed');
+    expect(controlsTable.items[1].result).toBe('Not applicable');
+    expect(controlsTable.items[2].result).toBe('Passed');
   });
 
-  it('creates an independent SCA section for every selected server', async () => {
+  it('loads selected server metadata in one batch and creates an independent section per server', async () => {
     const request = jest.fn(async (_method, endpoint, options) => {
       if (endpoint === '/agents') {
-        const agentId = options.params.q.split('=')[1];
+        const agentIds = options.params.agents_list.split(',');
 
         return {
           data: {
             data: {
-              affected_items: [
-                {
-                  id: agentId,
-                  name: `server-${agentId}`,
-                  status: 'active',
-                  group: ['servers'],
-                  os: { name: 'Linux', version: '12' },
-                },
-              ],
-              total_affected_items: 1,
+              affected_items: agentIds.map(buildAgent),
+              total_affected_items: agentIds.length,
             },
           },
         };
@@ -206,6 +230,9 @@ describe('SCA report controls', () => {
 
     const context = {
       wazuh: {
+        logger: {
+          debug: jest.fn(),
+        },
         api: {
           client: {
             asCurrentUser: {
@@ -225,14 +252,30 @@ describe('SCA report controls', () => {
       'default',
     );
 
-    expect(printer.addSimpleTable).toHaveBeenCalledTimes(2);
-    expect(printer.addSimpleTable.mock.calls[0][0].items[0]).toEqual(
+    const agentRequests = request.mock.calls.filter(
+      ([, endpoint]) => endpoint === '/agents',
+    );
+    expect(agentRequests).toHaveLength(1);
+    expect(agentRequests[0][2].params.agents_list).toBe('003,004');
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    const inventory = tables.find(table => table.title === 'Selected servers (2)');
+    const controls = tables.filter(table => table.title === 'Controls (1)');
+
+    expect(inventory).toBeDefined();
+    expect(inventory.items).toEqual([
+      expect.objectContaining({ id: '003', name: 'server-003' }),
+      expect.objectContaining({ id: '004', name: 'server-004' }),
+    ]);
+    expect(inventory.widths).toEqual([45, 190, 70, '*']);
+    expect(controls).toHaveLength(2);
+    expect(controls[0].items[0]).toEqual(
       expect.objectContaining({
         result: 'Passed',
         title: 'Control for 003',
       }),
     );
-    expect(printer.addSimpleTable.mock.calls[1][0].items[0]).toEqual(
+    expect(controls[1].items[0]).toEqual(
       expect.objectContaining({
         result: 'Failed',
         title: 'Control for 004',
@@ -251,30 +294,18 @@ describe('SCA report controls', () => {
         style: 'h2',
       }),
     );
-    expect(printer.addContent).toHaveBeenCalledWith({
-      text: '',
-      pageBreak: 'before',
-    });
   });
 
   it('continues when one selected server has unavailable SCA data', async () => {
     const request = jest.fn(async (_method, endpoint, options) => {
       if (endpoint === '/agents') {
-        const agentId = options.params.q.split('=')[1];
+        const agentIds = options.params.agents_list.split(',');
 
         return {
           data: {
             data: {
-              affected_items: [
-                {
-                  id: agentId,
-                  name: `server-${agentId}`,
-                  status: 'active',
-                  group: ['servers'],
-                  os: { name: 'Linux', version: '12' },
-                },
-              ],
-              total_affected_items: 1,
+              affected_items: agentIds.map(buildAgent),
+              total_affected_items: agentIds.length,
             },
           },
         };
@@ -327,6 +358,9 @@ describe('SCA report controls', () => {
 
     const context = {
       wazuh: {
+        logger: {
+          debug: jest.fn(),
+        },
         api: {
           client: {
             asCurrentUser: {
@@ -343,10 +377,103 @@ describe('SCA report controls', () => {
       addScaChecksToReport(context, printer as any, ['003', '004'], 'default'),
     ).resolves.toBeUndefined();
 
-    expect(printer.addSimpleTable).toHaveBeenCalledTimes(1);
+    const controls = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .filter(table => table.title === 'Controls (1)');
+
+    expect(controls).toHaveLength(1);
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
       text: 'Unable to retrieve SCA policies for this server.',
       style: 'standard',
     });
+  });
+
+  it('retries a Wazuh API request after a 429 response', async () => {
+    let policyAttempts = 0;
+
+    const request = jest.fn(async (_method, endpoint) => {
+      if (endpoint === '/agents') {
+        return {
+          data: {
+            data: {
+              affected_items: [buildAgent('003')],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      if (endpoint === '/sca/003') {
+        policyAttempts++;
+
+        if (policyAttempts === 1) {
+          const error: any = new Error('Request failed with status code 429');
+          error.response = { status: 429 };
+          throw error;
+        }
+
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  policy_id: 'policy_1',
+                  name: 'Server benchmark',
+                  score: 100,
+                  pass: 1,
+                  fail: 0,
+                  invalid: 0,
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      if (endpoint === '/sca/003/checks/policy_1') {
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  id: 1,
+                  title: 'Control',
+                  result: 'passed',
+                  compliance: [],
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
+    });
+
+    const context = {
+      wazuh: {
+        logger: {
+          debug: jest.fn(),
+        },
+        api: {
+          client: {
+            asCurrentUser: {
+              request,
+            },
+          },
+        },
+      },
+    };
+
+    const printer = createPrinter();
+
+    await addScaChecksToReport(context, printer as any, '003', 'default');
+
+    expect(policyAttempts).toBe(2);
+    expect(context.wazuh.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('SCA report API rate limited'),
+    );
   });
 });
