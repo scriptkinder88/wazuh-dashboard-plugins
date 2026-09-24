@@ -138,24 +138,34 @@ export class ReportingService {
     return store.getState().reportingReducers?.dataSourceSearchContext;
   }
 
-  async startScaReport(agentId) {
+  async startScaReport(agentIds) {
     try {
-      if (!agentId) {
+      const agents = [
+        ...new Set(
+          (Array.isArray(agentIds) ? agentIds : [agentIds])
+            .filter(Boolean)
+            .map(agentId => String(agentId)),
+        ),
+      ];
+
+      if (!agents.length) {
         return null;
       }
 
-      const visualizations = await this.getVisualizationsFromDOM();
       const browserTimezone = moment.tz.guess(true);
       const config = this.wazuhConfig.getConfig();
 
       const data = {
-        array: visualizations,
+        // Multi-server SCA reports are rendered from live API data for every
+        // selected server. A screenshot of the currently pinned agent would be
+        // misleading when more than one server is selected.
+        array: [],
         filters: [],
         searchBar: '',
         tables: [],
         tab: 'sca',
         section: 'agents',
-        agents: agentId,
+        agents,
         browserTimezone,
         indexPatternTitle:
           config?.pattern || config?.['wazuh.pattern'] || 'wazuh-alerts-*',

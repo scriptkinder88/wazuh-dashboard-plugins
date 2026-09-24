@@ -1,5 +1,14 @@
 import { addScaChecksToReport } from './sca-report';
 
+const createPrinter = () => ({
+  logger: {
+    debug: jest.fn(),
+  },
+  addContent: jest.fn().mockReturnThis(),
+  addContentWithNewLine: jest.fn().mockReturnThis(),
+  addSimpleTable: jest.fn().mockReturnThis(),
+});
+
 describe('SCA report controls', () => {
   it('adds every control with its result and compliance mapping', async () => {
     const checks = Array.from({ length: 101 }, (_, index) => ({
@@ -17,7 +26,26 @@ describe('SCA report controls', () => {
     }));
 
     const request = jest.fn(
-      async (_method, endpoint, { params: { offset } }) => {
+      async (_method, endpoint, { params: { offset = 0 } }) => {
+        if (endpoint === '/agents') {
+          return {
+            data: {
+              data: {
+                affected_items: [
+                  {
+                    id: '003',
+                    name: 'server-003',
+                    status: 'active',
+                    group: ['servers'],
+                    os: { name: 'Windows Server', version: '2022' },
+                  },
+                ],
+                total_affected_items: 1,
+              },
+            },
+          };
+        }
+
         if (endpoint === '/sca/003') {
           return {
             data: {
@@ -65,17 +93,11 @@ describe('SCA report controls', () => {
       },
     };
 
-    const printer = {
-      logger: {
-        debug: jest.fn(),
-      },
-      addContentWithNewLine: jest.fn().mockReturnThis(),
-      addSimpleTable: jest.fn().mockReturnThis(),
-    };
+    const printer = createPrinter();
 
     await addScaChecksToReport(context, printer as any, '003', 'default');
 
-    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenCalledTimes(4);
     expect(printer.addSimpleTable).toHaveBeenCalledTimes(1);
 
     const table = printer.addSimpleTable.mock.calls[0][0];
@@ -90,5 +112,128 @@ describe('SCA report controls', () => {
     });
     expect(table.items[1].result).toBe('Not applicable');
     expect(table.items[2].result).toBe('Passed');
+  });
+
+  it('creates an independent SCA section for every selected server', async () => {
+    const request = jest.fn(async (_method, endpoint, options) => {
+      if (endpoint === '/agents') {
+        const agentId = options.params.q.split('=')[1];
+
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  id: agentId,
+                  name: `server-${agentId}`,
+                  status: 'active',
+                  group: ['servers'],
+                  os: { name: 'Linux', version: '12' },
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      const policyMatch = endpoint.match(/^\/sca\/(003|004)$/);
+      if (policyMatch) {
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  policy_id: 'policy_1',
+                  name: 'Server benchmark',
+                  score: 90,
+                  pass: 9,
+                  fail: 1,
+                  invalid: 0,
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      const checksMatch = endpoint.match(
+        /^\/sca\/(003|004)\/checks\/policy_1$/,
+      );
+      if (checksMatch) {
+        const agentId = checksMatch[1];
+
+        return {
+          data: {
+            data: {
+              affected_items: [
+                {
+                  id: 1,
+                  title: `Control for ${agentId}`,
+                  result: agentId === '003' ? 'passed' : 'failed',
+                  compliance: [],
+                },
+              ],
+              total_affected_items: 1,
+            },
+          },
+        };
+      }
+
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
+    });
+
+    const context = {
+      wazuh: {
+        api: {
+          client: {
+            asCurrentUser: {
+              request,
+            },
+          },
+        },
+      },
+    };
+
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003', '004', '003'],
+      'default',
+    );
+
+    expect(printer.addSimpleTable).toHaveBeenCalledTimes(2);
+    expect(printer.addSimpleTable.mock.calls[0][0].items[0]).toEqual(
+      expect.objectContaining({
+        result: 'Passed',
+        title: 'Control for 003',
+      }),
+    );
+    expect(printer.addSimpleTable.mock.calls[1][0].items[0]).toEqual(
+      expect.objectContaining({
+        result: 'Failed',
+        title: 'Control for 004',
+      }),
+    );
+
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Server server-003 (003)',
+        style: 'h2',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Server server-004 (004)',
+        style: 'h2',
+      }),
+    );
+    expect(printer.addContent).toHaveBeenCalledWith({
+      text: '',
+      pageBreak: 'before',
+    });
   });
 });
