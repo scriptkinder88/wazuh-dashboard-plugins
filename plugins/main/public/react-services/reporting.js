@@ -18,6 +18,7 @@ import { UI_ERROR_SEVERITIES } from './error-orchestrator/types';
 import { getErrorOrchestrator } from './common-services';
 import store from '../redux/store';
 import { PatternDataSourceFilterManager } from '../components/common/data-source/pattern/pattern-data-source-filter-manager';
+import { buildScaMultiServerReportContext } from './sca-report-context';
 
 export class ReportingService {
   constructor() {
@@ -56,11 +57,26 @@ export class ReportingService {
     return getPlugins().reportsDashboards !== undefined;
   }
 
-  async generateInContextPDFReport() {
-    const dataSourceContext = await this.getDataSourceSearchContext();
+  handleReportError(error, methodName) {
+    const options = {
+      context: `${ReportingService.name}.${methodName}`,
+      level: UI_LOGGER_LEVELS.ERROR,
+      severity: UI_ERROR_SEVERITIES.BUSINESS,
+      store: true,
+      error: {
+        error: error,
+        message: error.message || error,
+        title: 'Error creating the report',
+      },
+    };
+    getErrorOrchestrator().handleError(options);
+  }
+
+  async generatePDFReportForContext(dataSourceContext, methodName) {
     if (!dataSourceContext) {
       return null;
     }
+
     try {
       const reportingPlugin = getPlugins().reportsDashboards;
       if (!reportingPlugin) {
@@ -70,22 +86,39 @@ export class ReportingService {
       if (!dataSourceContext.dashboardSavedObjectId) {
         return null;
       }
+
       await reportingPlugin.generateInContextPDFReport(
         this.generateReportURL(dataSourceContext),
       );
     } catch (error) {
-      const options = {
-        context: `${ReportingService.name}.generateInContextPDFReport`,
-        level: UI_LOGGER_LEVELS.ERROR,
-        severity: UI_ERROR_SEVERITIES.BUSINESS,
-        store: true,
-        error: {
-          error: error,
-          message: error.message || error,
-          title: `Error creating the report`,
-        },
-      };
-      getErrorOrchestrator().handleError(options);
+      this.handleReportError(error, methodName);
+    }
+  }
+
+  async generateInContextPDFReport() {
+    const dataSourceContext = await this.getDataSourceSearchContext();
+    return this.generatePDFReportForContext(
+      dataSourceContext,
+      'generateInContextPDFReport',
+    );
+  }
+
+  async generateScaMultiServerPDFReport(agentIds) {
+    const dataSourceContext = await this.getDataSourceSearchContext();
+
+    try {
+      const reportContext = buildScaMultiServerReportContext(
+        dataSourceContext,
+        agentIds,
+      );
+
+      return this.generatePDFReportForContext(
+        reportContext,
+        'generateScaMultiServerPDFReport',
+      );
+    } catch (error) {
+      this.handleReportError(error, 'generateScaMultiServerPDFReport');
+      return null;
     }
   }
 }

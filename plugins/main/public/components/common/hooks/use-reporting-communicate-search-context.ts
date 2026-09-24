@@ -12,6 +12,8 @@ export function useReportingCommunicateSearchContext(context: {
   totalResults: number;
   indexPattern: IIndexPattern;
   dashboardSavedObjectId: string;
+  overviewDashboardSavedObjectId?: string;
+  agentDashboardSavedObjectId?: string;
   filters: any;
   time?: any;
   query: any;
