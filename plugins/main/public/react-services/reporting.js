@@ -15,7 +15,7 @@ import { WazuhConfig } from '../react-services/wazuh-config';
 import { AppState } from './app-state';
 import { WzRequest } from './wz-request';
 import { getCore, getHttp, getToasts, getUiSettings } from '../kibana-services';
-import { UI_LOGGER_LEVELS } from '../../common/constants';
+import {\n  DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,\n  UI_LOGGER_LEVELS,\n} from '../../common/constants';
 import { UI_ERROR_SEVERITIES } from './error-orchestrator/types';
 import { getErrorOrchestrator } from './common-services';
 import store from '../redux/store';
@@ -152,6 +152,30 @@ export class ReportingService {
         return null;
       }
 
+      const dataSourceContext = await this.getDataSourceSearchContext();
+
+      if (!dataSourceContext?.indexPattern) {
+        throw new Error('The SCA index pattern is not available for reporting.');
+      }
+
+      // Preserve the dashboard query and RBAC filters, but remove only the
+      // currently pinned agent. The explicit multi-server selection is applied
+      // on the server as an additional agent.id terms filter.
+      const filters = (dataSourceContext.filters || []).filter(
+        filter =>
+          filter?.meta?.controlledBy !==
+          DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,
+      );
+
+      // Current-state SCA reports intentionally omit the dashboard time picker.
+      // The backend reads the latest indexed event for every selected control.
+      const serverSideQuery = buildOpenSearchQuery(
+        dataSourceContext.indexPattern,
+        dataSourceContext.query,
+        filters,
+        getOpenSearchQueryConfig(getUiSettings()),
+      );
+
       const browserTimezone = moment.tz.guess(true);
       const config = this.wazuhConfig.getConfig();
       const reportTimeout = Math.max(
@@ -160,19 +184,16 @@ export class ReportingService {
       );
 
       const data = {
-        // Multi-server SCA reports are rendered from live API data for every
-        // selected server. A screenshot of the currently pinned agent would be
-        // misleading when more than one server is selected.
         array: [],
-        filters: [],
-        searchBar: '',
+        serverSideQuery,
+        filters,
+        searchBar: dataSourceContext?.query?.query || '',
         tables: [],
         tab: 'sca',
         section: 'agents',
         agents,
         browserTimezone,
-        indexPatternTitle:
-          config?.pattern || config?.['wazuh.pattern'] || 'wazuh-alerts-*',
+        indexPatternTitle: dataSourceContext.indexPattern.title,
         apiId: JSON.parse(AppState.getCurrentAPI()).id,
       };
 
