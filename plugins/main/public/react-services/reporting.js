@@ -154,6 +154,10 @@ export class ReportingService {
 
       const browserTimezone = moment.tz.guess(true);
       const config = this.wazuhConfig.getConfig();
+      const reportTimeout = Math.max(
+        Number(config?.timeout) || 0,
+        30 * 60 * 1000,
+      );
 
       const data = {
         // Multi-server SCA reports are rendered from live API data for every
@@ -176,6 +180,10 @@ export class ReportingService {
         'POST',
         '/reports/modules/sca',
         data,
+        {
+          checkCurrentApiIsUp: false,
+          timeout: reportTimeout,
+        },
       );
 
       this.renderSucessReportsToast({ filename: response.data.filename });
