@@ -1,7 +1,7 @@
 # Fork-compatible Wazuh 4.x Jest workflow.
 # Uses the official Wazuh OpenSearch Dashboards development image instead of
 # Wazuh's private CodeBuild runner.
-name: (4.x) Run unit test
+name: Wazuh 4.x / Tests
 
 permissions:
   contents: read
@@ -19,11 +19,16 @@ on:
       - 4.*
     types: [opened, synchronize, reopened, ready_for_review]
 
+concurrency:
+  group: wazuh-4x-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   focused:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: Requirement-specific SCA tests
+    name: 01 - SCA focused tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,8 +60,10 @@ jobs:
 
   regression:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: Full Jest regression suite
+    needs: focused
+    name: 02 - Full Jest regression
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
