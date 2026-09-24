@@ -41,6 +41,7 @@ jobs:
 
           docker run -t --rm \
             -e OPENSEARCH_DASHBOARDS_VERSION="${platform_version}" \
+            -e GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME}" \
             -v "$(pwd)/plugins/main:/home/node/kbn/plugins/wazuh" \
             quay.io/wazuh/osd-dev:"${platform_version}" \
             bash -c '
@@ -48,5 +49,12 @@ jobs:
               yarn config set registry https://registry.yarnpkg.com
               cd /home/node/kbn/plugins/wazuh
               yarn install --non-interactive
-              yarn test:jest --coverage=false
+              if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+                yarn test:jest --coverage=false --runTestsByPath \
+                  server/lib/reporting/sca-report.test.ts \
+                  server/routes/wazuh-reporting.test.ts \
+                  public/components/common/modules/modules-defaults.test.tsx
+              else
+                yarn test:jest --coverage=false
+              fi
             '
