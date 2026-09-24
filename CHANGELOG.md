@@ -10,6 +10,7 @@ All notable changes to the Wazuh app project will be documented in this file.
 - Added PDF report generation for Security Configuration Assessment [#2090](https://github.com/wazuh/wazuh-dashboard-plugins/issues/2090)
 - Added complete SCA control results and compliance mappings to PDF reports while preserving configured report branding
 - Added multi-server SCA PDF reporting with a selectable server list and one complete section per selected server
+- Changed multi-server SCA PDF collection to read indexed SCA events through OpenSearch, matching the PCI DSS reporting model and avoiding per-agent SCA API rate limits
 - Added sanitization in markdown component [#8713](https://github.com/wazuh/wazuh-dashboard-plugins/pull/8713)
 
 ## Wazuh v4.14.6 - OpenSearch Dashboards 2.19.5 - Revision 02
