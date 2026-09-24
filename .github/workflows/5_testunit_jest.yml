@@ -5,7 +5,7 @@
 #
 # Jest is a third-party software https://jestjs.io/
 
-name: (5.x) Run unit test
+name: Wazuh 5.x / Tests
 permissions:
   pull-requests: write
   id-token: write
@@ -33,14 +33,14 @@ on:
       - 'plugins/**'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: wazuh-5x-tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   # Run unit tests with Jest
   test:
     if: github.event.pull_request.draft == false
-    name: Run unit tests
+    name: Jest regression
     uses: ./.github/workflows/5_builderprecompiled_base-dev-environment.yml
     with:
       reference: ${{ github.event.inputs.reference }}

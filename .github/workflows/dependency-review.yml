@@ -1,40 +1,55 @@
-# 🔒 Dependency Review Workflow
+# Dependency Review Action
 #
-# ⚡ Overview:
-# This GitHub Action scans dependency manifest files modified in a Pull Request (PR)
-# to detect any declared or updated packages with known vulnerabilities.
-#
-# 🚫 Automatic PR Blocking:
-# If this workflow is marked as required, PRs introducing known-vulnerable packages
-# will be blocked from merging, helping maintain a secure codebase.
-#
-# 📚 Resources:
-# - 🗂️ Source repository: https://github.com/actions/dependency-review-action
-# - 📖 Public documentation: https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review#dependency-review-enforcement
-#
-# 🔄 Key Features:
-# - 📝 Scans dependency manifest files for changes in PRs.
-# - 🛡️ Surfaces known-vulnerable versions of dependencies.
-# - 🚨 Automatically blocks insecure dependency additions when configured.
+# Fork-safe behavior:
+# - Skip the GitHub dependency-review API when a PR does not change dependency manifests/lockfiles.
+# - If dependency files do change, keep the official action fail-closed.
+name: Dependency Review
 
-name: 'Dependency Review'
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
+
+concurrency:
+  group: dependency-review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   dependency-review:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     if: github.event.pull_request.draft == false
     steps:
-      - name: 'Checkout Repository'
+      - name: Checkout repository
         uses: actions/checkout@v4
-      - name: 'Dependency Review'
+        with:
+          fetch-depth: 0
+
+      - name: Detect dependency file changes
+        id: dependency_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(
+            git diff --name-only               "${{ github.event.pull_request.base.sha }}"               "${{ github.event.pull_request.head.sha }}"
+          )"
+
+          printf '%s\n' "$changed_files"
+
+          dependency_pattern='(^|/)(package\.json|yarn\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|requirements[^/]*\.txt|Pipfile|Pipfile\.lock|poetry\.lock|pyproject\.toml|pom\.xml|build\.gradle|build\.gradle\.kts|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|composer\.json|composer\.lock|Gemfile|Gemfile\.lock)$'
+
+          if printf '%s\n' "$changed_files" | grep -Eq "$dependency_pattern"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No dependency changes
+        if: steps.dependency_changes.outputs.changed != 'true'
+        run: echo "No dependency manifests or lockfiles changed; dependency review API call is not required."
+
+      - name: Dependency Review
+        if: steps.dependency_changes.outputs.changed == 'true'
         uses: actions/dependency-review-action@v4
