@@ -166,15 +166,30 @@ export async function addScaChecksToReport(
 
     addAgentSectionHeader(printer, agentId, agent, agentIndex > 0);
 
-    const policies = await fetchAllAffectedItems(
-      context,
-      `/sca/${agentId}`,
-      apiId,
-      {
-        sort: '+policy_id',
-        select: 'policy_id,name,score,pass,fail,invalid',
-      },
-    );
+    let policies = [];
+
+    try {
+      policies = await fetchAllAffectedItems(
+        context,
+        `/sca/${agentId}`,
+        apiId,
+        {
+          sort: '+policy_id',
+          select: 'policy_id,name,score,pass,fail,invalid',
+        },
+      );
+    } catch (error) {
+      printer.logger.debug(
+        `Unable to load SCA policies for agent ${agentId}: ${
+          error.message || error
+        }`,
+      );
+      printer.addContentWithNewLine({
+        text: 'Unable to retrieve SCA policies for this server.',
+        style: 'standard',
+      });
+      continue;
+    }
 
     if (!policies.length) {
       printer.addContentWithNewLine({
@@ -186,15 +201,27 @@ export async function addScaChecksToReport(
 
     for (const policy of policies) {
       const policyId = policy.policy_id;
-      const checks = await fetchAllAffectedItems(
-        context,
-        `/sca/${agentId}/checks/${encodeURIComponent(policyId)}`,
-        apiId,
-        {
-          sort: '+id',
-          select: 'id,title,result,compliance.key,compliance.value',
-        },
-      );
+      let checks = [];
+      let checksError = false;
+
+      try {
+        checks = await fetchAllAffectedItems(
+          context,
+          `/sca/${agentId}/checks/${encodeURIComponent(policyId)}`,
+          apiId,
+          {
+            sort: '+id',
+            select: 'id,title,result,compliance.key,compliance.value',
+          },
+        );
+      } catch (error) {
+        checksError = true;
+        printer.logger.debug(
+          `Unable to load SCA checks for agent ${agentId}, policy ${policyId}: ${
+            error.message || error
+          }`,
+        );
+      }
 
       printer.addContentWithNewLine({
         text: policy.name || `Policy ${policyId}`,
@@ -217,6 +244,14 @@ export async function addScaChecksToReport(
           text: summary,
           style: 'standard',
         });
+      }
+
+      if (checksError) {
+        printer.addContentWithNewLine({
+          text: 'Unable to retrieve controls for this policy.',
+          style: 'standard',
+        });
+        continue;
       }
 
       printer.addSimpleTable({
