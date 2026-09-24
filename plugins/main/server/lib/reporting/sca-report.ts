@@ -284,7 +284,7 @@ export async function addScaChecksToReport(
     maxTextLength: 42,
   });
 
-  for (const [agentIndex, agentId] of normalizedAgentIds.entries()) {
+  for (const agentId of normalizedAgentIds) {
     const agent = agentsById.get(agentId);
 
     addAgentSectionHeader(printer, agentId, agent, true);
