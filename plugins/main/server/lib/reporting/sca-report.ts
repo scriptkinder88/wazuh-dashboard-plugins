@@ -1,5 +1,9 @@
 import { ReportPrinter } from './printer';
-import { forEachLatestScaCheck, getScaAgentInventory } from './sca-request';
+import {
+  forEachLatestScaCheck,
+  getLatestScaPolicySummaries,
+  getScaAgentInventory,
+} from './sca-request';
 
 const normalizeAgentIds = (agentIds: string | string[]) => [
   ...new Set(
@@ -174,9 +178,17 @@ export async function addScaChecksToReport(
     normalizedAgentIds,
   );
 
+  const latestPolicySummaries = await getLatestScaPolicySummaries(
+    context,
+    pattern,
+    serverSideQuery,
+    normalizedAgentIds,
+  );
+
   const overallCounters = createPolicyCounters();
   const serverSummaries = new Map<string, any>();
   const policySummaries = new Map<string, any>();
+  const policyInstanceCoverage = new Map<string, any>();
 
   for (const agentId of normalizedAgentIds) {
     const agent = inventory.get(agentId);
@@ -222,6 +234,19 @@ export async function addScaChecksToReport(
       addResultToCounters(serverSummary, result);
       addResultToCounters(overallCounters, result);
 
+      const instanceKey = `${agentId}::${policyKey}`;
+      if (!policyInstanceCoverage.has(instanceKey)) {
+        policyInstanceCoverage.set(instanceKey, {
+          agentId,
+          policyKey,
+          policy,
+          observed: 0,
+          expected: null,
+          status: 'unverified',
+        });
+      }
+      policyInstanceCoverage.get(instanceKey).observed++;
+
       if (!policySummaries.has(policyKey)) {
         policySummaries.set(policyKey, {
           key: policyKey,
@@ -237,10 +262,103 @@ export async function addScaChecksToReport(
     },
   );
 
-  const serversWithData = Array.from(serverSummaries.values()).filter(
-    summary => getCountersTotal(summary) > 0,
+  for (const [instanceKey, latestSummary] of latestPolicySummaries) {
+    if (!policyInstanceCoverage.has(instanceKey)) {
+      policyInstanceCoverage.set(instanceKey, {
+        agentId: latestSummary.agentId,
+        policyKey: latestSummary.policyId,
+        policy: latestSummary.policy || latestSummary.policyId,
+        observed: 0,
+        expected: latestSummary.totalChecks,
+        status: 'unverified',
+      });
+    }
+
+    const coverage = policyInstanceCoverage.get(instanceKey);
+    coverage.expected = latestSummary.totalChecks;
+    coverage.status =
+      typeof latestSummary.totalChecks === 'number'
+        ? coverage.observed === latestSummary.totalChecks
+          ? 'complete'
+          : 'incomplete'
+        : 'unverified';
+
+    if (!policySummaries.has(latestSummary.policyId)) {
+      policySummaries.set(latestSummary.policyId, {
+        key: latestSummary.policyId,
+        policy: latestSummary.policy || latestSummary.policyId,
+        agents: new Set<string>(),
+        ...createPolicyCounters(),
+      });
+    }
+    policySummaries
+      .get(latestSummary.policyId)
+      .agents.add(latestSummary.agentId);
+  }
+
+  const getServerCoverage = (agentId: string) => {
+    const instances = Array.from(policyInstanceCoverage.values()).filter(
+      coverage => coverage.agentId === agentId,
+    );
+
+    if (!instances.length) {
+      return {
+        instances,
+        complete: false,
+        label: 'No indexed SCA data',
+      };
+    }
+
+    const completeCount = instances.filter(
+      coverage => coverage.status === 'complete',
+    ).length;
+    const incompleteCount = instances.filter(
+      coverage => coverage.status === 'incomplete',
+    ).length;
+    const unverifiedCount = instances.length - completeCount - incompleteCount;
+
+    if (completeCount === instances.length) {
+      return {
+        instances,
+        complete: true,
+        label: `Complete (${instances.length} ${
+          instances.length === 1 ? 'policy' : 'policies'
+        })`,
+      };
+    }
+
+    if (incompleteCount) {
+      return {
+        instances,
+        complete: false,
+        label: `Incomplete history (${incompleteCount} ${
+          incompleteCount === 1 ? 'policy' : 'policies'
+        })`,
+      };
+    }
+
+    return {
+      instances,
+      complete: false,
+      label: `Unverified (${unverifiedCount} ${
+        unverifiedCount === 1 ? 'policy' : 'policies'
+      })`,
+    };
+  };
+
+  const serversWithData = normalizedAgentIds.filter(
+    agentId => getServerCoverage(agentId).instances.length > 0,
   ).length;
-  const overallScore = getCountersScore(overallCounters);
+  const verifiedServers = normalizedAgentIds.filter(
+    agentId => getServerCoverage(agentId).complete,
+  ).length;
+  const coverageIssues = normalizedAgentIds.length - verifiedServers;
+  const allSelectedCoverageComplete =
+    normalizedAgentIds.length > 0 &&
+    verifiedServers === normalizedAgentIds.length;
+  const overallScore = allSelectedCoverageComplete
+    ? getCountersScore(overallCounters)
+    : null;
 
   printer.addContent({
     text: 'Security configuration assessment controls',
@@ -250,12 +368,18 @@ export async function addScaChecksToReport(
   });
   printer.addNewLine();
 
+  printer.addContentWithNewLine({
+    text: 'Indexed SCA state is reconstructed from check events and verified against the latest scan total_checks. Scores are withheld when coverage is incomplete or unverified.',
+    style: 'standard',
+  });
+
   printer.addSimpleTable({
     title: 'Grouped SCA result',
     columns: [
       { id: 'selected', label: 'Selected' },
-      { id: 'withData', label: 'With SCA data' },
-      { id: 'withoutData', label: 'Without data' },
+      { id: 'withData', label: 'With data' },
+      { id: 'verified', label: 'Verified' },
+      { id: 'coverageIssues', label: 'Coverage issues' },
       { id: 'controls', label: 'Controls' },
       { id: 'passed', label: 'Passed' },
       { id: 'failed', label: 'Failed' },
@@ -266,7 +390,8 @@ export async function addScaChecksToReport(
       {
         selected: normalizedAgentIds.length,
         withData: serversWithData,
-        withoutData: normalizedAgentIds.length - serversWithData,
+        verified: verifiedServers,
+        coverageIssues,
         controls: getCountersTotal(overallCounters),
         passed: overallCounters.passed,
         failed: overallCounters.failed,
@@ -274,7 +399,7 @@ export async function addScaChecksToReport(
         score: overallScore === null ? '-' : `${overallScore}%`,
       },
     ],
-    widths: [55, 70, 70, 65, 55, 55, 55, 55],
+    widths: [50, 55, 55, 75, 60, 50, 50, 50, 50],
     fontSize: 7,
     maxTextLength: 24,
   });
@@ -294,7 +419,8 @@ export async function addScaChecksToReport(
     items: normalizedAgentIds.map(agentId => {
       const summary = serverSummaries.get(agentId);
       const controls = getCountersTotal(summary);
-      const score = getCountersScore(summary);
+      const coverage = getServerCoverage(agentId);
+      const score = coverage.complete ? getCountersScore(summary) : null;
 
       return {
         id: agentId,
@@ -304,7 +430,7 @@ export async function addScaChecksToReport(
         failed: summary?.failed || 0,
         notApplicable: summary?.notApplicable || 0,
         controls,
-        sca: controls ? 'Available' : 'No indexed SCA data',
+        sca: coverage.label,
       };
     }),
     widths: [42, 150, 52, 52, 52, 52, 60, '*'],
@@ -322,12 +448,21 @@ export async function addScaChecksToReport(
         { id: 'passed', label: 'Passed' },
         { id: 'failed', label: 'Failed' },
         { id: 'notApplicable', label: 'N/A' },
+        { id: 'coverage', label: 'Coverage' },
         { id: 'score', label: 'Score' },
       ],
       items: Array.from(policySummaries.values())
         .sort((a, b) => String(a.policy).localeCompare(String(b.policy)))
         .map(summary => {
-          const score = getCountersScore(summary);
+          const instances = Array.from(policyInstanceCoverage.values()).filter(
+            coverage => coverage.policyKey === summary.key,
+          );
+          const completeInstances = instances.filter(
+            coverage => coverage.status === 'complete',
+          ).length;
+          const complete =
+            instances.length > 0 && completeInstances === instances.length;
+          const score = complete ? getCountersScore(summary) : null;
 
           return {
             policy: summary.policy,
@@ -336,10 +471,11 @@ export async function addScaChecksToReport(
             passed: summary.passed,
             failed: summary.failed,
             notApplicable: summary.notApplicable,
+            coverage: `${completeInstances}/${instances.length} complete`,
             score: score === null ? '-' : `${score}%`,
           };
         }),
-      widths: ['*', 55, 60, 55, 55, 55, 55],
+      widths: ['*', 48, 55, 48, 48, 48, 80, 48],
       fontSize: 7,
       maxTextLength: 44,
     });
@@ -367,7 +503,11 @@ export async function addScaChecksToReport(
       return;
     }
 
-    const score = getCountersScore(counters);
+    const coverage = policyInstanceCoverage.get(
+      `${activeAgentId}::${activePolicyKey}`,
+    );
+    const coverageComplete = coverage?.status === 'complete';
+    const score = coverageComplete ? getCountersScore(counters) : null;
 
     printer.addContentWithNewLine({
       text:
@@ -376,7 +516,15 @@ export async function addScaChecksToReport(
       style: 'h3',
     });
 
+    const coverageText =
+      coverage?.status === 'complete'
+        ? `Coverage: Complete (${coverage.observed}/${coverage.expected} checks)`
+        : coverage?.status === 'incomplete'
+        ? `Coverage: Incomplete (${coverage.observed}/${coverage.expected} checks)`
+        : 'Coverage: Unverified (no indexed scan summary)';
+
     const summary = [
+      coverageText,
       score !== null ? `Score: ${score}%` : '',
       `Passed: ${counters.passed}`,
       `Failed: ${counters.failed}`,
