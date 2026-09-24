@@ -249,9 +249,7 @@ export async function addScaChecksToReport(
     normalizedAgentIds,
     ({ key, source }) => {
       const agentId = String(key?.agent_id || source?.agent?.id || '');
-      const policy = String(
-        source?.data?.sca?.policy || 'Unknown SCA policy',
-      );
+      const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
       const policyKey = String(
         key?.policy_id || source?.data?.sca?.policy_id || policy,
       );
