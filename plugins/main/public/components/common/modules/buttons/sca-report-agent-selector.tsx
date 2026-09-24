@@ -135,7 +135,10 @@ export const ScaReportAgentSelector = ({
 
   const selectFilteredAgents = () => {
     setSelectedAgentIds(current => [
-      ...new Set([...current, ...filteredAgents.map(agent => String(agent.id))]),
+      ...new Set([
+        ...current,
+        ...filteredAgents.map(agent => String(agent.id)),
+      ]),
     ]);
   };
 
