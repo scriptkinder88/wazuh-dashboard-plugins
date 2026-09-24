@@ -49,7 +49,9 @@ export const buildScaMultiServerReportContext = (
     SCA_REPORT_FILTER_CONTROLLED_BY,
   );
 
-  selectedAgentsFilter.meta.alias = `Selected servers (${normalizedAgentIds.length})`;
+  selectedAgentsFilter.meta.alias = `Selected servers (${
+    normalizedAgentIds.length
+  })`;
 
   return {
     ...context,
