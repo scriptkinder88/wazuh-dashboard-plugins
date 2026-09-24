@@ -127,6 +127,29 @@ const createPolicyCounters = () => ({
   other: 0,
 });
 
+const addResultToCounters = (counters, result: string) => {
+  if (result === 'Passed') {
+    counters.passed++;
+  } else if (result === 'Failed') {
+    counters.failed++;
+  } else if (result === 'Not applicable') {
+    counters.notApplicable++;
+  } else {
+    counters.other++;
+  }
+};
+
+const getCountersTotal = counters =>
+  counters.passed + counters.failed + counters.notApplicable + counters.other;
+
+const getCountersScore = counters => {
+  const denominator = counters.passed + counters.failed;
+
+  return denominator > 0
+    ? Math.round((counters.passed / denominator) * 100)
+    : null;
+};
+
 export async function addScaChecksToReport(
   context,
   printer: ReportPrinter,
@@ -151,6 +174,74 @@ export async function addScaChecksToReport(
     normalizedAgentIds,
   );
 
+  const overallCounters = createPolicyCounters();
+  const serverSummaries = new Map<string, any>();
+  const policySummaries = new Map<string, any>();
+
+  for (const agentId of normalizedAgentIds) {
+    const agent = inventory.get(agentId);
+    serverSummaries.set(agentId, {
+      id: agentId,
+      name: agent?.name || 'Unknown server',
+      ip: agent?.ip || '-',
+      ...createPolicyCounters(),
+    });
+  }
+
+  await forEachLatestScaCheck(
+    context,
+    pattern,
+    serverSideQuery,
+    normalizedAgentIds,
+    ({ key, source }) => {
+      const agentId = String(key?.agent_id || source?.agent?.id || '');
+      const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
+      const policyKey = String(
+        key?.policy_id || source?.data?.sca?.policy_id || policy,
+      );
+      const rawResult =
+        source?.data?.sca?.check?.result ||
+        source?.data?.sca?.check?.status ||
+        '-';
+      const result = formatResult(rawResult);
+
+      if (!agentId) {
+        return;
+      }
+
+      if (!serverSummaries.has(agentId)) {
+        serverSummaries.set(agentId, {
+          id: agentId,
+          name: source?.agent?.name || 'Unknown server',
+          ip: source?.agent?.ip || '-',
+          ...createPolicyCounters(),
+        });
+      }
+
+      const serverSummary = serverSummaries.get(agentId);
+      addResultToCounters(serverSummary, result);
+      addResultToCounters(overallCounters, result);
+
+      if (!policySummaries.has(policyKey)) {
+        policySummaries.set(policyKey, {
+          key: policyKey,
+          policy,
+          agents: new Set<string>(),
+          ...createPolicyCounters(),
+        });
+      }
+
+      const policySummary = policySummaries.get(policyKey);
+      policySummary.agents.add(agentId);
+      addResultToCounters(policySummary, result);
+    },
+  );
+
+  const serversWithData = Array.from(serverSummaries.values()).filter(
+    summary => getCountersTotal(summary) > 0,
+  ).length;
+  const overallScore = getCountersScore(overallCounters);
+
   printer.addContent({
     text: 'Security configuration assessment controls',
     style: 'h1',
@@ -160,27 +251,107 @@ export async function addScaChecksToReport(
   printer.addNewLine();
 
   printer.addSimpleTable({
-    title: `Selected servers (${normalizedAgentIds.length})`,
+    title: 'Grouped SCA result',
+    columns: [
+      { id: 'selected', label: 'Selected' },
+      { id: 'withData', label: 'With SCA data' },
+      { id: 'withoutData', label: 'Without data' },
+      { id: 'controls', label: 'Controls' },
+      { id: 'passed', label: 'Passed' },
+      { id: 'failed', label: 'Failed' },
+      { id: 'notApplicable', label: 'N/A' },
+      { id: 'score', label: 'Score' },
+    ],
+    items: [
+      {
+        selected: normalizedAgentIds.length,
+        withData: serversWithData,
+        withoutData: normalizedAgentIds.length - serversWithData,
+        controls: getCountersTotal(overallCounters),
+        passed: overallCounters.passed,
+        failed: overallCounters.failed,
+        notApplicable: overallCounters.notApplicable,
+        score: overallScore === null ? '-' : `${overallScore}%`,
+      },
+    ],
+    widths: [55, 70, 70, 65, 55, 55, 55, 55],
+    fontSize: 7,
+    maxTextLength: 24,
+  });
+
+  printer.addSimpleTable({
+    title: `Selected server results (${normalizedAgentIds.length})`,
     columns: [
       { id: 'id', label: 'ID' },
       { id: 'name', label: 'Server' },
-      { id: 'ip', label: 'IP address' },
+      { id: 'score', label: 'Score' },
+      { id: 'passed', label: 'Passed' },
+      { id: 'failed', label: 'Failed' },
+      { id: 'notApplicable', label: 'N/A' },
+      { id: 'controls', label: 'Controls' },
       { id: 'sca', label: 'Indexed SCA data' },
     ],
     items: normalizedAgentIds.map(agentId => {
-      const agent = inventory.get(agentId);
+      const summary = serverSummaries.get(agentId);
+      const controls = getCountersTotal(summary);
+      const score = getCountersScore(summary);
 
       return {
         id: agentId,
-        name: agent?.name || 'Unknown server',
-        ip: agent?.ip || '-',
-        sca: agent ? 'Available' : 'No indexed SCA data',
+        name: summary?.name || 'Unknown server',
+        score: score === null ? '-' : `${score}%`,
+        passed: summary?.passed || 0,
+        failed: summary?.failed || 0,
+        notApplicable: summary?.notApplicable || 0,
+        controls,
+        sca: controls ? 'Available' : 'No indexed SCA data',
       };
     }),
-    widths: [45, 210, 110, '*'],
+    widths: [42, 150, 52, 52, 52, 52, 60, '*'],
     fontSize: 7,
-    maxTextLength: 40,
+    maxTextLength: 32,
   });
+
+  if (policySummaries.size) {
+    printer.addSimpleTable({
+      title: `Grouped by policy (${policySummaries.size})`,
+      columns: [
+        { id: 'policy', label: 'Policy' },
+        { id: 'servers', label: 'Servers' },
+        { id: 'controls', label: 'Controls' },
+        { id: 'passed', label: 'Passed' },
+        { id: 'failed', label: 'Failed' },
+        { id: 'notApplicable', label: 'N/A' },
+        { id: 'score', label: 'Score' },
+      ],
+      items: Array.from(policySummaries.values())
+        .sort((a, b) => String(a.policy).localeCompare(String(b.policy)))
+        .map(summary => {
+          const score = getCountersScore(summary);
+
+          return {
+            policy: summary.policy,
+            servers: summary.agents.size,
+            controls: getCountersTotal(summary),
+            passed: summary.passed,
+            failed: summary.failed,
+            notApplicable: summary.notApplicable,
+            score: score === null ? '-' : `${score}%`,
+          };
+        }),
+      widths: ['*', 55, 60, 55, 55, 55, 55],
+      fontSize: 7,
+      maxTextLength: 44,
+    });
+  }
+
+  printer.addContent({
+    text: 'Detailed results by selected server',
+    style: 'h2',
+    pageBreak: 'before',
+    pageOrientation: 'landscape',
+  });
+  printer.addNewLine();
 
   const seenAgents = new Set<string>();
   let activeAgentId = '';
@@ -196,11 +367,7 @@ export async function addScaChecksToReport(
       return;
     }
 
-    const denominator = counters.passed + counters.failed;
-    const score =
-      denominator > 0
-        ? Math.round((counters.passed / denominator) * 100)
-        : null;
+    const score = getCountersScore(counters);
 
     printer.addContentWithNewLine({
       text:
@@ -293,15 +460,7 @@ export async function addScaChecksToReport(
         '-';
       const result = formatResult(rawResult);
 
-      if (result === 'Passed') {
-        counters.passed++;
-      } else if (result === 'Failed') {
-        counters.failed++;
-      } else if (result === 'Not applicable') {
-        counters.notApplicable++;
-      } else {
-        counters.other++;
-      }
+      addResultToCounters(counters, result);
 
       activeItems.push({
         id: String(key?.check_id || source?.data?.sca?.check?.id || '-'),
