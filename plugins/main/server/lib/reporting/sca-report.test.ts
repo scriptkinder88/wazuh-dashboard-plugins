@@ -10,6 +10,9 @@ const createPrinter = () => ({
   addNewLine: jest.fn().mockReturnThis(),
 });
 
+const policyId = (policy: string) =>
+  policy.toLowerCase().replace(/\s+/g, '_');
+
 const inventoryBucket = (id: string) => ({
   key: id,
   latest: {
@@ -30,6 +33,46 @@ const inventoryBucket = (id: string) => ({
   },
 });
 
+const summaryBucket = (
+  agentId: string,
+  policy: string,
+  totalChecks: number,
+  passed = 0,
+  failed = 0,
+  invalid = 0,
+) => ({
+  key: {
+    agent_id: agentId,
+    policy_id: policyId(policy),
+  },
+  latest: {
+    hits: {
+      hits: [
+        {
+          _source: {
+            timestamp: '2026-09-24T10:00:00.000Z',
+            agent: {
+              id: agentId,
+              name: `server-${agentId}`,
+            },
+            data: {
+              sca: {
+                policy,
+                policy_id: policyId(policy),
+                total_checks: totalChecks,
+                passed,
+                failed,
+                invalid,
+                scan_id: 42,
+              },
+            },
+          },
+        },
+      ],
+    },
+  },
+});
+
 const checkBucket = (
   agentId: string,
   policy: string,
@@ -39,7 +82,7 @@ const checkBucket = (
 ) => ({
   key: {
     agent_id: agentId,
-    policy_id: policy.toLowerCase().replace(/\s+/g, '_'),
+    policy_id: policyId(policy),
     check_id: checkId,
   },
   latest: {
@@ -56,7 +99,7 @@ const checkBucket = (
             data: {
               sca: {
                 policy,
-                policy_id: policy.toLowerCase().replace(/\s+/g, '_'),
+                policy_id: policyId(policy),
                 check: {
                   id: checkId,
                   title: `Control ${checkId}`,
@@ -72,7 +115,11 @@ const checkBucket = (
   },
 });
 
-const buildContext = (inventoryBuckets: any[], checkBuckets: any[]) => {
+const buildContext = (
+  inventoryBuckets: any[],
+  checkBuckets: any[],
+  summaryBuckets: any[] = [],
+) => {
   const search = jest.fn(async request => {
     if (request.body.aggs.sca_agents) {
       return {
@@ -80,6 +127,18 @@ const buildContext = (inventoryBuckets: any[], checkBuckets: any[]) => {
           aggregations: {
             sca_agents: {
               buckets: inventoryBuckets,
+            },
+          },
+        },
+      };
+    }
+
+    if (request.body.aggs.sca_policy_summaries) {
+      return {
+        body: {
+          aggregations: {
+            sca_policy_summaries: {
+              buckets: summaryBuckets,
             },
           },
         },
@@ -118,17 +177,19 @@ const buildContext = (inventoryBuckets: any[], checkBuckets: any[]) => {
 };
 
 describe('SCA indexed report controls', () => {
-  it('renders current indexed controls with constrained landscape columns', async () => {
+  it('renders verified indexed controls with constrained landscape columns', async () => {
+    const policy = 'CIS Linux benchmark';
     const { context, search } = buildContext(
       [inventoryBucket('003')],
       [
-        checkBucket('003', 'CIS Linux benchmark', '1', 'failed', {
+        checkBucket('003', policy, '1', 'failed', {
           cis: '1.1.1',
           pci_dss_v4: { 0: '2.2.1,2.2.2' },
         }),
-        checkBucket('003', 'CIS Linux benchmark', '2', 'not applicable'),
-        checkBucket('003', 'CIS Linux benchmark', '3', 'passed'),
+        checkBucket('003', policy, '2', 'not applicable'),
+        checkBucket('003', policy, '3', 'passed'),
       ],
+      [summaryBucket('003', policy, 3, 1, 1, 1)],
     );
     const printer = createPrinter();
 
@@ -140,12 +201,19 @@ describe('SCA indexed report controls', () => {
       { bool: { must: [], filter: [] } },
     );
 
-    expect(search).toHaveBeenCalledTimes(3);
+    expect(search).toHaveBeenCalledTimes(4);
     expect(printer.addContent).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'Security configuration assessment controls',
         pageBreak: 'before',
         pageOrientation: 'landscape',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          'verified against the latest scan total_checks',
+        ),
       }),
     );
 
@@ -162,7 +230,8 @@ describe('SCA indexed report controls', () => {
     expect(grouped.items[0]).toEqual({
       selected: 1,
       withData: 1,
-      withoutData: 0,
+      verified: 1,
+      coverageIssues: 0,
       controls: 3,
       passed: 1,
       failed: 1,
@@ -178,17 +247,18 @@ describe('SCA indexed report controls', () => {
         failed: 1,
         notApplicable: 1,
         controls: 3,
-        sca: 'Available',
+        sca: 'Complete (1 policy)',
       }),
     );
     expect(policyResults.items[0]).toEqual(
       expect.objectContaining({
-        policy: 'CIS Linux benchmark',
+        policy,
         servers: 1,
         controls: 3,
         passed: 1,
         failed: 1,
         notApplicable: 1,
+        coverage: '1/1 complete',
         score: '50%',
       }),
     );
@@ -207,17 +277,24 @@ describe('SCA indexed report controls', () => {
     expect(controls.items[2].result).toBe('Passed');
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text: 'Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
+      text:
+        'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
       style: 'standard',
     });
   });
 
-  it('creates one section for every selected server from a single indexed stream', async () => {
+  it('creates one verified section for every selected server from indexed streams', async () => {
+    const linux = 'CIS Linux';
+    const windows = 'CIS Windows';
     const { context, search } = buildContext(
       [inventoryBucket('003'), inventoryBucket('004')],
       [
-        checkBucket('003', 'CIS Linux', '1', 'passed'),
-        checkBucket('004', 'CIS Windows', '2', 'failed'),
+        checkBucket('003', linux, '1', 'passed'),
+        checkBucket('004', windows, '2', 'failed'),
+      ],
+      [
+        summaryBucket('003', linux, 1, 1, 0, 0),
+        summaryBucket('004', windows, 1, 0, 1, 0),
       ],
     );
     const printer = createPrinter();
@@ -230,7 +307,7 @@ describe('SCA indexed report controls', () => {
       { bool: { must: [], filter: [] } },
     );
 
-    expect(search).toHaveBeenCalledTimes(3);
+    expect(search).toHaveBeenCalledTimes(4);
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
     const serverResults = tables.find(
@@ -244,14 +321,14 @@ describe('SCA indexed report controls', () => {
         name: 'server-003',
         score: '100%',
         controls: 1,
-        sca: 'Available',
+        sca: 'Complete (1 policy)',
       }),
       expect.objectContaining({
         id: '004',
         name: 'server-004',
         score: '0%',
         controls: 1,
-        sca: 'Available',
+        sca: 'Complete (1 policy)',
       }),
     ]);
     expect(controls).toHaveLength(2);
@@ -275,10 +352,98 @@ describe('SCA indexed report controls', () => {
     });
   });
 
-  it('keeps selected servers with no indexed SCA controls visible in the report', async () => {
+  it('withholds scores when indexed history has fewer checks than the latest scan summary', async () => {
+    const policy = 'CIS Linux';
     const { context } = buildContext(
       [inventoryBucket('003')],
-      [checkBucket('003', 'CIS Linux', '1', 'passed')],
+      [checkBucket('003', policy, '1', 'passed')],
+      [summaryBucket('003', policy, 2, 1, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    const grouped = tables.find(table => table.title === 'Grouped SCA result');
+    const serverResults = tables.find(
+      table => table.title === 'Selected server results (1)',
+    );
+    const policyResults = tables.find(
+      table => table.title === 'Grouped by policy (1)',
+    );
+
+    expect(grouped.items[0]).toEqual(
+      expect.objectContaining({
+        verified: 0,
+        coverageIssues: 1,
+        score: '-',
+      }),
+    );
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        score: '-',
+        sca: 'Incomplete history (1 policy)',
+      }),
+    );
+    expect(policyResults.items[0]).toEqual(
+      expect.objectContaining({
+        coverage: '0/1 complete',
+        score: '-',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text:
+        'Coverage: Incomplete (1/2 checks) | Passed: 1 | Failed: 0 | Not applicable: 0',
+      style: 'standard',
+    });
+  });
+
+  it('marks reconstructed checks unverified when no indexed scan summary exists', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [checkBucket('003', policy, '1', 'passed')],
+      [],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const serverResults = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Selected server results (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        score: '-',
+        sca: 'Unverified (1 policy)',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text:
+        'Coverage: Unverified (no indexed scan summary) | Passed: 1 | Failed: 0 | Not applicable: 0',
+      style: 'standard',
+    });
+  });
+
+  it('keeps selected servers with no indexed SCA data visible in the report', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [checkBucket('003', policy, '1', 'passed')],
+      [summaryBucket('003', policy, 1, 1, 0, 0)],
     );
     const printer = createPrinter();
 
