@@ -71,6 +71,7 @@ describe('SCA multi-server report wiring', () => {
     expect(scaSource).toContain('isRateLimitError');
     expect(scaSource).toContain("agents_list: agentBatch.join(',')");
     expect(scaSource).toContain("widths: [42, 72, '*', 220]");
+    expect(scaSource).toContain("pageOrientation: 'landscape'");
 
     expect(printerSource).toContain('widths: requestedWidths');
     expect(printerSource).toContain('maxTextLength = 60');
