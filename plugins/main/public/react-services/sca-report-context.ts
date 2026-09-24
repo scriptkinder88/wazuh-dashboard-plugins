@@ -1,7 +1,4 @@
-import {
-  FILTER_OPERATOR,
-  PatternDataSourceFilterManager,
-} from '../components/common/data-source/pattern/pattern-data-source-filter-manager';
+import { FilterStateStore } from '../../common/constants';
 
 export const SCA_REPORT_AGENT_FIELD = 'wazuh.agent.id';
 export const SCA_REPORT_FILTER_CONTROLLED_BY = 'sca-report-selected-agents';
@@ -15,6 +12,28 @@ export const normalizeScaReportAgentIds = (
       .map(agentId => String(agentId)),
   ),
 ];
+
+export const buildScaReportAgentFilter = (
+  agentIds: string[],
+  indexPatternId: string,
+) => ({
+  meta: {
+    alias: `Selected servers (${agentIds.length})`,
+    disabled: false,
+    key: SCA_REPORT_AGENT_FIELD,
+    value: `${agentIds.length} selected`,
+    negate: false,
+    type: 'custom',
+    index: indexPatternId,
+    controlledBy: SCA_REPORT_FILTER_CONTROLLED_BY,
+  },
+  query: {
+    terms: {
+      [SCA_REPORT_AGENT_FIELD]: agentIds,
+    },
+  },
+  $state: { store: FilterStateStore.APP_STATE },
+});
 
 export const buildScaMultiServerReportContext = (
   context: any,
@@ -43,17 +62,10 @@ export const buildScaMultiServerReportContext = (
       filter?.meta?.controlledBy !== SCA_REPORT_FILTER_CONTROLLED_BY,
   );
 
-  const selectedAgentsFilter = PatternDataSourceFilterManager.createFilter(
-    FILTER_OPERATOR.IS_ONE_OF,
-    SCA_REPORT_AGENT_FIELD,
+  const selectedAgentsFilter = buildScaReportAgentFilter(
     normalizedAgentIds,
     indexPatternId,
-    SCA_REPORT_FILTER_CONTROLLED_BY,
   );
-
-  selectedAgentsFilter.meta.alias = `Selected servers (${
-    normalizedAgentIds.length
-  }): ${normalizedAgentIds.join(', ')}`;
 
   return {
     ...context,
