@@ -18,7 +18,7 @@ export const Dashboard = props => {
     props.dataSource.dataSource?.getPinnedAgentFilter()?.length,
   );
 
-  // This is not used by the SCA dashboard.
+  // Share the current dashboard search context with the Reporting plugin.
   useReportingCommunicateSearchContext({
     isSearching: props.dataSource.dataSource.isLoading,
     totalResults: props.dataSourceAction?.data?.hits?.total ?? 0,
@@ -26,6 +26,8 @@ export const Dashboard = props => {
     dashboardSavedObjectId: hasPinnedAgent
       ? props.getDashboardPanels[0].agentDashboardId
       : props.getDashboardPanels[0].dashboardId,
+    overviewDashboardSavedObjectId: props.getDashboardPanels[0].dashboardId,
+    agentDashboardSavedObjectId: props.getDashboardPanels[0].agentDashboardId,
     filters: props.dataSource.fetchFilters,
     query: props.dataSource.query,
     time: {
