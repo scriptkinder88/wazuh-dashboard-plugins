@@ -292,30 +292,10 @@ export async function forEachLatestScaCheck(
   onCheck: (entry: { key: any; source: any }) => Promise<void> | void,
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
-  const currentScanIds = [
-    ...new Set(
-      Array.from(latestPolicySummaries.values())
-        .map(summary => summary?.scanId)
-        .filter(
-          scanId =>
-            scanId !== null &&
-            typeof scanId !== 'undefined' &&
-            String(scanId) !== '',
-        ),
-    ),
-  ];
 
-  if (!normalizedAgentIds.length || !currentScanIds.length) {
+  if (!normalizedAgentIds.length) {
     return;
   }
-
-  const query = buildScaIndexQuery(serverSideQuery, normalizedAgentIds) as any;
-
-  query.bool.filter.push({
-    terms: {
-      'data.sca.scan_id': currentScanIds,
-    },
-  });
 
   let afterKey: any = undefined;
 
@@ -338,13 +318,6 @@ export async function forEachLatestScaCheck(
           },
         },
         {
-          scan_id: {
-            terms: {
-              field: 'data.sca.scan_id',
-            },
-          },
-        },
-        {
           check_id: {
             terms: {
               field: 'data.sca.check.id',
@@ -362,7 +335,7 @@ export async function forEachLatestScaCheck(
       index: pattern,
       body: {
         size: 0,
-        query,
+        query: buildScaIndexQuery(serverSideQuery, normalizedAgentIds),
         aggs: {
           sca_checks: {
             composite,
@@ -416,17 +389,16 @@ export async function forEachLatestScaCheck(
           source?.data?.sca?.policy_id ||
           '',
       );
-      const scanId =
-        bucket?.key?.scan_id ?? source?.data?.sca?.scan_id ?? undefined;
       const latestSummary = latestPolicySummaries.get(
         `${agentId}::${policyKey}`,
       );
+      const checkScanId = source?.data?.sca?.scan_id;
 
       if (
-        !latestSummary ||
-        latestSummary.scanId === null ||
-        typeof latestSummary.scanId === 'undefined' ||
-        String(scanId) !== String(latestSummary.scanId)
+        latestSummary &&
+        latestSummary.scanId !== null &&
+        typeof latestSummary.scanId !== 'undefined' &&
+        String(checkScanId) !== String(latestSummary.scanId)
       ) {
         continue;
       }
