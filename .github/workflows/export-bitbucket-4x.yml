@@ -1,0 +1,127 @@
+name: Export Bitbucket 4.x migration package
+
+on:
+  push:
+    branches:
+      - ops/bitbucket-export-4x-v11
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout validated 4.14.7 source
+        uses: actions/checkout@v4
+        with:
+          ref: 1517daa4bec1756c890800a770880ac6d35da2c3
+          fetch-depth: 0
+
+      - name: Fetch custom release tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in             v4.14.7-sca-pdf.7             v4.14.7-sca-pdf.8             v4.14.7-sca-pdf.9             v4.14.7-sca-pdf.10
+          do
+            git fetch origin "refs/tags/$tag:refs/tags/$tag" || true
+          done
+
+      - name: Build migration package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          OUT="$RUNNER_TEMP/bitbucket-export"
+          PKG="$OUT/package"
+          mkdir -p "$PKG"
+
+          SOURCE_SHA="1517daa4bec1756c890800a770880ac6d35da2c3"
+
+          git branch -f bitbucket-main "$SOURCE_SHA"
+
+          git archive             --format=zip             --prefix=wazuh-dashboard-plugins-4x/             "$SOURCE_SHA"             > "$PKG/wazuh-dashboard-plugins-4x-source.zip"
+
+          refs=(bitbucket-main)
+          for tag in             v4.14.7-sca-pdf.7             v4.14.7-sca-pdf.8             v4.14.7-sca-pdf.9             v4.14.7-sca-pdf.10
+          do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              refs+=("$tag")
+            fi
+          done
+
+          git bundle create             "$PKG/wazuh-dashboard-plugins-4x.bundle"             "${refs[@]}"
+
+          cat > "$PKG/IMPORT_TO_BITBUCKET.md" <<'EOF'
+          # Import into internal Bitbucket
+
+          Target:
+          - Project: Wazuh Reporting & Compliance
+          - Project key: WRC
+          - Repository: wazuh-dashboard-plugins-4x
+          - Default branch: main
+
+          Recommended import preserving Git history:
+
+              unzip wazuh-dashboard-plugins-4x-bitbucket-migration.zip
+              git clone wazuh-dashboard-plugins-4x.bundle wazuh-dashboard-plugins-4x
+              cd wazuh-dashboard-plugins-4x
+              git branch -M main
+              git remote remove origin
+              git remote add origin <BITBUCKET_REPOSITORY_CLONE_URL>
+              git push -u origin main
+              git push origin --tags
+
+          The source ZIP is also included for inspection or a clean snapshot import.
+
+          Do not remove the GitHub 4.x source until the Bitbucket push has been
+          verified and the internal repository contains the expected history and files.
+          EOF
+
+          cat > "$PKG/MANIFEST.txt" <<EOF
+          Repository: scriptkinder88/wazuh-dashboard-plugins
+          Exported line: 4.14.7 customized reporting
+          Source commit: $SOURCE_SHA
+          Validated PR: #30
+          CI gates before merge:
+          - Dependency Review: success
+          - Prettier: success
+          - Requirement-specific SCA tests: success
+          - Full Jest regression suite: success
+          - Wazuh Core build: success
+          - Wazuh Check Updates build: success
+          - Main build: success
+          - Package tests: success
+
+          Included:
+          - Source snapshot ZIP
+          - Git bundle preserving 4.x branch history
+          - Custom release tags v4.14.7-sca-pdf.7 through .10 when available
+          - Bitbucket import instructions
+
+          Runtime note:
+          v10 was visually/runtime validated on ITTEST.
+          v11 fixes the stale-scan coverage issue and improves PDF readability.
+          A final ITTEST runtime acceptance of v11 remains recommended before PROD.
+          EOF
+
+          (
+            cd "$PKG"
+            sha256sum               wazuh-dashboard-plugins-4x-source.zip               wazuh-dashboard-plugins-4x.bundle               > SHA256SUMS
+          )
+
+          (
+            cd "$PKG"
+            zip -9 -r "$OUT/wazuh-dashboard-plugins-4x-bitbucket-migration.zip"               wazuh-dashboard-plugins-4x-source.zip               wazuh-dashboard-plugins-4x.bundle               IMPORT_TO_BITBUCKET.md               MANIFEST.txt               SHA256SUMS
+          )
+
+          unzip -tq "$OUT/wazuh-dashboard-plugins-4x-bitbucket-migration.zip"
+          ls -lh "$OUT/wazuh-dashboard-plugins-4x-bitbucket-migration.zip"
+
+      - name: Upload migration package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-dashboard-plugins-4x-bitbucket-migration
+          path: ${{ runner.temp }}/bitbucket-export/wazuh-dashboard-plugins-4x-bitbucket-migration.zip
+          if-no-files-found: error
