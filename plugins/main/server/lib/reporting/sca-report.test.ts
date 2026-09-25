@@ -308,14 +308,15 @@ describe('SCA indexed report controls', () => {
       'description',
       'compliance',
     ]);
-    expect(controls.widths).toEqual([36, 48, 126, 120, 154, 160, 128]);
-    expect(
-      controls.widths.reduce((total, width) => total + width, 0),
-    ).toBeLessThanOrEqual(772);
-    expect(controls.fontSize).toBe(6.25);
+    expect(controls.widths).toEqual([32, 44, 110, 108, 142, 152, 142]);
+    const effectiveTableWidth =
+      controls.widths.reduce((total, width) => total + width, 0) +
+      controls.columns.length * controls.cellPadding * 2;
+    expect(effectiveTableWidth).toBeLessThanOrEqual(761);
+    expect(controls.fontSize).toBe(6.5);
     expect(controls.maxTextLength).toBe(34);
-    expect(controls.margin).toEqual([-20, 0, -20, 0]);
-    expect(controls.cellPadding).toBe(2);
+    expect(controls.margin).toBeUndefined();
+    expect(controls.cellPadding).toBe(1);
     expect(controls.columns[controls.columns.length - 1].id).toBe('compliance');
     expect(controls.items[0]).toEqual({
       id: '1',
