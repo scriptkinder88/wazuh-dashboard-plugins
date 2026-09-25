@@ -72,9 +72,7 @@ describe('SCA multi-server report wiring', () => {
 
     expect(scaSource).toContain('forEachLatestScaCheck');
     expect(scaSource).toContain('getScaAgentInventory');
-    expect(scaSource).toContain(
-      'widths: [36, 48, 124, 118, 148, 148, 140]',
-    );
+    expect(scaSource).toContain('widths: [36, 48, 124, 118, 148, 148, 140]');
     expect(scaSource).toContain("{ id: 'rationale', label: 'Rationale' }");
     expect(scaSource).toContain("{ id: 'remediation', label: 'Remediation' }");
     expect(scaSource).toContain("{ id: 'description', label: 'Description' }");
