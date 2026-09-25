@@ -209,7 +209,10 @@ export async function addScaChecksToReport(
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
       const policyKey = String(
-        key?.policy_id || source?.data?.sca?.policy_id || policy,
+        key?.policy ||
+          source?.data?.sca?.policy ||
+          source?.data?.sca?.policy_id ||
+          policy,
       );
       const rawResult =
         source?.data?.sca?.check?.result ||
@@ -269,8 +272,8 @@ export async function addScaChecksToReport(
     if (!policyInstanceCoverage.has(instanceKey)) {
       policyInstanceCoverage.set(instanceKey, {
         agentId: latestSummary.agentId,
-        policyKey: latestSummary.policyId,
-        policy: latestSummary.policy || latestSummary.policyId,
+        policyKey: latestSummary.policyKey,
+        policy: latestSummary.policy || latestSummary.policyKey,
         observed: 0,
         expected: latestSummary.totalChecks,
         status: 'unverified',
@@ -292,16 +295,16 @@ export async function addScaChecksToReport(
           : 'incomplete'
         : 'unverified';
 
-    if (!policySummaries.has(latestSummary.policyId)) {
-      policySummaries.set(latestSummary.policyId, {
-        key: latestSummary.policyId,
-        policy: latestSummary.policy || latestSummary.policyId,
+    if (!policySummaries.has(latestSummary.policyKey)) {
+      policySummaries.set(latestSummary.policyKey, {
+        key: latestSummary.policyKey,
+        policy: latestSummary.policy || latestSummary.policyKey,
         agents: new Set<string>(),
         ...createPolicyCounters(),
       });
     }
     policySummaries
-      .get(latestSummary.policyId)
+      .get(latestSummary.policyKey)
       .agents.add(latestSummary.agentId);
   }
 
@@ -575,7 +578,10 @@ export async function addScaChecksToReport(
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
       const policyKey = String(
-        key?.policy_id || source?.data?.sca?.policy_id || policy,
+        key?.policy ||
+          source?.data?.sca?.policy ||
+          source?.data?.sca?.policy_id ||
+          policy,
       );
 
       if (!agentId) {

@@ -57,7 +57,7 @@ describe('SCA indexed reporting queries', () => {
       expect.arrayContaining([
         { term: { 'rule.groups': 'sca' } },
         { terms: { 'agent.id': ['003', '004'] } },
-        { exists: { field: 'data.sca.policy_id' } },
+        { exists: { field: 'data.sca.policy' } },
         { exists: { field: 'data.sca.total_checks' } },
       ]),
     );
@@ -132,7 +132,7 @@ describe('SCA indexed reporting queries', () => {
             sca_policy_summaries: {
               buckets: [
                 {
-                  key: { agent_id: '003', policy_id: 'cis_linux' },
+                  key: { agent_id: '003', policy: 'CIS Linux' },
                   latest: {
                     hits: {
                       hits: [
@@ -159,7 +159,7 @@ describe('SCA indexed reporting queries', () => {
                   },
                 },
               ],
-              after_key: { agent_id: '003', policy_id: 'cis_linux' },
+              after_key: { agent_id: '003', policy: 'CIS Linux' },
             },
           },
         },
@@ -170,7 +170,7 @@ describe('SCA indexed reporting queries', () => {
             sca_policy_summaries: {
               buckets: [
                 {
-                  key: { agent_id: '004', policy_id: 'cis_windows' },
+                  key: { agent_id: '004', policy: 'CIS Windows' },
                   latest: {
                     hits: {
                       hits: [
@@ -215,11 +215,11 @@ describe('SCA indexed reporting queries', () => {
     ).toBe(SCA_INDEX_COMPOSITE_PAGE_SIZE);
     expect(
       search.mock.calls[1][0].body.aggs.sca_policy_summaries.composite.after,
-    ).toEqual({ agent_id: '003', policy_id: 'cis_linux' });
-    expect(summaries.get('003::cis_linux')).toEqual(
+    ).toEqual({ agent_id: '003', policy: 'CIS Linux' });
+    expect(summaries.get('003::CIS Linux')).toEqual(
       expect.objectContaining({
         agentId: '003',
-        policyId: 'cis_linux',
+        policyKey: 'CIS Linux',
         totalChecks: 200,
         passed: 150,
         failed: 40,
@@ -227,7 +227,7 @@ describe('SCA indexed reporting queries', () => {
         scanId: 42,
       }),
     );
-    expect(summaries.get('004::cis_windows')?.totalChecks).toBe(300);
+    expect(summaries.get('004::CIS Windows')?.totalChecks).toBe(300);
   });
 
   it('paginates latest check state with composite aggregation instead of per-agent API calls', async () => {
@@ -241,7 +241,7 @@ describe('SCA indexed reporting queries', () => {
                 {
                   key: {
                     agent_id: '003',
-                    policy_id: 'cis_linux',
+                    policy: 'CIS Linux',
                     check_id: '1',
                   },
                   latest: {
@@ -253,7 +253,7 @@ describe('SCA indexed reporting queries', () => {
                             agent: { id: '003', name: 'server-003' },
                             data: {
                               sca: {
-                                policy_id: 'cis_linux',
+                                policy: 'CIS Linux',
                                 check: {
                                   id: '1',
                                   title: 'Control 1',
@@ -270,7 +270,7 @@ describe('SCA indexed reporting queries', () => {
               ],
               after_key: {
                 agent_id: '003',
-                policy_id: 'cis_linux',
+                policy: 'CIS Linux',
                 check_id: '1',
               },
             },
@@ -285,7 +285,7 @@ describe('SCA indexed reporting queries', () => {
                 {
                   key: {
                     agent_id: '004',
-                    policy_id: 'cis_windows',
+                    policy: 'CIS Windows',
                     check_id: '2',
                   },
                   latest: {
@@ -297,7 +297,7 @@ describe('SCA indexed reporting queries', () => {
                             agent: { id: '004', name: 'server-004' },
                             data: {
                               sca: {
-                                policy_id: 'cis_windows',
+                                policy: 'CIS Windows',
                                 check: {
                                   id: '2',
                                   title: 'Control 2',
@@ -335,7 +335,7 @@ describe('SCA indexed reporting queries', () => {
       search.mock.calls[1][0].body.aggs.sca_checks.composite.after,
     ).toEqual({
       agent_id: '003',
-      policy_id: 'cis_linux',
+      policy: 'CIS Linux',
       check_id: '1',
     });
     expect(entries.map(entry => entry.key.agent_id)).toEqual(['003', '004']);

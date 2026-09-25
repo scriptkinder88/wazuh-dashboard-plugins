@@ -42,7 +42,7 @@ const summaryBucket = (
 ) => ({
   key: {
     agent_id: agentId,
-    policy_id: policyId(policy),
+    policy,
   },
   latest: {
     hits: {
@@ -81,7 +81,7 @@ const checkBucket = (
 ) => ({
   key: {
     agent_id: agentId,
-    policy_id: policyId(policy),
+    policy,
     check_id: checkId,
   },
   latest: {

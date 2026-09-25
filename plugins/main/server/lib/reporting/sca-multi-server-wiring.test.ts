@@ -97,6 +97,9 @@ describe('SCA multi-server report wiring', () => {
     );
 
     expect(routeSource).toContain('schema.arrayOf(agentIDValidation)');
+    expect(routeSource).toContain(
+      'indexPatternTitle: schema.maybe(schema.string())',
+    );
   });
 
   it('keeps SCA reports on the shared configurable branding pipeline', () => {
