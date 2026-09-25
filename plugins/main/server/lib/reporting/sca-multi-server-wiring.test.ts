@@ -85,8 +85,8 @@ describe('SCA multi-server report wiring', () => {
     );
     expect(scaRequestSource).toContain("'rule.groups': 'sca'");
     expect(scaRequestSource).toContain("'agent.id': normalizedAgentIds");
-    expect(scaRequestSource).toContain("'data.sca.scan_id': currentScanIds");
-    expect(scaRequestSource).toContain("field: 'data.sca.scan_id'");
+    expect(scaRequestSource).toContain('latestPolicySummaries.get');
+    expect(scaRequestSource).toContain('String(checkScanId)');
     expect(scaRequestSource).toContain('composite');
     expect(scaRequestSource).not.toContain(
       'context.wazuh.api.client.asCurrentUser.request',
