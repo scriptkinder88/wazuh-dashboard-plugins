@@ -372,6 +372,71 @@ export async function addScaChecksToReport(
     ? getCountersScore(overallCounters)
     : null;
 
+  printer.addContentWithNewLine({
+    text: 'Executive summary',
+    style: 'h2',
+  });
+
+  printer.addContentWithNewLine({
+    text:
+      'This summary provides the assessment scope, indexed-data coverage and current control outcome for the selected servers.',
+    style: 'standard',
+  });
+
+  printer.addSimpleTable({
+    title: 'Assessment scope',
+    columns: [
+      { id: 'selected', label: 'Selected servers' },
+      { id: 'withData', label: 'With SCA data' },
+      { id: 'verified', label: 'Verified' },
+      { id: 'policies', label: 'Policies' },
+    ],
+    items: [
+      {
+        selected: normalizedAgentIds.length,
+        withData: serversWithData,
+        verified: verifiedServers,
+        policies: policySummaries.size,
+      },
+    ],
+    widths: [115, 115, 115, '*'],
+    fontSize: 8,
+    maxTextLength: 24,
+  });
+
+  printer.addSimpleTable({
+    title: 'Control outcome',
+    columns: [
+      { id: 'controls', label: 'Controls' },
+      { id: 'passed', label: 'Passed' },
+      { id: 'failed', label: 'Failed' },
+      { id: 'notApplicable', label: 'N/A' },
+      { id: 'score', label: 'Score' },
+    ],
+    items: [
+      {
+        controls: getCountersTotal(overallCounters),
+        passed: overallCounters.passed,
+        failed: overallCounters.failed,
+        notApplicable: overallCounters.notApplicable,
+        score: overallScore === null ? '-' : `${overallScore}%`,
+      },
+    ],
+    widths: [85, 85, 85, 85, '*'],
+    fontSize: 8,
+    maxTextLength: 24,
+  });
+
+  printer.addContentWithNewLine({
+    text:
+      coverageIssues === 0
+        ? 'Coverage status: all selected servers are verified against their latest indexed SCA scan summary.'
+        : `Coverage status: ${coverageIssues} selected server${
+            coverageIssues === 1 ? '' : 's'
+          } have incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.`,
+    style: 'standard',
+  });
+
   printer.addContent({
     text: 'Security configuration assessment controls',
     style: 'h1',
