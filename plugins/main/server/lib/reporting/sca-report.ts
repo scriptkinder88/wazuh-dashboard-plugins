@@ -372,6 +372,71 @@ export async function addScaChecksToReport(
     ? getCountersScore(overallCounters)
     : null;
 
+  printer.addContentWithNewLine({
+    text: 'Executive summary',
+    style: 'h2',
+  });
+
+  printer.addContentWithNewLine({
+    text:
+      'This summary provides the assessment scope, indexed-data coverage and current control outcome for the selected servers.',
+    style: 'standard',
+  });
+
+  printer.addSimpleTable({
+    title: 'Assessment scope',
+    columns: [
+      { id: 'selected', label: 'Selected servers' },
+      { id: 'withData', label: 'With SCA data' },
+      { id: 'verified', label: 'Verified' },
+      { id: 'policies', label: 'Policies' },
+    ],
+    items: [
+      {
+        selected: normalizedAgentIds.length,
+        withData: serversWithData,
+        verified: verifiedServers,
+        policies: policySummaries.size,
+      },
+    ],
+    widths: [115, 115, 115, '*'],
+    fontSize: 8,
+    maxTextLength: 24,
+  });
+
+  printer.addSimpleTable({
+    title: 'Control outcome',
+    columns: [
+      { id: 'controls', label: 'Controls' },
+      { id: 'passed', label: 'Passed' },
+      { id: 'failed', label: 'Failed' },
+      { id: 'notApplicable', label: 'N/A' },
+      { id: 'score', label: 'Score' },
+    ],
+    items: [
+      {
+        controls: getCountersTotal(overallCounters),
+        passed: overallCounters.passed,
+        failed: overallCounters.failed,
+        notApplicable: overallCounters.notApplicable,
+        score: overallScore === null ? '-' : `${overallScore}%`,
+      },
+    ],
+    widths: [85, 85, 85, 85, '*'],
+    fontSize: 8,
+    maxTextLength: 24,
+  });
+
+  printer.addContentWithNewLine({
+    text:
+      coverageIssues === 0
+        ? 'Coverage status: all selected servers are verified against their latest indexed SCA scan summary.'
+        : `Coverage status: ${coverageIssues} selected server${
+            coverageIssues === 1 ? '' : 's'
+          } ${coverageIssues === 1 ? 'has' : 'have'} incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.`,
+    style: 'standard',
+  });
+
   printer.addContent({
     text: 'Security configuration assessment controls',
     style: 'h1',
@@ -557,12 +622,15 @@ export async function addScaChecksToReport(
         { id: 'id', label: 'ID' },
         { id: 'result', label: 'Result' },
         { id: 'title', label: 'Control' },
+        { id: 'rationale', label: 'Rationale' },
+        { id: 'remediation', label: 'Remediation' },
+        { id: 'description', label: 'Description' },
         { id: 'compliance', label: 'Compliance' },
       ],
       items: activeItems,
-      widths: [42, 72, '*', 220],
-      fontSize: 7,
-      maxTextLength: 38,
+      widths: [36, 48, 124, 118, 148, 148, 139],
+      fontSize: 5.5,
+      maxTextLength: 30,
     });
 
     activeItems = [];
@@ -629,6 +697,9 @@ export async function addScaChecksToReport(
         id: String(key?.check_id || source?.data?.sca?.check?.id || '-'),
         result,
         title: source?.data?.sca?.check?.title || '-',
+        rationale: source?.data?.sca?.check?.rationale || '-',
+        remediation: source?.data?.sca?.check?.remediation || '-',
+        description: source?.data?.sca?.check?.description || '-',
         compliance: formatCompliance(source?.data?.sca?.check?.compliance),
       });
     },
