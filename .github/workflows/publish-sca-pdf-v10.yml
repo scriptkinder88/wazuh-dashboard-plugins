@@ -1,0 +1,107 @@
+name: Publish Wazuh 4.14.7 SCA PDF v10
+
+on:
+  push:
+    branches:
+      - 'ops/publish-sca-pdf-v10'
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/manual-build.yml
+    with:
+      reference: 51f5e5341bfefb5c6af87d85da43e9a93a3a1f10
+    secrets: inherit
+
+  publish:
+    name: Publish v4.14.7-sca-pdf.10
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    env:
+      TAG: v4.14.7-sca-pdf.10
+      SOURCE_SHA: 51f5e5341bfefb5c6af87d85da43e9a93a3a1f10
+      OUT_DIR: release
+      OUT_ZIP: wazuh-4.14.7-sca-pdf.10-installable.zip
+      OUT_SHA: wazuh-4.14.7-sca-pdf.10-installable.sha256
+
+    steps:
+      - name: Download validated main plugin package
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'wazuh-dashboard-plugins_wazuh_4.14.7-01_*'
+          path: release-input
+          merge-multiple: true
+
+      - name: Validate and normalize installable package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t packages < <(find release-input -type f -name '*.zip' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "Expected exactly one main-plugin ZIP, found ${#packages[@]}" >&2
+            printf '%s\n' "${packages[@]}" >&2
+            exit 1
+          fi
+
+          pkg="${packages[0]}"
+          echo "Validating package: $pkg"
+
+          unzip -tq "$pkg"
+          unzip -Z1 "$pkg" | grep -q '^opensearch-dashboards/wazuh/'
+
+          mkdir -p "$OUT_DIR"
+          cp "$pkg" "$OUT_DIR/$OUT_ZIP"
+
+          (
+            cd "$OUT_DIR"
+            sha256sum "$OUT_ZIP" > "$OUT_SHA"
+            sha256sum -c "$OUT_SHA"
+          )
+
+          echo "Release package:"
+          ls -lh "$OUT_DIR/$OUT_ZIP" "$OUT_DIR/$OUT_SHA"
+          cat "$OUT_DIR/$OUT_SHA"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          cat > release-notes.md <<'EOF'
+          Wazuh 4.14.7 SCA PDF reporting v10.
+
+          Changes:
+          - executive summary on the portrait cover
+          - detailed controls table with ID, Result, Control, Rationale, Remediation, Description and Compliance
+          - Compliance remains the final column
+          - long control text wraps instead of being truncated
+          - landscape table width guarded to stay within the printable page
+          - indexed multi-server reporting path retained; no per-agent SCA report loop
+
+          Validation before publication:
+          - requirement-specific SCA tests: passed
+          - full Jest regression suite: passed
+          - Prettier: passed
+          - dependency review: passed
+          - Main/Core/Check Updates builds: passed
+          - package test: passed
+
+          Source commit:
+          51f5e5341bfefb5c6af87d85da43e9a93a3a1f10
+
+          Runtime acceptance on ITTEST is the next gate.
+          EOF
+
+          gh release create "$TAG"             --repo "${{ github.repository }}"             --target "$SOURCE_SHA"             --title "Wazuh 4.14.7 SCA PDF v10"             --notes-file release-notes.md             "$OUT_DIR/$OUT_ZIP"             "$OUT_DIR/$OUT_SHA"
