@@ -157,16 +157,15 @@ export class ReportingService {
 
       const dataSourceContext = await this.getDataSourceSearchContext();
 
-      if (!dataSourceContext?.indexPattern) {
-        throw new Error(
-          'The SCA index pattern is not available for reporting.',
-        );
-      }
+      const indexPattern = dataSourceContext?.indexPattern;
 
-      // Preserve the dashboard query and RBAC filters, but remove only the
-      // currently pinned agent. The explicit multi-server selection is applied
-      // on the server as an additional agent.id terms filter.
-      const filters = (dataSourceContext.filters || []).filter(
+      // Preserve the dashboard query and RBAC filters when an OpenSearch data
+      // source is available, but remove only the currently pinned agent. The
+      // SCA inventory page in Wazuh 4.14.7 is API-backed and can legitimately
+      // have no data-source index pattern. In that case the backend falls back
+      // to the configured Wazuh alerts pattern (wazuh-alerts-4.x-* in ITTEST)
+      // and applies the selected agent IDs plus SCA filters server-side.
+      const filters = (dataSourceContext?.filters || []).filter(
         filter =>
           filter?.meta?.controlledBy !==
           DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,
@@ -174,12 +173,14 @@ export class ReportingService {
 
       // Current-state SCA reports intentionally omit the dashboard time picker.
       // The backend reads the latest indexed event for every selected control.
-      const serverSideQuery = buildOpenSearchQuery(
-        dataSourceContext.indexPattern,
-        dataSourceContext.query,
-        filters,
-        getOpenSearchQueryConfig(getUiSettings()),
-      );
+      const serverSideQuery = indexPattern
+        ? buildOpenSearchQuery(
+            indexPattern,
+            dataSourceContext?.query,
+            filters,
+            getOpenSearchQueryConfig(getUiSettings()),
+          )
+        : { match_all: {} };
 
       const browserTimezone = moment.tz.guess(true);
       const config = this.wazuhConfig.getConfig();
@@ -198,7 +199,7 @@ export class ReportingService {
         section: 'agents',
         agents,
         browserTimezone,
-        indexPatternTitle: dataSourceContext.indexPattern.title,
+        indexPatternTitle: indexPattern?.title,
         apiId: JSON.parse(AppState.getCurrentAPI()).id,
       };
 
