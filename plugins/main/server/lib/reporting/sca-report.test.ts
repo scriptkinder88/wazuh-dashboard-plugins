@@ -278,6 +278,7 @@ describe('SCA indexed report controls', () => {
     expect(controls.widths).toEqual([36, 48, 124, 118, 148, 148, 140]);
     expect(controls.fontSize).toBe(5.5);
     expect(controls.maxTextLength).toBe(30);
+    expect(controls.columns[controls.columns.length - 1].id).toBe('compliance');
     expect(controls.items[0]).toEqual({
       id: '1',
       result: 'Failed',
