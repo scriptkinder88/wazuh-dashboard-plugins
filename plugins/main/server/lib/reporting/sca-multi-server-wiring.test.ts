@@ -56,14 +56,19 @@ describe('SCA multi-server report wiring', () => {
       'const serverSideQuery = buildOpenSearchQuery',
     );
     expect(reportingSource).toContain(
-      'indexPatternTitle: dataSourceContext.indexPattern.title',
+      'const indexPattern = dataSourceContext?.indexPattern',
     );
+    expect(reportingSource).toContain(': { match_all: {} }');
+    expect(reportingSource).toContain('indexPatternTitle: indexPattern?.title');
 
     expect(controllerSource).toContain(
       "moduleID === 'sca' && Array.isArray(agents) ? false : agents",
     );
     expect(controllerSource).toContain("time && moduleID !== 'sca'");
     expect(controllerSource).toContain('await addScaChecksToReport(');
+    expect(controllerSource).toContain(
+      "indexPatternTitle ||\n              context.wazuh_core.configuration.getSettingValue('pattern')",
+    );
 
     expect(scaSource).toContain('forEachLatestScaCheck');
     expect(scaSource).toContain('getScaAgentInventory');
