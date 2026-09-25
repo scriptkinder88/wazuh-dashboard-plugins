@@ -423,6 +423,11 @@ describe('SCA indexed report controls', () => {
       text: 'Coverage: Incomplete (1/2 checks) | Passed: 1 | Failed: 0 | Not applicable: 0',
       style: 'standard',
     });
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage status: 1 selected server have incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.',
+      style: 'standard',
+    });
+
   });
 
   it('withholds scores when result distribution disagrees with the latest scan summary', async () => {
