@@ -433,7 +433,7 @@ export async function addScaChecksToReport(
         ? 'Coverage status: all selected servers are verified against their latest indexed SCA scan summary.'
         : `Coverage status: ${coverageIssues} selected server${
             coverageIssues === 1 ? '' : 's'
-          } have incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.`,
+          } ${coverageIssues === 1 ? 'has' : 'have'} incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.`,
     style: 'standard',
   });
 
