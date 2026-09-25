@@ -288,6 +288,7 @@ export async function forEachLatestScaCheck(
   pattern: string,
   serverSideQuery: any,
   agentIds: string | string[],
+  latestPolicySummaries: Map<string, any>,
   onCheck: (entry: { key: any; source: any }) => Promise<void> | void,
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
@@ -377,9 +378,32 @@ export async function forEachLatestScaCheck(
     for (const bucket of buckets) {
       const source = bucket?.latest?.hits?.hits?.[0]?._source;
 
-      if (source) {
-        await onCheck({ key: bucket.key || {}, source });
+      if (!source) {
+        continue;
       }
+
+      const agentId = String(bucket?.key?.agent_id || source?.agent?.id || '');
+      const policyKey = String(
+        bucket?.key?.policy ||
+          source?.data?.sca?.policy ||
+          source?.data?.sca?.policy_id ||
+          '',
+      );
+      const latestSummary = latestPolicySummaries.get(
+        `${agentId}::${policyKey}`,
+      );
+      const checkScanId = source?.data?.sca?.scan_id;
+
+      if (
+        latestSummary &&
+        latestSummary.scanId !== null &&
+        typeof latestSummary.scanId !== 'undefined' &&
+        String(checkScanId) !== String(latestSummary.scanId)
+      ) {
+        continue;
+      }
+
+      await onCheck({ key: bucket.key || {}, source });
     }
 
     afterKey = buckets.length ? aggregation?.after_key : undefined;

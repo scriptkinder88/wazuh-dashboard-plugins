@@ -242,6 +242,7 @@ describe('SCA indexed reporting queries', () => {
                   key: {
                     agent_id: '003',
                     policy: 'CIS Linux',
+                    scan_id: 42,
                     check_id: '1',
                   },
                   latest: {
@@ -254,6 +255,7 @@ describe('SCA indexed reporting queries', () => {
                             data: {
                               sca: {
                                 policy: 'CIS Linux',
+                                scan_id: 42,
                                 check: {
                                   id: '1',
                                   title: 'Control 1',
@@ -286,6 +288,7 @@ describe('SCA indexed reporting queries', () => {
                   key: {
                     agent_id: '004',
                     policy: 'CIS Windows',
+                    scan_id: 99,
                     check_id: '2',
                   },
                   latest: {
@@ -298,6 +301,7 @@ describe('SCA indexed reporting queries', () => {
                             data: {
                               sca: {
                                 policy: 'CIS Windows',
+                                scan_id: 99,
                                 check: {
                                   id: '2',
                                   title: 'Control 2',
@@ -318,12 +322,23 @@ describe('SCA indexed reporting queries', () => {
       });
 
     const entries: any[] = [];
+    const summaries = new Map([
+      [
+        '003::CIS Linux',
+        { agentId: '003', policyKey: 'CIS Linux', scanId: 42 },
+      ],
+      [
+        '004::CIS Windows',
+        { agentId: '004', policyKey: 'CIS Windows', scanId: 99 },
+      ],
+    ]);
 
     await forEachLatestScaCheck(
       buildContext(search),
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
       ['003', '004'],
+      summaries,
       entry => entries.push(entry),
     );
 
@@ -350,5 +365,90 @@ describe('SCA indexed reporting queries', () => {
       ]),
     );
     expect(entries.map(entry => entry.key.agent_id)).toEqual(['003', '004']);
+  });
+
+  it('drops historical checks that are not part of the latest scan summary', async () => {
+      const search = jest.fn(async () => ({
+        body: {
+          aggregations: {
+            sca_checks: {
+              buckets: [
+                {
+                  key: {
+                    agent_id: '003',
+                    policy: 'CIS Linux',
+                    scan_id: 41,
+                    check_id: '999',
+                  },
+                  latest: {
+                    hits: {
+                      hits: [
+                        {
+                          _source: {
+                            agent: { id: '003' },
+                            data: {
+                              sca: {
+                                policy: 'CIS Linux',
+                                scan_id: 41,
+                                check: { id: '999', result: 'failed' },
+                              },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+                {
+                  key: {
+                    agent_id: '003',
+                    policy: 'CIS Linux',
+                    scan_id: 42,
+                    check_id: '1',
+                  },
+                  latest: {
+                    hits: {
+                      hits: [
+                        {
+                          _source: {
+                            agent: { id: '003' },
+                            data: {
+                              sca: {
+                                policy: 'CIS Linux',
+                                scan_id: 42,
+                                check: { id: '1', result: 'passed' },
+                              },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }));
+
+      const entries: any[] = [];
+
+      await forEachLatestScaCheck(
+        buildContext(search),
+        'wazuh-alerts-*',
+        { bool: { must: [], filter: [] } },
+        ['003'],
+        new Map([
+          [
+            '003::CIS Linux',
+            { agentId: '003', policyKey: 'CIS Linux', scanId: 42 },
+          ],
+        ]),
+        entry => entries.push(entry),
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].key.check_id).toBe('1');
+    expect(entries[0].key.scan_id).toBe(42);
   });
 });
