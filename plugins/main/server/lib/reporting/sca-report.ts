@@ -628,7 +628,7 @@ export async function addScaChecksToReport(
         { id: 'compliance', label: 'Compliance' },
       ],
       items: activeItems,
-      widths: [36, 48, 124, 118, 148, 148, 140],
+      widths: [36, 48, 124, 118, 148, 148, 139],
       fontSize: 5.5,
       maxTextLength: 30,
     });
