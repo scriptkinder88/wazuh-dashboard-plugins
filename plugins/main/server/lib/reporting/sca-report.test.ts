@@ -103,6 +103,9 @@ const checkBucket = (
                   id: checkId,
                   title: `Control ${checkId}`,
                   result,
+                  rationale: `Rationale ${checkId}`,
+                  remediation: `Remediation ${checkId}`,
+                  description: `Description ${checkId}`,
                   compliance,
                 },
               },
@@ -263,13 +266,25 @@ describe('SCA indexed report controls', () => {
     );
 
     expect(controls).toBeDefined();
-    expect(controls.widths).toEqual([42, 72, '*', 220]);
-    expect(controls.fontSize).toBe(7);
-    expect(controls.maxTextLength).toBe(38);
+    expect(controls.columns.map(column => column.id)).toEqual([
+      'id',
+      'result',
+      'title',
+      'rationale',
+      'remediation',
+      'description',
+      'compliance',
+    ]);
+    expect(controls.widths).toEqual([36, 48, 124, 118, 148, 148, 140]);
+    expect(controls.fontSize).toBe(5.5);
+    expect(controls.maxTextLength).toBe(30);
     expect(controls.items[0]).toEqual({
       id: '1',
       result: 'Failed',
       title: 'Control 1',
+      rationale: 'Rationale 1',
+      remediation: 'Remediation 1',
+      description: 'Description 1',
       compliance: 'cis: 1.1.1\npci_dss_v4: 2.2.1, 2.2.2',
     });
     expect(controls.items[1].result).toBe('Not applicable');
