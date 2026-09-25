@@ -1,3 +1,4 @@
+import { REPORTS_PRIMARY_COLOR } from '../../../common/constants';
 import { ReportPrinter } from './printer';
 import {
   forEachLatestScaCheck,
@@ -154,6 +155,83 @@ const getCountersScore = counters => {
     : null;
 };
 
+const addExecutiveKpiRow = (
+  printer: ReportPrinter,
+  items: Array<{ label: string; value: string | number }>,
+) => {
+  printer.addContent({
+    columns: items.map((item, index) => ({
+      width: '*',
+      margin: [index === 0 ? 0 : 4, 0, index === items.length - 1 ? 0 : 4, 0],
+      table: {
+        widths: ['*'],
+        body: [
+          [
+            {
+              stack: [
+                {
+                  text: String(item.value),
+                  alignment: 'center',
+                  bold: true,
+                  fontSize: 18,
+                  color: REPORTS_PRIMARY_COLOR,
+                },
+                {
+                  text: item.label,
+                  alignment: 'center',
+                  fontSize: 8,
+                  color: '#333',
+                  margin: [0, 4, 0, 0],
+                },
+              ],
+              margin: [6, 10, 6, 10],
+            },
+          ],
+        ],
+      },
+      layout: {
+        fillColor: () => '#F7F9FC',
+        hLineColor: () => '#D3DAE6',
+        vLineColor: () => '#D3DAE6',
+        hLineWidth: () => 1,
+        vLineWidth: () => 1,
+      },
+    })),
+    margin: [0, 4, 0, 10],
+  });
+};
+
+const addExecutiveStatus = (
+  printer: ReportPrinter,
+  text: string,
+  needsAttention: boolean,
+) => {
+  printer.addContent({
+    table: {
+      widths: ['*'],
+      body: [
+        [
+          {
+            text,
+            bold: true,
+            fontSize: 9,
+            color: '#333',
+            margin: [10, 10, 10, 10],
+          },
+        ],
+      ],
+    },
+    layout: {
+      fillColor: () => (needsAttention ? '#FFF7E6' : '#F0F9F4'),
+      hLineColor: () => (needsAttention ? '#E6A700' : '#2E7D32'),
+      vLineColor: () => (needsAttention ? '#E6A700' : '#2E7D32'),
+      hLineWidth: () => 1,
+      vLineWidth: () => 1,
+    },
+    margin: [0, 4, 0, 10],
+  });
+};
+
 export async function addScaChecksToReport(
   context,
   printer: ReportPrinter,
@@ -205,6 +283,7 @@ export async function addScaChecksToReport(
     pattern,
     serverSideQuery,
     normalizedAgentIds,
+    latestPolicySummaries,
     ({ key, source }) => {
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
@@ -378,65 +457,49 @@ export async function addScaChecksToReport(
   });
 
   printer.addContentWithNewLine({
-    text: 'This summary provides the assessment scope, indexed-data coverage and current control outcome for the selected servers.',
+    text: 'Current indexed SCA posture for the selected server scope. Scores are shown only where the latest indexed scan is complete and internally consistent.',
     style: 'standard',
-  });
-
-  printer.addSimpleTable({
-    title: 'Assessment scope',
-    columns: [
-      { id: 'selected', label: 'Selected servers' },
-      { id: 'withData', label: 'With SCA data' },
-      { id: 'verified', label: 'Verified' },
-      { id: 'policies', label: 'Policies' },
-    ],
-    items: [
-      {
-        selected: normalizedAgentIds.length,
-        withData: serversWithData,
-        verified: verifiedServers,
-        policies: policySummaries.size,
-      },
-    ],
-    widths: [115, 115, 115, '*'],
-    fontSize: 8,
-    maxTextLength: 24,
-  });
-
-  printer.addSimpleTable({
-    title: 'Control outcome',
-    columns: [
-      { id: 'controls', label: 'Controls' },
-      { id: 'passed', label: 'Passed' },
-      { id: 'failed', label: 'Failed' },
-      { id: 'notApplicable', label: 'N/A' },
-      { id: 'score', label: 'Score' },
-    ],
-    items: [
-      {
-        controls: getCountersTotal(overallCounters),
-        passed: overallCounters.passed,
-        failed: overallCounters.failed,
-        notApplicable: overallCounters.notApplicable,
-        score: overallScore === null ? '-' : `${overallScore}%`,
-      },
-    ],
-    widths: [85, 85, 85, 85, '*'],
-    fontSize: 8,
-    maxTextLength: 24,
   });
 
   printer.addContentWithNewLine({
-    text:
-      coverageIssues === 0
-        ? 'Coverage status: all selected servers are verified against their latest indexed SCA scan summary.'
-        : `Coverage status: ${coverageIssues} selected server${
-            coverageIssues === 1 ? '' : 's'
-          } ${
-            coverageIssues === 1 ? 'has' : 'have'
-          } incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.`,
-    style: 'standard',
+    text: 'Assessment scope',
+    style: 'h4',
   });
+
+  addExecutiveKpiRow(printer, [
+    { label: 'Selected servers', value: normalizedAgentIds.length },
+    { label: 'With SCA data', value: serversWithData },
+    { label: 'Verified', value: verifiedServers },
+    { label: 'Policies', value: policySummaries.size },
+  ]);
+
+  printer.addContentWithNewLine({
+    text: 'Control outcome',
+    style: 'h4',
+  });
+
+  addExecutiveKpiRow(printer, [
+    { label: 'Controls', value: getCountersTotal(overallCounters) },
+    { label: 'Passed', value: overallCounters.passed },
+    { label: 'Failed', value: overallCounters.failed },
+    { label: 'N/A', value: overallCounters.notApplicable },
+    { label: 'Score', value: overallScore === null ? '-' : `${overallScore}%` },
+  ]);
+
+  const coverageStatus =
+    coverageIssues === 0
+      ? 'Coverage verified: all selected servers match their latest indexed SCA scan summary.'
+      : `Coverage requires attention: ${coverageIssues} selected server${
+          coverageIssues === 1 ? '' : 's'
+        } ${
+          coverageIssues === 1 ? 'has' : 'have'
+        } incomplete, unverified or missing indexed SCA coverage. Scores are withheld wherever coverage is not complete.`;
+
+  printer.addContentWithNewLine({
+    text: 'Coverage',
+    style: 'h4',
+  });
+  addExecutiveStatus(printer, coverageStatus, coverageIssues > 0);
 
   printer.addContent({
     text: 'Security configuration assessment controls',
@@ -629,9 +692,11 @@ export async function addScaChecksToReport(
         { id: 'compliance', label: 'Compliance' },
       ],
       items: activeItems,
-      widths: [36, 48, 124, 118, 148, 148, 139],
-      fontSize: 5.5,
-      maxTextLength: 30,
+      widths: [36, 48, 126, 120, 154, 160, 128],
+      fontSize: 6.25,
+      maxTextLength: 34,
+      margin: [-20, 0, -20, 0],
+      cellPadding: 2,
     });
 
     activeItems = [];
@@ -643,6 +708,7 @@ export async function addScaChecksToReport(
     pattern,
     serverSideQuery,
     normalizedAgentIds,
+    latestPolicySummaries,
     ({ key, source }) => {
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
