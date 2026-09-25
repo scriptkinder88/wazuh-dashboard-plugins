@@ -25,7 +25,7 @@ on:
         description: Source code reference (branch, tag or commit SHA)
 
 concurrency:
-  group: manual-build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: manual-build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
