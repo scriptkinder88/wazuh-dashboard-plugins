@@ -143,7 +143,7 @@ describe('SCA indexed reporting queries', () => {
                             data: {
                               sca: {
                                 policy: 'CIS Linux',
-                                policy: 'CIS Linux',
+                                policy_id: 'cis_linux',
                                 total_checks: 200,
                                 passed: 150,
                                 failed: 40,
@@ -181,7 +181,7 @@ describe('SCA indexed reporting queries', () => {
                             data: {
                               sca: {
                                 policy: 'CIS Windows',
-                                policy: 'CIS Windows',
+                                policy_id: 'cis_windows',
                                 total_checks: 300,
                                 passed: 250,
                                 failed: 50,
@@ -219,7 +219,7 @@ describe('SCA indexed reporting queries', () => {
     expect(summaries.get('003::CIS Linux')).toEqual(
       expect.objectContaining({
         agentId: '003',
-        policyKey: 'cis_linux',
+        policyKey: 'CIS Linux',
         totalChecks: 200,
         passed: 150,
         failed: 40,
