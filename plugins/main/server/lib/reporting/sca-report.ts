@@ -557,12 +557,15 @@ export async function addScaChecksToReport(
         { id: 'id', label: 'ID' },
         { id: 'result', label: 'Result' },
         { id: 'title', label: 'Control' },
+        { id: 'rationale', label: 'Rationale' },
+        { id: 'remediation', label: 'Remediation' },
+        { id: 'description', label: 'Description' },
         { id: 'compliance', label: 'Compliance' },
       ],
       items: activeItems,
-      widths: [42, 72, '*', 220],
-      fontSize: 7,
-      maxTextLength: 38,
+      widths: [36, 48, 124, 118, 148, 148, 140],
+      fontSize: 5.5,
+      maxTextLength: 30,
     });
 
     activeItems = [];
@@ -629,6 +632,9 @@ export async function addScaChecksToReport(
         id: String(key?.check_id || source?.data?.sca?.check?.id || '-'),
         result,
         title: source?.data?.sca?.check?.title || '-',
+        rationale: source?.data?.sca?.check?.rationale || '-',
+        remediation: source?.data?.sca?.check?.remediation || '-',
+        description: source?.data?.sca?.check?.description || '-',
         compliance: formatCompliance(source?.data?.sca?.check?.compliance),
       });
     },
