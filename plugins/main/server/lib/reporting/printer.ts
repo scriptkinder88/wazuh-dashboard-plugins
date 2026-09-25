@@ -539,6 +539,8 @@ export class ReportPrinter {
     widths: requestedWidths,
     fontSize = 8,
     maxTextLength = 60,
+    margin,
+    cellPadding,
   }: {
     columns: { id: string; label: string }[];
     title?: string | { text: string; style: string };
@@ -546,6 +548,8 @@ export class ReportPrinter {
     widths?: Array<number | string>;
     fontSize?: number;
     maxTextLength?: number;
+    margin?: number[];
+    cellPadding?: number;
   }) {
     if (title) {
       this.addContent(
@@ -610,8 +614,19 @@ export class ReportPrinter {
       widths.push('*');
     }
 
+    const compactPadding =
+      typeof cellPadding === 'number'
+        ? {
+            paddingLeft: () => cellPadding,
+            paddingRight: () => cellPadding,
+            paddingTop: () => cellPadding,
+            paddingBottom: () => cellPadding,
+          }
+        : {};
+
     this.addContent({
       fontSize,
+      ...(Array.isArray(margin) ? { margin } : {}),
       table: {
         headerRows: 1,
         widths,
@@ -622,6 +637,7 @@ export class ReportPrinter {
         hLineColor: () => COLORS.PRIMARY,
         hLineWidth: () => 1,
         vLineWidth: () => 0,
+        ...compactPadding,
       },
     }).addNewLine();
     return this;

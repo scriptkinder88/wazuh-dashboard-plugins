@@ -78,10 +78,12 @@ const checkBucket = (
   checkId: string,
   result: string,
   compliance: any = {},
+  scanId: number = 42,
 ) => ({
   key: {
     agent_id: agentId,
     policy,
+    scan_id: scanId,
     check_id: checkId,
   },
   latest: {
@@ -99,6 +101,7 @@ const checkBucket = (
               sca: {
                 policy,
                 policy_id: policyId(policy),
+                scan_id: scanId,
                 check: {
                   id: checkId,
                   title: `Control ${checkId}`,
@@ -190,6 +193,7 @@ describe('SCA indexed report controls', () => {
         }),
         checkBucket('003', policy, '2', 'not applicable'),
         checkBucket('003', policy, '3', 'passed'),
+        checkBucket('003', policy, '999', 'failed', {}, 41),
       ],
       [summaryBucket('003', policy, 3, 1, 1, 1)],
     );
@@ -220,12 +224,6 @@ describe('SCA indexed report controls', () => {
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
-    const assessmentScope = tables.find(
-      table => table.title === 'Assessment scope',
-    );
-    const controlOutcome = tables.find(
-      table => table.title === 'Control outcome',
-    );
     const grouped = tables.find(table => table.title === 'Grouped SCA result');
     const serverResults = tables.find(
       table => table.title === 'Selected server results (1)',
@@ -235,23 +233,34 @@ describe('SCA indexed report controls', () => {
     );
     const controls = tables.find(table => table.title === 'Controls (3)');
 
-    expect(assessmentScope.items[0]).toEqual({
-      selected: 1,
-      withData: 1,
-      verified: 1,
-      policies: 1,
-    });
-    expect(controlOutcome.items[0]).toEqual({
-      controls: 3,
-      passed: 1,
-      failed: 1,
-      notApplicable: 1,
-      score: '50%',
-    });
-    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text: 'Coverage status: all selected servers are verified against their latest indexed SCA scan summary.',
-      style: 'standard',
-    });
+    const executiveRows = printer.addContent.mock.calls
+      .map(call => call[0])
+      .filter(content => Array.isArray(content?.columns));
+
+    expect(executiveRows).toHaveLength(2);
+    expect(
+      executiveRows[0].columns.map(
+        column => column.table.body[0][0].stack[0].text,
+      ),
+    ).toEqual(['1', '1', '1', '1']);
+    expect(
+      executiveRows[1].columns.map(
+        column => column.table.body[0][0].stack[0].text,
+      ),
+    ).toEqual(['3', '1', '1', '1', '50%']);
+    expect(printer.addContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        table: expect.objectContaining({
+          body: [
+            [
+              expect.objectContaining({
+                text: 'Coverage verified: all selected servers match their latest indexed SCA scan summary.',
+              }),
+            ],
+          ],
+        }),
+      }),
+    );
 
     expect(grouped.items[0]).toEqual({
       selected: 1,
@@ -299,12 +308,14 @@ describe('SCA indexed report controls', () => {
       'description',
       'compliance',
     ]);
-    expect(controls.widths).toEqual([36, 48, 124, 118, 148, 148, 139]);
+    expect(controls.widths).toEqual([36, 48, 126, 120, 154, 160, 128]);
     expect(
       controls.widths.reduce((total, width) => total + width, 0),
-    ).toBeLessThanOrEqual(761);
-    expect(controls.fontSize).toBe(5.5);
-    expect(controls.maxTextLength).toBe(30);
+    ).toBeLessThanOrEqual(772);
+    expect(controls.fontSize).toBe(6.25);
+    expect(controls.maxTextLength).toBe(34);
+    expect(controls.margin).toEqual([-20, 0, -20, 0]);
+    expect(controls.cellPadding).toBe(2);
     expect(controls.columns[controls.columns.length - 1].id).toBe('compliance');
     expect(controls.items[0]).toEqual({
       id: '1',
@@ -317,6 +328,7 @@ describe('SCA indexed report controls', () => {
     });
     expect(controls.items[1].result).toBe('Not applicable');
     expect(controls.items[2].result).toBe('Passed');
+    expect(controls.items.map(item => item.id)).not.toContain('999');
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
       text: 'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
@@ -442,10 +454,19 @@ describe('SCA indexed report controls', () => {
       text: 'Coverage: Incomplete (1/2 checks) | Passed: 1 | Failed: 0 | Not applicable: 0',
       style: 'standard',
     });
-    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text: 'Coverage status: 1 selected server has incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.',
-      style: 'standard',
-    });
+    expect(printer.addContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        table: expect.objectContaining({
+          body: [
+            [
+              expect.objectContaining({
+                text: 'Coverage requires attention: 1 selected server has incomplete, unverified or missing indexed SCA coverage. Scores are withheld wherever coverage is not complete.',
+              }),
+            ],
+          ],
+        }),
+      }),
+    );
   });
 
   it('withholds scores when result distribution disagrees with the latest scan summary', async () => {

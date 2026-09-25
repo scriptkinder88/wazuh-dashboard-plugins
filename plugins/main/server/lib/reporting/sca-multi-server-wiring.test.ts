@@ -72,7 +72,7 @@ describe('SCA multi-server report wiring', () => {
 
     expect(scaSource).toContain('forEachLatestScaCheck');
     expect(scaSource).toContain('getScaAgentInventory');
-    expect(scaSource).toContain('widths: [36, 48, 124, 118, 148, 148, 139]');
+    expect(scaSource).toContain('widths: [36, 48, 126, 120, 154, 160, 128]');
     expect(scaSource).toContain("{ id: 'rationale', label: 'Rationale' }");
     expect(scaSource).toContain("{ id: 'remediation', label: 'Remediation' }");
     expect(scaSource).toContain("{ id: 'description', label: 'Description' }");
@@ -85,6 +85,8 @@ describe('SCA multi-server report wiring', () => {
     );
     expect(scaRequestSource).toContain("'rule.groups': 'sca'");
     expect(scaRequestSource).toContain("'agent.id': normalizedAgentIds");
+    expect(scaRequestSource).toContain("'data.sca.scan_id': currentScanIds");
+    expect(scaRequestSource).toContain("field: 'data.sca.scan_id'");
     expect(scaRequestSource).toContain('composite');
     expect(scaRequestSource).not.toContain(
       'context.wazuh.api.client.asCurrentUser.request',
@@ -92,6 +94,8 @@ describe('SCA multi-server report wiring', () => {
 
     expect(printerSource).toContain('widths: requestedWidths');
     expect(printerSource).toContain('maxTextLength = 60');
+    expect(printerSource).toContain('cellPadding');
+    expect(printerSource).toContain('...(Array.isArray(margin) ? { margin } : {})');
   });
 
   it('accepts an array of validated agent IDs on the reporting route', () => {

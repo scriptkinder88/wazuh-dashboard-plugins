@@ -288,13 +288,37 @@ export async function forEachLatestScaCheck(
   pattern: string,
   serverSideQuery: any,
   agentIds: string | string[],
+  latestPolicySummaries: Map<string, any>,
   onCheck: (entry: { key: any; source: any }) => Promise<void> | void,
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
+  const currentScanIds = [
+    ...new Set(
+      Array.from(latestPolicySummaries.values())
+        .map(summary => summary?.scanId)
+        .filter(
+          scanId =>
+            scanId !== null &&
+            typeof scanId !== 'undefined' &&
+            String(scanId) !== '',
+        ),
+    ),
+  ];
 
-  if (!normalizedAgentIds.length) {
+  if (!normalizedAgentIds.length || !currentScanIds.length) {
     return;
   }
+
+  const query = buildScaIndexQuery(
+    serverSideQuery,
+    normalizedAgentIds,
+  ) as any;
+
+  query.bool.filter.push({
+    terms: {
+      'data.sca.scan_id': currentScanIds,
+    },
+  });
 
   let afterKey: any = undefined;
 
@@ -317,6 +341,13 @@ export async function forEachLatestScaCheck(
           },
         },
         {
+          scan_id: {
+            terms: {
+              field: 'data.sca.scan_id',
+            },
+          },
+        },
+        {
           check_id: {
             terms: {
               field: 'data.sca.check.id',
@@ -334,7 +365,7 @@ export async function forEachLatestScaCheck(
       index: pattern,
       body: {
         size: 0,
-        query: buildScaIndexQuery(serverSideQuery, normalizedAgentIds),
+        query,
         aggs: {
           sca_checks: {
             composite,
@@ -377,9 +408,33 @@ export async function forEachLatestScaCheck(
     for (const bucket of buckets) {
       const source = bucket?.latest?.hits?.hits?.[0]?._source;
 
-      if (source) {
-        await onCheck({ key: bucket.key || {}, source });
+      if (!source) {
+        continue;
       }
+
+      const agentId = String(bucket?.key?.agent_id || source?.agent?.id || '');
+      const policyKey = String(
+        bucket?.key?.policy ||
+          source?.data?.sca?.policy ||
+          source?.data?.sca?.policy_id ||
+          '',
+      );
+      const scanId =
+        bucket?.key?.scan_id ?? source?.data?.sca?.scan_id ?? undefined;
+      const latestSummary = latestPolicySummaries.get(
+        `${agentId}::${policyKey}`,
+      );
+
+      if (
+        !latestSummary ||
+        latestSummary.scanId === null ||
+        typeof latestSummary.scanId === 'undefined' ||
+        String(scanId) !== String(latestSummary.scanId)
+      ) {
+        continue;
+      }
+
+      await onCheck({ key: bucket.key || {}, source });
     }
 
     afterKey = buckets.length ? aggregation?.after_key : undefined;
