@@ -338,6 +338,17 @@ describe('SCA indexed reporting queries', () => {
       policy: 'CIS Linux',
       check_id: '1',
     });
+    expect(
+      search.mock.calls[0][0].body.aggs.sca_checks.aggs.latest.top_hits._source
+        .includes,
+    ).toEqual(
+      expect.arrayContaining([
+        'data.sca.check.rationale',
+        'data.sca.check.remediation',
+        'data.sca.check.description',
+        'data.sca.check.compliance',
+      ]),
+    );
     expect(entries.map(entry => entry.key.agent_id)).toEqual(['003', '004']);
   });
 });
