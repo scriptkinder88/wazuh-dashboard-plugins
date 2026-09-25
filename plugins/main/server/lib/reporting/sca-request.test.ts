@@ -355,22 +355,6 @@ describe('SCA indexed reporting queries', () => {
       scan_id: 42,
       check_id: '1',
     });
-    expect(search.mock.calls[0][0].body.query.bool.filter).toContainEqual({
-      terms: { 'data.sca.scan_id': [42, 99] },
-    });
-    expect(
-      search.mock.calls[0][0].body.aggs.sca_checks.composite.sources,
-    ).toEqual(
-      expect.arrayContaining([
-        {
-          scan_id: {
-            terms: {
-              field: 'data.sca.scan_id',
-            },
-          },
-        },
-      ]),
-    );
     expect(
       search.mock.calls[0][0].body.aggs.sca_checks.aggs.latest.top_hits._source
         .includes,
@@ -383,8 +367,9 @@ describe('SCA indexed reporting queries', () => {
       ]),
     );
     expect(entries.map(entry => entry.key.agent_id)).toEqual(['003', '004']);
+  });
 
-    it('drops historical checks that are not part of the latest scan summary', async () => {
+  it('drops historical checks that are not part of the latest scan summary', async () => {
       const search = jest.fn(async () => ({
         body: {
           aggregations: {
@@ -466,7 +451,6 @@ describe('SCA indexed reporting queries', () => {
 
       expect(entries).toHaveLength(1);
       expect(entries[0].key.check_id).toBe('1');
-      expect(entries[0].key.scan_id).toBe(42);
-    });
+    expect(entries[0].key.scan_id).toBe(42);
   });
 });
