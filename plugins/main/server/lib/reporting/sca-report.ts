@@ -692,11 +692,10 @@ export async function addScaChecksToReport(
         { id: 'compliance', label: 'Compliance' },
       ],
       items: activeItems,
-      widths: [36, 48, 126, 120, 154, 160, 128],
-      fontSize: 6.25,
+      widths: [32, 44, 110, 108, 142, 152, 142],
+      fontSize: 6.5,
       maxTextLength: 34,
-      margin: [-20, 0, -20, 0],
-      cellPadding: 2,
+      cellPadding: 1,
     });
 
     activeItems = [];
