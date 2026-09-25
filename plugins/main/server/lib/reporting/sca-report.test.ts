@@ -427,7 +427,6 @@ describe('SCA indexed report controls', () => {
       text: 'Coverage status: 1 selected server has incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.',
       style: 'standard',
     });
-
   });
 
   it('withholds scores when result distribution disagrees with the latest scan summary', async () => {
