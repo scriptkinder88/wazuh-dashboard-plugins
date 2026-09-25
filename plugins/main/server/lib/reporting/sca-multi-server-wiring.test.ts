@@ -95,7 +95,9 @@ describe('SCA multi-server report wiring', () => {
     expect(printerSource).toContain('widths: requestedWidths');
     expect(printerSource).toContain('maxTextLength = 60');
     expect(printerSource).toContain('cellPadding');
-    expect(printerSource).toContain('...(Array.isArray(margin) ? { margin } : {})');
+    expect(printerSource).toContain(
+      '...(Array.isArray(margin) ? { margin } : {})',
+    );
   });
 
   it('accepts an array of validated agent IDs on the reporting route', () => {

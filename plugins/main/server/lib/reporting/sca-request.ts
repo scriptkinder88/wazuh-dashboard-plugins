@@ -309,10 +309,7 @@ export async function forEachLatestScaCheck(
     return;
   }
 
-  const query = buildScaIndexQuery(
-    serverSideQuery,
-    normalizedAgentIds,
-  ) as any;
+  const query = buildScaIndexQuery(serverSideQuery, normalizedAgentIds) as any;
 
   query.bool.filter.push({
     terms: {
