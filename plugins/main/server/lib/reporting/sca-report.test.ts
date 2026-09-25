@@ -424,7 +424,7 @@ describe('SCA indexed report controls', () => {
       style: 'standard',
     });
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
-      text: 'Coverage status: 1 selected server have incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.',
+      text: 'Coverage status: 1 selected server has incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.',
       style: 'standard',
     });
 
