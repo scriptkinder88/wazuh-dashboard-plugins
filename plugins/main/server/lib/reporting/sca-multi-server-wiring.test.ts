@@ -55,7 +55,9 @@ describe('SCA multi-server report wiring', () => {
     expect(reportingSource).toContain(
       'const serverSideQuery = buildOpenSearchQuery',
     );
-    expect(reportingSource).toContain('const indexPattern = dataSourceContext?.indexPattern');
+    expect(reportingSource).toContain(
+      'const indexPattern = dataSourceContext?.indexPattern',
+    );
     expect(reportingSource).toContain(': { match_all: {} }');
     expect(reportingSource).toContain('indexPatternTitle: indexPattern?.title');
 
