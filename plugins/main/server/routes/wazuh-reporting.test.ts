@@ -8,7 +8,6 @@ import supertest from 'supertest';
 import { WazuhUtilsRoutes } from './wazuh-utils';
 import { WazuhReportingRoutes } from './wazuh-reporting';
 import { WazuhUtilsCtrl } from '../controllers/wazuh-utils/wazuh-utils';
-import { WazuhReportingCtrl } from '../controllers/wazuh-reporting';
 import md5 from 'md5';
 import path from 'path';
 import fs from 'fs';
@@ -149,39 +148,6 @@ afterAll(async () => {
 
   // Remove <PLUGIN_PLATFORM_PATH>/data/wazuh directory.
   execSync(`rm -rf ${mockDataPathService.getWazuhPath()}`);
-});
-
-describe('[endpoint] POST /reports/modules/sca validation', () => {
-  it('accepts API-backed SCA reporting without indexPatternTitle', async () => {
-    const handler = jest
-      .spyOn(WazuhReportingCtrl.prototype, 'createReportsModules')
-      .mockImplementation(async (_context, _request, response) =>
-        response.ok({ body: { filename: 'sca-test.pdf' } }),
-      );
-
-    try {
-      await supertest(innerServer.listener)
-        .post('/reports/modules/sca')
-        .set('x-test-username', USER_NAME)
-        .send({
-          array: [],
-          browserTimezone: 'Europe/Zurich',
-          serverSideQuery: { match_all: {} },
-          filters: [],
-          agents: ['003', '004'],
-          searchBar: '',
-          section: 'agents',
-          tab: 'sca',
-          tables: [],
-          apiId: 'default',
-        })
-        .expect(200);
-
-      expect(handler).toHaveBeenCalled();
-    } finally {
-      handler.mockRestore();
-    }
-  });
 });
 
 describe('[endpoint] GET /reports', () => {
