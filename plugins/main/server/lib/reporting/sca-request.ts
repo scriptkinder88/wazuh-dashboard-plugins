@@ -79,7 +79,7 @@ export const buildScaSummaryIndexQuery = (
   query.bool.filter.push(
     {
       exists: {
-        field: 'data.sca.policy_id',
+        field: 'data.sca.policy',
       },
     },
     {
@@ -186,9 +186,9 @@ export async function getLatestScaPolicySummaries(
           },
         },
         {
-          policy_id: {
+          policy: {
             terms: {
-              field: 'data.sca.policy_id',
+              field: 'data.sca.policy',
             },
           },
         },
@@ -242,22 +242,25 @@ export async function getLatestScaPolicySummaries(
     for (const bucket of buckets) {
       const source = bucket?.latest?.hits?.hits?.[0]?._source || {};
       const agentId = String(bucket?.key?.agent_id || source?.agent?.id || '');
-      const policyId = String(
-        bucket?.key?.policy_id || source?.data?.sca?.policy_id || '',
+      const policyKey = String(
+        bucket?.key?.policy ||
+          source?.data?.sca?.policy ||
+          source?.data?.sca?.policy_id ||
+          '',
       );
 
-      if (!agentId || !policyId) {
+      if (!agentId || !policyKey) {
         continue;
       }
 
       const rawTotalChecks = source?.data?.sca?.total_checks;
       const parsedTotalChecks = Number(rawTotalChecks);
 
-      summaries.set(`${agentId}::${policyId}`, {
+      summaries.set(`${agentId}::${policyKey}`, {
         agentId,
-        policyId,
+        policyKey,
         policy:
-          source?.data?.sca?.policy || source?.data?.sca?.name || policyId,
+          source?.data?.sca?.policy || source?.data?.sca?.name || policyKey,
         totalChecks: Number.isFinite(parsedTotalChecks)
           ? parsedTotalChecks
           : null,
@@ -307,9 +310,9 @@ export async function forEachLatestScaCheck(
           },
         },
         {
-          policy_id: {
+          policy: {
             terms: {
-              field: 'data.sca.policy_id',
+              field: 'data.sca.policy',
             },
           },
         },
