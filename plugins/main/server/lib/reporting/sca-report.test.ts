@@ -217,6 +217,12 @@ describe('SCA indexed report controls', () => {
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    const assessmentScope = tables.find(
+      table => table.title === 'Assessment scope',
+    );
+    const controlOutcome = tables.find(
+      table => table.title === 'Control outcome',
+    );
     const grouped = tables.find(table => table.title === 'Grouped SCA result');
     const serverResults = tables.find(
       table => table.title === 'Selected server results (1)',
@@ -225,6 +231,24 @@ describe('SCA indexed report controls', () => {
       table => table.title === 'Grouped by policy (1)',
     );
     const controls = tables.find(table => table.title === 'Controls (3)');
+
+    expect(assessmentScope.items[0]).toEqual({
+      selected: 1,
+      withData: 1,
+      verified: 1,
+      policies: 1,
+    });
+    expect(controlOutcome.items[0]).toEqual({
+      controls: 3,
+      passed: 1,
+      failed: 1,
+      notApplicable: 1,
+      score: '50%',
+    });
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage status: all selected servers are verified against their latest indexed SCA scan summary.',
+      style: 'standard',
+    });
 
     expect(grouped.items[0]).toEqual({
       selected: 1,
@@ -399,6 +423,11 @@ describe('SCA indexed report controls', () => {
       text: 'Coverage: Incomplete (1/2 checks) | Passed: 1 | Failed: 0 | Not applicable: 0',
       style: 'standard',
     });
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage status: 1 selected server has incomplete, unverified or missing indexed SCA coverage. Detailed scores are withheld where coverage is not complete.',
+      style: 'standard',
+    });
+
   });
 
   it('withholds scores when result distribution disagrees with the latest scan summary', async () => {
