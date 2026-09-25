@@ -273,7 +273,6 @@ describe('SCA indexed reporting queries', () => {
               after_key: {
                 agent_id: '003',
                 policy: 'CIS Linux',
-                scan_id: 42,
                 check_id: '1',
               },
             },
@@ -352,7 +351,6 @@ describe('SCA indexed reporting queries', () => {
     ).toEqual({
       agent_id: '003',
       policy: 'CIS Linux',
-      scan_id: 42,
       check_id: '1',
     });
     expect(
