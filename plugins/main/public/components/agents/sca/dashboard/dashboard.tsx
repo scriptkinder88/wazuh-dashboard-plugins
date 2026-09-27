@@ -174,12 +174,14 @@ const Dashboard = ({ currentAgentData }) => {
                 }}
               >
                 <EuiFlexItem grow={false} className='hi'>
-                  <EuiCard
-                    title
-                    description
-                    betaBadgeLabel={lookingPolicy.name}
-                    className='visualization sca-module-card-visualization'
-                  >
+                  <EuiCard className='visualization sca-module-card-visualization'>
+                    <EuiText
+                      size='s'
+                      className='sca-module-card-visualization-title'
+                    >
+                      <strong>{lookingPolicy.name}</strong>
+                    </EuiText>
+                    <EuiSpacer size='s' />
                     <VisualizationBasic
                       type='donut'
                       size={{ width: '100%', height: '150px' }}
