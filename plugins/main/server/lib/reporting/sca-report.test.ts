@@ -430,7 +430,9 @@ describe('SCA indexed report controls', () => {
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
-    const grouped = tables.find(table => table.title === 'Grouped SCA result');
+    const groupedOverview = printer.addContent.mock.calls
+      .map(call => call[0])
+      .find(content => content?.id === 'sca-grouped-overview');
     const serverResults = tables.find(
       table => table.title === 'Selected server results (1)',
     );
@@ -438,13 +440,10 @@ describe('SCA indexed report controls', () => {
       table => table.title === 'Grouped by policy (1)',
     );
 
-    expect(grouped.items[0]).toEqual(
-      expect.objectContaining({
-        verified: 0,
-        coverageIssues: 1,
-        score: '-',
-      }),
-    );
+    expect(groupedOverview).toBeDefined();
+    expect(
+      groupedOverview.columns[0].table.body[1].map(cell => cell.text),
+    ).toEqual(['1', '1', '0', '1', '1', '1', '0', '0', '-']);
     expect(serverResults.items[0]).toEqual(
       expect.objectContaining({
         score: '-',
