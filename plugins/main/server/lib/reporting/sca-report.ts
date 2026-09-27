@@ -258,7 +258,11 @@ const buildScaDonutSvg = counters => {
           .filter(item => item.value > 0)
           .map(item => {
             const length = (item.value / total) * circumference;
-            const segment = `<circle cx="52" cy="52" r="${radius}" fill="none" stroke="${item.color}" stroke-width="18" stroke-dasharray="${length} ${circumference - length}" stroke-dashoffset="${-offset}" />`;
+            const segment = `<circle cx="52" cy="52" r="${radius}" fill="none" stroke="${
+              item.color
+            }" stroke-width="18" stroke-dasharray="${length} ${
+              circumference - length
+            }" stroke-dashoffset="${-offset}" />`;
             offset += length;
             return segment;
           })
