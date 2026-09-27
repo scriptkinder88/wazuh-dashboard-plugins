@@ -32,7 +32,8 @@ permissions:
 jobs:
   dependency-review:
     runs-on: ubuntu-24.04
-    if: github.event.pull_request.draft == false
+    # GitHub's dependency review API does not support fork repositories.
+    if: github.event.pull_request.draft == false && !github.event.repository.fork
     steps:
       - name: 'Checkout Repository'
         uses: actions/checkout@v4
