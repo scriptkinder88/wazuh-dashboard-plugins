@@ -20,6 +20,7 @@ export interface IAPIHost {
   url: string;
   username: string;
   password: string;
+  ca?: string;
   port: number;
   run_as: boolean;
 }
@@ -87,7 +88,7 @@ export class ManageHosts {
         ? this.logger.debug(`Getting API connection with ID [${hostID}]`)
         : this.logger.debug('Getting API connections');
       const hosts = await this.configuration.get('hosts');
-      this.logger.debug(`API connections: [${JSON.stringify(hosts)}]`);
+      this.logger.debug(`API connection IDs: [${hosts.map(({ id }) => id)}]`);
       if (hostID) {
         const host = hosts.find(({ id }: { id: string }) => id === hostID);
         if (host) {
