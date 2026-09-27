@@ -224,7 +224,9 @@ describe('SCA indexed report controls', () => {
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
-    const grouped = tables.find(table => table.title === 'Grouped SCA result');
+    const groupedOverview = printer.addContent.mock.calls
+      .map(call => call[0])
+      .find(content => content?.id === 'sca-grouped-overview');
     const serverResults = tables.find(
       table => table.title === 'Selected server results (1)',
     );
@@ -235,7 +237,11 @@ describe('SCA indexed report controls', () => {
 
     const executiveRows = printer.addContent.mock.calls
       .map(call => call[0])
-      .filter(content => Array.isArray(content?.columns));
+      .filter(
+        content =>
+          Array.isArray(content?.columns) &&
+          content?.id !== 'sca-grouped-overview',
+      );
 
     expect(executiveRows).toHaveLength(2);
     expect(
@@ -262,17 +268,17 @@ describe('SCA indexed report controls', () => {
       }),
     );
 
-    expect(grouped.items[0]).toEqual({
-      selected: 1,
-      withData: 1,
-      verified: 1,
-      coverageIssues: 0,
-      controls: 3,
-      passed: 1,
-      failed: 1,
-      notApplicable: 1,
-      score: '50%',
-    });
+    expect(groupedOverview).toBeDefined();
+    expect(
+      groupedOverview.columns[0].table.body[1].map(cell => cell.text),
+    ).toEqual(['1', '1', '1', '0', '3', '1', '1', '1', '50%']);
+    expect(groupedOverview.columns[1].stack[1].svg).toContain('#00A69B');
+    expect(groupedOverview.columns[1].stack[1].svg).toContain('#FF645C');
+    expect(groupedOverview.columns[1].stack[1].svg).toContain('#5C6773');
+    expect(groupedOverview.columns[1].stack[2].columns[0].text).toEqual([
+      { text: '● ', color: '#00A69B' },
+      'Passed (1)',
+    ]);
     expect(serverResults.items[0]).toEqual(
       expect.objectContaining({
         id: '003',
@@ -308,14 +314,15 @@ describe('SCA indexed report controls', () => {
       'description',
       'compliance',
     ]);
-    expect(controls.widths).toEqual([36, 48, 126, 120, 154, 160, 128]);
-    expect(
-      controls.widths.reduce((total, width) => total + width, 0),
-    ).toBeLessThanOrEqual(772);
-    expect(controls.fontSize).toBe(6.25);
+    expect(controls.widths).toEqual([32, 44, 110, 108, 142, 152, 142]);
+    const effectiveTableWidth =
+      controls.widths.reduce((total, width) => total + width, 0) +
+      controls.columns.length * controls.cellPadding * 2;
+    expect(effectiveTableWidth).toBeLessThanOrEqual(761);
+    expect(controls.fontSize).toBe(6.5);
     expect(controls.maxTextLength).toBe(34);
-    expect(controls.margin).toEqual([-20, 0, -20, 0]);
-    expect(controls.cellPadding).toBe(2);
+    expect(controls.margin).toBeUndefined();
+    expect(controls.cellPadding).toBe(1);
     expect(controls.columns[controls.columns.length - 1].id).toBe('compliance');
     expect(controls.items[0]).toEqual({
       id: '1',
@@ -423,7 +430,9 @@ describe('SCA indexed report controls', () => {
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
-    const grouped = tables.find(table => table.title === 'Grouped SCA result');
+    const groupedOverview = printer.addContent.mock.calls
+      .map(call => call[0])
+      .find(content => content?.id === 'sca-grouped-overview');
     const serverResults = tables.find(
       table => table.title === 'Selected server results (1)',
     );
@@ -431,13 +440,10 @@ describe('SCA indexed report controls', () => {
       table => table.title === 'Grouped by policy (1)',
     );
 
-    expect(grouped.items[0]).toEqual(
-      expect.objectContaining({
-        verified: 0,
-        coverageIssues: 1,
-        score: '-',
-      }),
-    );
+    expect(groupedOverview).toBeDefined();
+    expect(
+      groupedOverview.columns[0].table.body[1].map(cell => cell.text),
+    ).toEqual(['1', '1', '0', '1', '1', '1', '0', '0', '-']);
     expect(serverResults.items[0]).toEqual(
       expect.objectContaining({
         score: '-',

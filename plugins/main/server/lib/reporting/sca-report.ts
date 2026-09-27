@@ -232,6 +232,148 @@ const addExecutiveStatus = (
   });
 };
 
+const SCA_RESULT_COLORS = {
+  passed: '#00A69B',
+  failed: '#FF645C',
+  notApplicable: '#5C6773',
+};
+
+const buildScaDonutSvg = counters => {
+  const values = [
+    { value: counters.passed, color: SCA_RESULT_COLORS.passed },
+    { value: counters.failed, color: SCA_RESULT_COLORS.failed },
+    {
+      value: counters.notApplicable,
+      color: SCA_RESULT_COLORS.notApplicable,
+    },
+  ];
+  const total = values.reduce((sum, item) => sum + item.value, 0);
+  const radius = 38;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  const segments =
+    total > 0
+      ? values
+          .filter(item => item.value > 0)
+          .map(item => {
+            const length = (item.value / total) * circumference;
+            const segment = `<circle cx="52" cy="52" r="${radius}" fill="none" stroke="${
+              item.color
+            }" stroke-width="18" stroke-dasharray="${length} ${
+              circumference - length
+            }" stroke-dashoffset="${-offset}" />`;
+            offset += length;
+            return segment;
+          })
+          .join('')
+      : `<circle cx="52" cy="52" r="${radius}" fill="none" stroke="#D3DAE6" stroke-width="18" />`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="164" height="116" viewBox="0 0 164 116"><g transform="rotate(-90 52 52)">${segments}</g><text x="52" y="49" text-anchor="middle" font-size="17" font-weight="bold" fill="#333">${total}</text><text x="52" y="64" text-anchor="middle" font-size="8" fill="#666">controls</text></svg>`;
+};
+
+const addGroupedScaOverview = (
+  printer: ReportPrinter,
+  summary: Record<string, string | number>,
+) => {
+  const columns = [
+    { id: 'selected', label: 'Selected' },
+    { id: 'withData', label: 'With data' },
+    { id: 'verified', label: 'Verified' },
+    { id: 'coverageIssues', label: 'Coverage issues' },
+    { id: 'controls', label: 'Controls' },
+    { id: 'passed', label: 'Passed' },
+    { id: 'failed', label: 'Failed' },
+    { id: 'notApplicable', label: 'N/A' },
+    { id: 'score', label: 'Score' },
+  ];
+  const widths = [48, 52, 52, 72, 56, 46, 46, 46, 46];
+  const header = columns.map(column => ({
+    text: column.label,
+    style: 'whiteColor',
+    border: [0, 0, 0, 0],
+  }));
+  const row = columns.map(column => ({
+    text: String(summary[column.id]),
+    style: 'standard',
+  }));
+
+  printer.addContentWithNewLine({
+    text: 'Grouped SCA result',
+    style: 'h4',
+  });
+
+  printer.addContent({
+    id: 'sca-grouped-overview',
+    columns: [
+      {
+        width: 510,
+        table: {
+          headerRows: 1,
+          widths,
+          body: [header, row],
+        },
+        layout: {
+          fillColor: index => (index === 0 ? REPORTS_PRIMARY_COLOR : null),
+          hLineColor: () => REPORTS_PRIMARY_COLOR,
+          hLineWidth: () => 1,
+          vLineWidth: () => 0,
+          paddingLeft: () => 2,
+          paddingRight: () => 2,
+          paddingTop: () => 2,
+          paddingBottom: () => 2,
+        },
+      },
+      {
+        width: '*',
+        margin: [14, 0, 0, 0],
+        stack: [
+          {
+            text: 'Control outcome',
+            style: 'h4',
+            margin: [0, 0, 0, 2],
+          },
+          {
+            svg: buildScaDonutSvg(summary),
+            width: 164,
+            alignment: 'center',
+          },
+          {
+            columns: [
+              {
+                width: '*',
+                text: [
+                  { text: '● ', color: SCA_RESULT_COLORS.passed },
+                  `Passed (${summary.passed})`,
+                ],
+                fontSize: 7,
+              },
+              {
+                width: '*',
+                text: [
+                  { text: '● ', color: SCA_RESULT_COLORS.failed },
+                  `Failed (${summary.failed})`,
+                ],
+                fontSize: 7,
+              },
+            ],
+          },
+          {
+            text: [
+              { text: '● ', color: SCA_RESULT_COLORS.notApplicable },
+              `Not applicable (${summary.notApplicable})`,
+            ],
+            fontSize: 7,
+            margin: [0, 3, 0, 0],
+          },
+        ],
+      },
+    ],
+    columnGap: 10,
+    margin: [0, 0, 0, 8],
+  });
+};
+
 export async function addScaChecksToReport(
   context,
   printer: ReportPrinter,
@@ -514,35 +656,16 @@ export async function addScaChecksToReport(
     style: 'standard',
   });
 
-  printer.addSimpleTable({
-    title: 'Grouped SCA result',
-    columns: [
-      { id: 'selected', label: 'Selected' },
-      { id: 'withData', label: 'With data' },
-      { id: 'verified', label: 'Verified' },
-      { id: 'coverageIssues', label: 'Coverage issues' },
-      { id: 'controls', label: 'Controls' },
-      { id: 'passed', label: 'Passed' },
-      { id: 'failed', label: 'Failed' },
-      { id: 'notApplicable', label: 'N/A' },
-      { id: 'score', label: 'Score' },
-    ],
-    items: [
-      {
-        selected: normalizedAgentIds.length,
-        withData: serversWithData,
-        verified: verifiedServers,
-        coverageIssues,
-        controls: getCountersTotal(overallCounters),
-        passed: overallCounters.passed,
-        failed: overallCounters.failed,
-        notApplicable: overallCounters.notApplicable,
-        score: overallScore === null ? '-' : `${overallScore}%`,
-      },
-    ],
-    widths: [50, 55, 55, 75, 60, 50, 50, 50, 50],
-    fontSize: 7,
-    maxTextLength: 24,
+  addGroupedScaOverview(printer, {
+    selected: normalizedAgentIds.length,
+    withData: serversWithData,
+    verified: verifiedServers,
+    coverageIssues,
+    controls: getCountersTotal(overallCounters),
+    passed: overallCounters.passed,
+    failed: overallCounters.failed,
+    notApplicable: overallCounters.notApplicable,
+    score: overallScore === null ? '-' : `${overallScore}%`,
   });
 
   printer.addSimpleTable({
@@ -692,11 +815,10 @@ export async function addScaChecksToReport(
         { id: 'compliance', label: 'Compliance' },
       ],
       items: activeItems,
-      widths: [36, 48, 126, 120, 154, 160, 128],
-      fontSize: 6.25,
+      widths: [32, 44, 110, 108, 142, 152, 142],
+      fontSize: 6.5,
       maxTextLength: 34,
-      margin: [-20, 0, -20, 0],
-      cellPadding: 2,
+      cellPadding: 1,
     });
 
     activeItems = [];
