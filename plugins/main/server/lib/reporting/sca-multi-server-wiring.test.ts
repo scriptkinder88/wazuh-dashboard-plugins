@@ -37,6 +37,20 @@ describe('SCA multi-server report wiring', () => {
       path.resolve(__dirname, 'printer.ts'),
       'utf8',
     );
+    const scaDashboardSource = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../public/components/agents/sca/dashboard/dashboard.tsx',
+      ),
+      'utf8',
+    );
+    const scaDashboardStyles = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../public/components/agents/sca/dashboard/dashboard.scss',
+      ),
+      'utf8',
+    );
 
     expect(buttonSource).toContain('<ScaReportAgentSelector');
     expect(buttonSource).toContain('await action.run(agentIds)');
@@ -78,6 +92,9 @@ describe('SCA multi-server report wiring', () => {
     expect(scaSource).toContain("{ id: 'description', label: 'Description' }");
     expect(scaSource).toContain("{ id: 'compliance', label: 'Compliance' }");
     expect(scaSource).toContain("pageOrientation: 'landscape'");
+    expect(scaSource).toContain("id: 'sca-grouped-overview'");
+    expect(scaSource).toContain('buildScaDonutSvg');
+    expect(scaSource).toContain("passed: '#00A69B'");
     expect(scaSource).not.toContain('/sca/${agentId}');
 
     expect(scaRequestSource).toContain(
@@ -98,6 +115,17 @@ describe('SCA multi-server report wiring', () => {
     expect(printerSource).toContain(
       '...(Array.isArray(margin) ? { margin } : {})',
     );
+
+    expect(scaDashboardSource).toContain(
+      "className='sca-module-card-visualization-title'",
+    );
+    expect(scaDashboardSource).not.toContain(
+      'betaBadgeLabel={lookingPolicy.name}',
+    );
+    expect(scaDashboardStyles).toContain(
+      '.sca-module-card-visualization-title',
+    );
+    expect(scaDashboardStyles).toContain('overflow-wrap: anywhere');
   });
 
   it('accepts an array of validated agent IDs on the reporting route', () => {
