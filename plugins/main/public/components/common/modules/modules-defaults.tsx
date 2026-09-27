@@ -232,7 +232,7 @@ export const ModulesDefaults = {
       {
         id: 'dashboard',
         name: 'Dashboard',
-        buttons: [ButtonExploreAgent],
+        buttons: [ButtonExploreAgent, ButtonModuleGenerateReport],
         component: MainSca,
       },
       {
