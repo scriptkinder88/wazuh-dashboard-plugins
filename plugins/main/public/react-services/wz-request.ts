@@ -37,6 +37,7 @@ export class WzRequest {
       shouldRetry?: boolean;
       checkCurrentApiIsUp?: boolean;
       overwriteHeaders?: any;
+      timeout?: number;
     } = {
       shouldRetry: true,
       checkCurrentApiIsUp: true,
@@ -61,7 +62,11 @@ export class WzRequest {
       }
       this.wazuhConfig = new WazuhConfig();
       const configuration = this.wazuhConfig.getConfig();
-      const timeout = configuration ? configuration.timeout : 20000;
+      const defaultTimeout = configuration ? configuration.timeout : 20000;
+      const timeout =
+        typeof extraOptions.timeout === 'number'
+          ? extraOptions.timeout
+          : defaultTimeout;
 
       const url = getHttp().basePath.prepend(path);
       const options = {
@@ -117,7 +122,10 @@ export class WzRequest {
       ) {
         try {
           await WzAuthentication.refresh(true);
-          return this.genericReq(method, path, payload, { shouldRetry: false });
+          return this.genericReq(method, path, payload, {
+            ...extraOptions,
+            shouldRetry: false,
+          });
         } catch (error) {
           return ((error || {}).data || {}).message || false
             ? Promise.reject(
