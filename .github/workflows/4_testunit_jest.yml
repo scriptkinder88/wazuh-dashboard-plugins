@@ -56,8 +56,12 @@ jobs:
 
   regression:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: Full Jest regression suite
+    name: Full Jest regression suite (${{ matrix.plugin }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [main, wazuh-core, wazuh-check-updates]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -68,12 +72,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo chown 1000:1000 -R plugins/main
+          plugin_path="plugins/${{ matrix.plugin }}"
+          sudo chown 1000:1000 -R "$plugin_path"
           platform_version=$(jq -r '.pluginPlatform.version' plugins/main/package.json)
 
           docker run -t --rm \
             -e OPENSEARCH_DASHBOARDS_VERSION="${platform_version}" \
-            -v "$(pwd)/plugins/main:/home/node/kbn/plugins/wazuh" \
+            -v "$(pwd)/${plugin_path}:/home/node/kbn/plugins/wazuh" \
             quay.io/wazuh/osd-dev:"${platform_version}" \
             bash -c '
               set -euo pipefail

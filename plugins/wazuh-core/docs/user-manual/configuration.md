@@ -104,6 +104,10 @@ The API host entries can be managed through the `Server APIs` application:
 
 These actions require a privileged user which has the role `all_access`.
 
+API TLS certificates are verified against the system trust store. For a private CA, set the
+host's optional `ca` field to the absolute path of its PEM certificate. Connections fail closed
+when a certificate is untrusted or the configured CA file cannot be read.
+
 The UI display this requirement and disable the related buttons.
 
 Moreover, the platform API endpoints are protected with the same requirement.

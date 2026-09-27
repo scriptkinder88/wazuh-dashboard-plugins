@@ -1,8 +1,5 @@
-# Dependency Review Action
-#
-# Fork-safe behavior:
-# - Skip the GitHub dependency-review API when a PR does not change dependency manifests/lockfiles.
-# - If dependency files do change, keep the official action fail-closed.
+# Audit locked npm dependencies in this fork, where GitHub's dependency review
+# API returns 403 for fork repositories.
 name: 'Dependency Review'
 
 on:
@@ -45,4 +42,20 @@ jobs:
 
       - name: 'Dependency Review'
         if: steps.dependency_changes.outputs.changed == 'true'
-        uses: actions/dependency-review-action@v4
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: 'Audit plugin dependencies'
+        if: steps.dependency_changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          for package_dir in plugins/*; do
+            if [ -f "$package_dir/yarn.lock" ]; then
+              echo "Auditing $package_dir"
+              yarn --cwd "$package_dir" audit --groups dependencies --level moderate
+            fi
+          done
