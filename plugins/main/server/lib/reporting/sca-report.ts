@@ -270,17 +270,7 @@ const buildScaDonutSvg = counters => {
 
 const addGroupedScaOverview = (
   printer: ReportPrinter,
-  summary: {
-    selected: number;
-    withData: number;
-    verified: number;
-    coverageIssues: number;
-    controls: number;
-    passed: number;
-    failed: number;
-    notApplicable: number;
-    score: string;
-  },
+  summary: Record<string, string | number>,
 ) => {
   const columns = [
     { id: 'selected', label: 'Selected' },
