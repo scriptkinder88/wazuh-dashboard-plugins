@@ -40,3 +40,5 @@ jobs:
           # Set one of these repository secrets; the unset one resolves to empty.
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read
