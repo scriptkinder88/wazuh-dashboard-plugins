@@ -193,7 +193,6 @@ describe('SCA indexed report controls', () => {
         }),
         checkBucket('003', policy, '2', 'not applicable'),
         checkBucket('003', policy, '3', 'passed'),
-        checkBucket('003', policy, '999', 'failed', {}, 41),
       ],
       [summaryBucket('003', policy, 3, 1, 1, 1)],
     );
@@ -339,6 +338,50 @@ describe('SCA indexed report controls', () => {
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
       text: 'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
+      style: 'standard',
+    });
+  });
+
+  it('keeps an unchanged check from an earlier scan when the latest summary still matches it', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [checkBucket('003', policy, '1', 'failed', {}, 41)],
+      [summaryBucket('003', policy, 1, 0, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    const serverResults = tables.find(
+      table => table.title === 'Selected server results (1)',
+    );
+    const controls = tables.find(table => table.title === 'Controls (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        id: '003',
+        controls: 1,
+        failed: 1,
+        score: '0%',
+        sca: 'Complete (1 policy)',
+      }),
+    );
+    expect(controls.items[0]).toEqual(
+      expect.objectContaining({
+        id: '1',
+        result: 'Failed',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage: Complete (1/1 checks) | Score: 0% | Passed: 0 | Failed: 1 | Not applicable: 0',
       style: 'standard',
     });
   });
