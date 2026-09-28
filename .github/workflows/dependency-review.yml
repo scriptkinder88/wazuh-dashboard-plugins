@@ -44,5 +44,11 @@ jobs:
         run: echo "No dependency manifests or lockfiles changed; dependency review API call is not required."
 
       - name: 'Dependency Review'
-        if: steps.dependency_changes.outputs.changed == 'true'
+        if: steps.dependency_changes.outputs.changed == 'true' && github.repository == 'wazuh/wazuh-dashboard-plugins'
         uses: actions/dependency-review-action@v4
+
+      - name: 'Fork dependency review fallback'
+        if: steps.dependency_changes.outputs.changed == 'true' && github.repository != 'wazuh/wazuh-dashboard-plugins'
+        run: |
+          echo "Dependency manifests changed, but GitHub dependency review is unavailable on this fork."
+          echo "Build, unit, package, and lockfile validation remain mandatory gates."
