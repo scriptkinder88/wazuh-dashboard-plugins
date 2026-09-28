@@ -149,7 +149,8 @@ describe('SCA indexed reporting queries', () => {
                                 failed: 40,
                                 invalid: 10,
                                 score: 78.9,
-                                          },
+                                scan_id: 42,
+                              },
                             },
                           },
                         },
@@ -186,7 +187,8 @@ describe('SCA indexed reporting queries', () => {
                                 failed: 50,
                                 invalid: 0,
                                 score: 83.3,
-                                          },
+                                scan_id: 99,
+                              },
                             },
                           },
                         },
@@ -252,7 +254,8 @@ describe('SCA indexed reporting queries', () => {
                             data: {
                               sca: {
                                 policy: 'CIS Linux',
-                                            check: {
+                                scan_id: 42,
+                                check: {
                                   id: '1',
                                   title: 'Control 1',
                                   result: 'passed',
@@ -296,7 +299,8 @@ describe('SCA indexed reporting queries', () => {
                             data: {
                               sca: {
                                 policy: 'CIS Windows',
-                                            check: {
+                                scan_id: 99,
+                                check: {
                                   id: '2',
                                   title: 'Control 2',
                                   result: 'failed',
@@ -359,7 +363,6 @@ describe('SCA indexed reporting queries', () => {
                 key: {
                   agent_id: '003',
                   policy: 'CIS Linux',
-                  scan_id: 42,
                   check_id: '1',
                 },
                 latest: {
@@ -371,7 +374,8 @@ describe('SCA indexed reporting queries', () => {
                           data: {
                             sca: {
                               policy: 'CIS Linux',
-                                        check: { id: '1', result: 'passed' },
+                              scan_id: 41,
+                              check: { id: '1', result: 'failed' },
                             },
                           },
                         },
