@@ -12,7 +12,7 @@ on:
       reference:
         required: true
         type: string
-        default: 4.14.8
+        default: 4.14.10
         description: Source code reference (branch, tag or commit SHA)
   pull_request:
     branches:
