@@ -11,20 +11,14 @@
  */
 
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import fs from 'fs';
 import https from 'https';
 import { Logger } from 'opensearch-dashboards/server';
 import { getCookieValueByName } from './cookie';
-import { ManageHosts } from './manage-hosts';
+import { IAPIHost, ManageHosts } from './manage-hosts';
 import { ISecurityFactory } from './security-factory';
 
-interface APIHost {
-  id: string;
-  url: string;
-  username: string;
-  password: string;
-  port: number;
-  run_as: boolean;
-}
+const ALLOWED_REQUEST_HEADERS = new Set(['content-type']);
 
 type RequestHTTPMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
 type RequestPath = string;
@@ -76,18 +70,16 @@ export interface ServerAPIAuthenticateOptions {
  */
 export class ServerAPIClient {
   private _CacheInternalUserAPIHostToken: Map<string, string>;
-  private _axios: typeof axios;
   private asInternalUser: ServerAPIInternalUserClient;
   private _axios: AxiosInstance;
+  private defaultHttpsAgent: https.Agent;
   constructor(
     private logger: Logger, // TODO: add logger as needed
     private manageHosts: ManageHosts,
     private dashboardSecurity: ISecurityFactory,
   ) {
-    const httpsAgent = new https.Agent({
-      rejectUnauthorized: false,
-    });
-    this._axios = axios.create({ httpsAgent });
+    this._axios = axios.create();
+    this.defaultHttpsAgent = new https.Agent({ rejectUnauthorized: true });
     // Cache to save the token for the internal user by API host ID
     this._CacheInternalUserAPIHostToken = new Map<string, string>();
 
@@ -143,19 +135,57 @@ export class ServerAPIClient {
     data: any,
     { apiHostID, token }: APIInterceptorRequestOptions,
   ) {
-    const api = await this.manageHosts.get(apiHostID);
+    const api = (await this.manageHosts.get(apiHostID)) as IAPIHost;
     const { body, params, headers, ...rest } = data;
     return {
       method: method,
       headers: {
         'content-type': 'application/json',
-        Authorization: 'Bearer ' + token,
-        ...(headers ? headers : {}),
+        ...this._filterRequestHeaders(headers),
+        Authorization: `Bearer ${token}`,
       },
       data: body || rest || {},
       params: params || {},
       url: `${api.url}:${api.port}${path}`,
+      httpsAgent: this._createHttpsAgent(api),
     };
+  }
+
+  private _filterRequestHeaders(headers: unknown): Record<string, unknown> {
+    if (!headers || typeof headers !== 'object') {
+      return {};
+    }
+
+    const allowed: Record<string, unknown> = {};
+    const rejected: string[] = [];
+
+    for (const [name, value] of Object.entries(headers)) {
+      if (ALLOWED_REQUEST_HEADERS.has(name.toLowerCase())) {
+        allowed[name] = value;
+      } else {
+        rejected.push(name);
+      }
+    }
+
+    if (rejected.length) {
+      this.logger.warn(
+        `Ignored request headers that are not allowed: ${rejected.join(', ')}`,
+      );
+    }
+
+    return allowed;
+  }
+
+  private _createHttpsAgent(api: IAPIHost): https.Agent {
+    const caPath = api.ca?.trim();
+    if (!caPath) {
+      return this.defaultHttpsAgent;
+    }
+
+    return new https.Agent({
+      rejectUnauthorized: true,
+      ca: fs.readFileSync(caPath),
+    });
   }
 
   /**
@@ -168,7 +198,7 @@ export class ServerAPIClient {
     apiHostID: string,
     options: ServerAPIAuthenticateOptions,
   ): Promise<string> {
-    const api = (await this.manageHosts.get(apiHostID)) as APIHost;
+    const api = (await this.manageHosts.get(apiHostID)) as IAPIHost;
     const optionsRequest = {
       method: 'POST',
       headers: {
@@ -181,6 +211,7 @@ export class ServerAPIClient {
       url: `${api.url}:${api.port}/security/user/authenticate${
         options.useRunAs ? '/run_as' : ''
       }`,
+      httpsAgent: this._createHttpsAgent(api),
       ...(!!options?.authContext ? { data: options?.authContext } : {}),
     };
 

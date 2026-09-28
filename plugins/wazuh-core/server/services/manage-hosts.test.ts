@@ -47,6 +47,25 @@ describe('ManageHosts Service', () => {
     manageHosts = new ManageHosts(mockLogger as any, mockConfiguration);
   });
 
+  it('does not write API credentials to debug logs', async () => {
+    mockConfiguration.get.mockResolvedValue([
+      {
+        id: 'production',
+        url: 'https://localhost',
+        port: 55000,
+        username: 'wazuh-wui',
+        password: 'secret-password',
+        run_as: false,
+      },
+    ]);
+
+    await manageHosts.get(undefined, { excludePassword: true });
+
+    expect(mockLogger.debug.mock.calls.flat().join(' ')).not.toContain(
+      'secret-password',
+    );
+  });
+
   describe('getEntries - Regression Tests', () => {
     it('should handle missing cluster_info gracefully when host ID is not in registry cache', async () => {
       const mockHosts = [

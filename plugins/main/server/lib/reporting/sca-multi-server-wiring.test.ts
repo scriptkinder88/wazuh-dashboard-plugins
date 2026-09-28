@@ -102,8 +102,9 @@ describe('SCA multi-server report wiring', () => {
     );
     expect(scaRequestSource).toContain("'rule.groups': 'sca'");
     expect(scaRequestSource).toContain("'agent.id': normalizedAgentIds");
-    expect(scaRequestSource).toContain('latestPolicySummaries.get');
-    expect(scaRequestSource).toContain('String(checkScanId)');
+    expect(scaRequestSource).toContain(
+      'SCA check events are emitted only when a check changes',
+    );
     expect(scaRequestSource).toContain('composite');
     expect(scaRequestSource).not.toContain(
       'context.wazuh.api.client.asCurrentUser.request',

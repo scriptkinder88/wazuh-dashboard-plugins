@@ -425,7 +425,6 @@ export async function addScaChecksToReport(
     pattern,
     serverSideQuery,
     normalizedAgentIds,
-    latestPolicySummaries,
     ({ key, source }) => {
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
@@ -830,7 +829,6 @@ export async function addScaChecksToReport(
     pattern,
     serverSideQuery,
     normalizedAgentIds,
-    latestPolicySummaries,
     ({ key, source }) => {
       const agentId = String(key?.agent_id || source?.agent?.id || '');
       const policy = String(source?.data?.sca?.policy || 'Unknown SCA policy');
