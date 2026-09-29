@@ -2,6 +2,7 @@ import React, { Component } from 'react';
 import { EuiDescriptionList, EuiHealth, EuiToolTip } from '@elastic/eui';
 import { MODULE_SCA_CHECK_RESULT_LABEL } from '../../../../../common/constants';
 import { resolveCisReference } from '../../../../../common/sca/cis-reference';
+import { getCisFamilyTitle } from '../../../../../common/compliance-requirements/cis-families';
 import { TableWzAPI } from '../../../common/tables';
 import { ComplianceText, RuleText } from '../components';
 import { getFilterValues } from './lib';
@@ -120,7 +121,7 @@ export class InventoryPolicyChecksTable extends Component<Props, State> {
         // imports, otherwise from the policy's `cis` compliance mapping.
         name: 'CIS',
         width: '100px',
-        render: this.renderCisReference,
+        render: item => this.renderCisReference(item),
       },
       {
         field: 'title',
@@ -183,10 +184,24 @@ export class InventoryPolicyChecksTable extends Component<Props, State> {
   }
 
   renderCisReference(item) {
-    const { reference } = resolveCisReference(item);
+    const { reference, family } = resolveCisReference(item);
 
     if (reference) {
-      return <span data-test-subj='sca-check-cis-reference'>{reference}</span>;
+      const familyTitle = getCisFamilyTitle(
+        this.props?.lookingPolicy?.policy_id,
+        family,
+      );
+      const cisReference = (
+        <span data-test-subj='sca-check-cis-reference'>{reference}</span>
+      );
+
+      return familyTitle ? (
+        <EuiToolTip content={`Family ${family}: ${familyTitle}`}>
+          {cisReference}
+        </EuiToolTip>
+      ) : (
+        cisReference
+      );
     }
 
     return (

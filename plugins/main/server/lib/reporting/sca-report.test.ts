@@ -757,6 +757,47 @@ describe('SCA indexed report controls', () => {
     expect(chart.svg).toContain('3/4 failed');
   });
 
+  it('names families from the CIS family index of the policy', async () => {
+    // The fixture policy_id is the lower-cased policy name: cis_rhel9_linux.
+    const policy = 'cis_rhel9_linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed', { cis: '1.1.1' }),
+        checkBucket('003', policy, '2', 'passed', { cis: '5.2.1' }),
+        checkBucket('003', policy, '3', 'failed', { cis: '99.1' }),
+      ],
+      [summaryBucket('003', policy, 3, 1, 2, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      '003',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    expect(
+      tables
+        .find(table => table.title === 'Results by family (3)')
+        .items.map(item => item.family),
+    ).toEqual([
+      'Family 1 - Initial Setup',
+      'Family 5 - Access, Authentication and Authorization',
+      'Family 99',
+    ]);
+    expect(
+      tables.find(table => table.title === 'Family 1 - Initial Setup (1)'),
+    ).toBeDefined();
+    const chart = printer.addContent.mock.calls
+      .map(call => call[0])
+      .find(content => typeof content?.svg === 'string');
+    expect(chart.svg).toContain('Family 1 - Initial Setup');
+  });
+
   it('uses CIS-CAT Pro title numbers and withholds partial pass rates', async () => {
     const policy = 'CIS-CAT Pro tailored';
     const imported = (checkId: string, title: string, result: string) => {
