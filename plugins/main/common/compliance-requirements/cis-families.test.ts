@@ -19,6 +19,10 @@ describe('CIS family titles', () => {
       'Access, Authentication and Authorization',
     );
     expect(getCisFamilyTitle('cis_debian11', '4')).toBe('Logging and Auditing');
+    // Rocky 10 follows the Rocky 9 v1.0.0 layout its checks are built on.
+    expect(getCisFamilyTitle('cis_rocky_linux_10', '4')).toBe(
+      getCisFamilyTitle('cis_rocky_linux_9', '4'),
+    );
   });
 
   it('returns nothing for unknown policies, families or unsafe keys', () => {

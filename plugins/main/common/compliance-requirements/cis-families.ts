@@ -451,6 +451,16 @@ export const cisFamiliesFile: {
     '5': 'Access, Authentication and Authorization',
     '6': 'System Maintenance',
   },
+  // CIS Rocky Linux 10 Benchmark v1.0.0: its checks (CIS numbers and titles)
+  // are identical to the Rocky Linux 9 v1.0.0 policy, so it uses those titles.
+  cis_rocky_linux_10: {
+    '1': 'Initial Setup',
+    '2': 'Services',
+    '3': 'Network Configuration',
+    '4': 'Logging and Auditing',
+    '5': 'Access, Authentication and Authorization',
+    '6': 'System Maintenance',
+  },
   // CIS SUSE Linux Enterprise 11 Benchmark v2.1.0
   cis_sles11_linux: {
     '1': 'Initial Setup',
