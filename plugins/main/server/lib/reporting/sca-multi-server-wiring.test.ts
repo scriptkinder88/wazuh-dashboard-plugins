@@ -53,16 +53,20 @@ describe('SCA multi-server report wiring', () => {
     );
 
     expect(buttonSource).toContain('<ScaReportAgentSelector');
-    expect(buttonSource).toContain('await action.run(agentIds)');
+    expect(buttonSource).toContain('await action.run(agentIds, options)');
     expect(buttonSource).toContain(
-      'await reportingService.startScaReport(scaAgentIds)',
+      'await reportingService.startScaReport(scaAgentIds, scaOptions)',
     );
 
     expect(selectorSource).toContain('selectedAgentIds');
     expect(selectorSource).toContain('Select all filtered');
-    expect(selectorSource).toContain('await onGenerate(selectedAgentIds)');
+    expect(selectorSource).toContain(
+      'await onGenerate(selectedAgentIds, { details: includeDetails })',
+    );
 
-    expect(reportingSource).toContain('async startScaReport(agentIds)');
+    expect(reportingSource).toContain(
+      'async startScaReport(agentIds, options = {})',
+    );
     expect(reportingSource).toContain(
       'DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT',
     );
@@ -74,12 +78,19 @@ describe('SCA multi-server report wiring', () => {
     );
     expect(reportingSource).toContain(': { match_all: {} }');
     expect(reportingSource).toContain('indexPatternTitle: indexPattern?.title');
+    expect(reportingSource).toContain(
+      'scaOptions: { details: options?.details === true }',
+    );
+    expect(selectorSource).toContain('sca-report-include-details');
 
     expect(controllerSource).toContain(
       "moduleID === 'sca' && Array.isArray(agents) ? false : agents",
     );
     expect(controllerSource).toContain("time && moduleID !== 'sca'");
     expect(controllerSource).toContain('await addScaChecksToReport(');
+    expect(controllerSource).toContain(
+      '{ details: scaOptions?.details === true }',
+    );
     expect(controllerSource).toContain(
       "indexPatternTitle ||\n              context.wazuh_core.configuration.getSettingValue('pattern')",
     );
@@ -139,6 +150,7 @@ describe('SCA multi-server report wiring', () => {
     expect(routeSource).toContain(
       'indexPatternTitle: schema.maybe(schema.string())',
     );
+    expect(routeSource).toContain('details: schema.maybe(schema.boolean())');
   });
 
   it('keeps SCA reports on the shared configurable branding pipeline', () => {

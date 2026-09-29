@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
-import { EuiDescriptionList, EuiHealth } from '@elastic/eui';
+import { EuiDescriptionList, EuiHealth, EuiToolTip } from '@elastic/eui';
 import { MODULE_SCA_CHECK_RESULT_LABEL } from '../../../../../common/constants';
+import { resolveCisReference } from '../../../../../common/sca/cis-reference';
 import { TableWzAPI } from '../../../common/tables';
 import { ComplianceText, RuleText } from '../components';
 import { getFilterValues } from './lib';
@@ -63,6 +64,10 @@ const TableRowExpand = withErrorBoundary(({ item }) => {
       : '';
   const listItems = [
     {
+      title: 'Check ID',
+      description: item.id !== undefined ? String(item.id) : '',
+    },
+    {
       title: 'Check not applicable due to:',
       description: item.reason,
     },
@@ -111,16 +116,18 @@ export class InventoryPolicyChecksTable extends Component<Props, State> {
     };
     this.columnsChecks = [
       {
-        field: 'id',
-        name: 'ID',
-        sortable: true,
+        // CIS recommendation number: from the title prefix for CIS-CAT Pro
+        // imports, otherwise from the policy's `cis` compliance mapping.
+        name: 'CIS',
         width: '100px',
+        render: this.renderCisReference,
       },
       {
         field: 'title',
         name: 'Title',
         sortable: true,
         truncateText: true,
+        render: (title, item) => resolveCisReference(item).title || title,
       },
       {
         name: 'Target',
@@ -173,6 +180,20 @@ export class InventoryPolicyChecksTable extends Component<Props, State> {
 
   componentWillUnmount() {
     this._isMount = false;
+  }
+
+  renderCisReference(item) {
+    const { reference } = resolveCisReference(item);
+
+    if (reference) {
+      return <span data-test-subj='sca-check-cis-reference'>{reference}</span>;
+    }
+
+    return (
+      <EuiToolTip content='No CIS recommendation number; showing the check ID'>
+        <span data-test-subj='sca-check-id'>{`ID ${item.id}`}</span>
+      </EuiToolTip>
+    );
   }
 
   /**

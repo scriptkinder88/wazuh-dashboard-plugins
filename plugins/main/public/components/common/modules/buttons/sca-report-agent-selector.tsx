@@ -20,10 +20,18 @@ import { WzRequest } from '../../../../react-services';
 
 const AGENTS_PAGE_SIZE = 100;
 
+export type ScaReportOptions = {
+  /** Include the per-server tables with every control. */
+  details: boolean;
+};
+
 type ScaReportAgentSelectorProps = {
   initialAgentId?: string;
   onCancel: () => void;
-  onGenerate: (agentIds: string[]) => Promise<void> | void;
+  onGenerate: (
+    agentIds: string[],
+    options: ScaReportOptions,
+  ) => Promise<void> | void;
 };
 
 export const ScaReportAgentSelector = ({
@@ -41,6 +49,7 @@ export const ScaReportAgentSelector = ({
   const [loadError, setLoadError] = useState('');
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  const [includeDetails, setIncludeDetails] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -150,7 +159,7 @@ export const ScaReportAgentSelector = ({
 
     try {
       setGenerating(true);
-      await onGenerate(selectedAgentIds);
+      await onGenerate(selectedAgentIds, { details: includeDetails });
     } finally {
       setGenerating(false);
     }
@@ -272,6 +281,13 @@ export const ScaReportAgentSelector = ({
       </EuiModalBody>
 
       <EuiModalFooter>
+        <EuiCheckbox
+          id='sca-report-include-details'
+          data-test-subj='sca-report-include-details'
+          label='Include detailed results by server (every control, larger report)'
+          checked={includeDetails}
+          onChange={event => setIncludeDetails(event.target.checked)}
+        />
         <EuiButtonEmpty onClick={onCancel}>Cancel</EuiButtonEmpty>
         <EuiButton
           fill
