@@ -35,8 +35,20 @@ export const buildScaReportAgentFilter = (
   $state: { store: FilterStateStore.APP_STATE },
 });
 
+type ScaReportFilter = {
+  meta?: { key?: string; controlledBy?: string };
+  [key: string]: unknown;
+};
+
+type ScaReportSearchContext = {
+  indexPattern?: { id?: string };
+  overviewDashboardSavedObjectId?: string;
+  filters?: ScaReportFilter[];
+  [key: string]: unknown;
+};
+
 export const buildScaMultiServerReportContext = (
-  context: any,
+  context: ScaReportSearchContext,
   agentIds: string[] | string,
 ) => {
   const normalizedAgentIds = normalizeScaReportAgentIds(agentIds);

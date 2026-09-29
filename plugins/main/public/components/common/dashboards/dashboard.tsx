@@ -17,6 +17,7 @@ export const Dashboard = props => {
   const hasPinnedAgent = Boolean(
     props.dataSource.dataSource?.getPinnedAgentFilter()?.length,
   );
+  const [dashboardPanel] = props.getDashboardPanels;
 
   // Share the current dashboard search context with the Reporting plugin.
   useReportingCommunicateSearchContext({
@@ -24,10 +25,10 @@ export const Dashboard = props => {
     totalResults: props.dataSourceAction?.data?.hits?.total ?? 0,
     indexPattern: props.dataSource.dataSource?.indexPattern,
     dashboardSavedObjectId: hasPinnedAgent
-      ? props.getDashboardPanels[0].agentDashboardId
-      : props.getDashboardPanels[0].dashboardId,
-    overviewDashboardSavedObjectId: props.getDashboardPanels[0].dashboardId,
-    agentDashboardSavedObjectId: props.getDashboardPanels[0].agentDashboardId,
+      ? dashboardPanel.agentDashboardId
+      : dashboardPanel.dashboardId,
+    overviewDashboardSavedObjectId: dashboardPanel.dashboardId,
+    agentDashboardSavedObjectId: dashboardPanel.agentDashboardId,
     filters: props.dataSource.fetchFilters,
     query: props.dataSource.query,
     time: {

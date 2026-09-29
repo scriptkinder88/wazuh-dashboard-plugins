@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   EuiBasicTable,
+  EuiBasicTableColumn,
   EuiButton,
   EuiButtonEmpty,
   EuiCallOut,
@@ -20,6 +21,13 @@ import { WzRequest } from '../../../../react-services';
 
 const AGENTS_PAGE_SIZE = 500;
 
+type ScaReportAgent = {
+  id: string;
+  name?: string;
+  status?: string;
+  os?: { name?: string; version?: string };
+};
+
 type ScaReportAgentSelectorProps = {
   initialAgentId?: string;
   onCancel: () => void;
@@ -31,7 +39,7 @@ export const ScaReportAgentSelector = ({
   onCancel,
   onGenerate,
 }: ScaReportAgentSelectorProps) => {
-  const [agents, setAgents] = useState<any[]>([]);
+  const [agents, setAgents] = useState<ScaReportAgent[]>([]);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>(
     initialAgentId ? [String(initialAgentId)] : [],
   );
@@ -48,10 +56,12 @@ export const ScaReportAgentSelector = ({
     const loadAgents = async () => {
       try {
         setLoadingAgents(true);
-        const loadedAgents: any[] = [];
+        const loadedAgents: ScaReportAgent[] = [];
         let totalAgents: number | null = null;
 
         do {
+          // Pages are read sequentially: each offset depends on the previous page.
+          // eslint-disable-next-line no-await-in-loop
           const response = await WzRequest.apiReq('GET', '/agents', {
             params: {
               q: 'id!=000',
@@ -59,6 +69,7 @@ export const ScaReportAgentSelector = ({
               limit: AGENTS_PAGE_SIZE,
               sort: '+name',
               select: 'id,name,status,os.name,os.version',
+              // eslint-disable-next-line camelcase -- Wazuh API query parameter
               wait_for_complete: true,
             },
           });
@@ -157,7 +168,7 @@ export const ScaReportAgentSelector = ({
     }
   };
 
-  const columns: any[] = [
+  const columns: EuiBasicTableColumn<ScaReportAgent>[] = [
     {
       name: '',
       width: '42px',

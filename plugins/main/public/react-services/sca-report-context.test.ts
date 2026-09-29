@@ -26,6 +26,7 @@ describe('SCA multi-server reporting context', () => {
             controlledBy: 'pinned-agent',
           },
           query: {
+            // eslint-disable-next-line camelcase -- OpenSearch query DSL key
             match_phrase: {
               [SCA_REPORT_AGENT_FIELD]: { query: '003' },
             },
