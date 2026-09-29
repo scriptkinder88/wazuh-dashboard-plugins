@@ -3,6 +3,7 @@ import {
   compareCisReferences,
   resolveCisReference,
 } from '../../../common/sca/cis-reference';
+import { getCisFamilyTitle } from '../../../common/compliance-requirements/cis-families';
 import { ReportPrinter } from './printer';
 import {
   forEachLatestScaCheck,
@@ -450,15 +451,31 @@ const compareFamilies = (a: string, b: string) => {
   return compareCisReferences(a, b);
 };
 
-const getFamilyLabel = (family: string) =>
-  family === UNMAPPED_FAMILY ? 'Not mapped to a family' : `Family ${family}`;
+// Family titles come from the CIS family index, per policy; unknown ones show
+// the number only.
+const getFamilyLabel = (family: string, policyId?: string) => {
+  if (family === UNMAPPED_FAMILY) {
+    return 'Not mapped to a family';
+  }
+  const title = getCisFamilyTitle(policyId, family);
+
+  return title ? `Family ${family} - ${title}` : `Family ${family}`;
+};
+
+const MAX_CHART_LABEL_LENGTH = 48;
+
+const truncateLabel = (label: string) =>
+  label.length > MAX_CHART_LABEL_LENGTH
+    ? `${label.slice(0, MAX_CHART_LABEL_LENGTH - 3)}...`
+    : label;
 
 const buildFamilyBarsSvg = (
   families: Array<{ family: string; counters: ResultCounters }>,
+  policyId?: string,
 ) => {
   const rowHeight = 16;
-  const labelWidth = 150;
-  const barWidth = 520;
+  const labelWidth = 230;
+  const barWidth = 440;
   const height = families.length * rowHeight + 4;
   const rows = families
     .map(({ family, counters }, index) => {
@@ -483,7 +500,7 @@ const buildFamilyBarsSvg = (
         .join('');
 
       return (
-        svgText(0, y + 9, getFamilyLabel(family)) +
+        svgText(0, y + 9, truncateLabel(getFamilyLabel(family, policyId))) +
         segments +
         svgText(
           labelWidth + barWidth + 6,
@@ -510,7 +527,10 @@ const addScaFamilySections = (
     failedControls,
     serverSummaries,
   }: {
-    policySummaries: Map<string, { key: string; policy: string }>;
+    policySummaries: Map<
+      string,
+      { key: string; policy: string; policyId?: string }
+    >;
     policyInstanceCoverage: Map<string, { policyKey: string; status: string }>;
     familyCounters: Map<string, Map<string, ResultCounters>>;
     failedControls: Map<string, Map<string, FailedControl>>;
@@ -568,7 +588,7 @@ const addScaFamilySections = (
     }
 
     printer.addContent({
-      svg: buildFamilyBarsSvg(families),
+      svg: buildFamilyBarsSvg(families, summary.policyId),
       margin: [0, 0, 0, 6],
     });
 
@@ -586,7 +606,7 @@ const addScaFamilySections = (
         const score = complete ? getCountersScore(counters) : null;
 
         return {
-          family: getFamilyLabel(family),
+          family: getFamilyLabel(family, summary.policyId),
           controls: getCountersTotal(counters),
           passed: counters.passed,
           failed: counters.failed,
@@ -625,7 +645,9 @@ const addScaFamilySections = (
       const controls = byFamily.get(family);
 
       printer.addSimpleTable({
-        title: `${getFamilyLabel(family)} (${controls.length})`,
+        title: `${getFamilyLabel(family, summary.policyId)} (${
+          controls.length
+        })`,
         columns: [
           { id: 'reference', label: 'CIS' },
           { id: 'title', label: 'Control' },
@@ -773,6 +795,9 @@ export async function addScaChecksToReport(
 
       const policySummary = policySummaries.get(policyKey);
       policySummary.agents.add(agentId);
+      if (!policySummary.policyId && source?.data?.sca?.policy_id) {
+        policySummary.policyId = String(source.data.sca.policy_id);
+      }
       addResultToCounters(policySummary, result);
 
       const check = source?.data?.sca?.check || {};
