@@ -193,7 +193,6 @@ describe('SCA indexed report controls', () => {
         }),
         checkBucket('003', policy, '2', 'not applicable'),
         checkBucket('003', policy, '3', 'passed'),
-        checkBucket('003', policy, '999', 'failed', {}, 41),
       ],
       [summaryBucket('003', policy, 3, 1, 1, 1)],
     );
@@ -336,7 +335,6 @@ describe('SCA indexed report controls', () => {
     });
     expect(controls.items[1].result).toBe('Not applicable');
     expect(controls.items[2].result).toBe('Passed');
-    expect(controls.items.map(item => item.reference)).not.toContain('ID 999');
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
       text: 'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
@@ -512,6 +510,81 @@ describe('SCA indexed report controls', () => {
     );
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
       text: 'Coverage: Incomplete (2/2 checks) | Passed: 2 | Failed: 0 | Not applicable: 0',
+      style: 'standard',
+    });
+  });
+
+  it('keeps unchanged checks from earlier scans as the last known state', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed', {}, 42),
+        // Unchanged since scan 40: Wazuh emits no new event for it.
+        checkBucket('003', policy, '2', 'passed', {}, 40),
+      ],
+      [summaryBucket('003', policy, 2, 1, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const serverResults = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Selected server results (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        score: '50%',
+        controls: 2,
+        sca: 'Complete (1 policy)',
+      }),
+    );
+  });
+
+  it('withholds scores when a stale check is no longer in the latest scan', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed'),
+        checkBucket('003', policy, '2', 'not applicable'),
+        checkBucket('003', policy, '3', 'passed'),
+        // e.g. a check removed from the policy: its last event stays indexed.
+        checkBucket('003', policy, '999', 'failed', {}, 41),
+      ],
+      [summaryBucket('003', policy, 3, 1, 1, 1)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+      { details: true },
+    );
+
+    const serverResults = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Selected server results (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        score: '-',
+        controls: 4,
+        sca: 'Incomplete history (1 policy)',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage: Incomplete (4/3 checks) | Passed: 1 | Failed: 2 | Not applicable: 1',
       style: 'standard',
     });
   });
