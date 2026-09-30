@@ -15,7 +15,10 @@ import { WazuhConfig } from '../react-services/wazuh-config';
 import { AppState } from './app-state';
 import { WzRequest } from './wz-request';
 import { getCore, getHttp, getToasts, getUiSettings } from '../kibana-services';
-import { UI_LOGGER_LEVELS } from '../../common/constants';
+import {
+  DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,
+  UI_LOGGER_LEVELS,
+} from '../../common/constants';
 import { UI_ERROR_SEVERITIES } from './error-orchestrator/types';
 import { getErrorOrchestrator } from './common-services';
 import store from '../redux/store';
@@ -136,6 +139,96 @@ export class ReportingService {
 
   async getDataSourceSearchContext() {
     return store.getState().reportingReducers?.dataSourceSearchContext;
+  }
+
+  async startScaReport(agentIds, options = {}) {
+    try {
+      const agents = [
+        ...new Set(
+          (Array.isArray(agentIds) ? agentIds : [agentIds])
+            .filter(Boolean)
+            .map(agentId => String(agentId)),
+        ),
+      ];
+
+      if (!agents.length) {
+        return null;
+      }
+
+      const dataSourceContext = await this.getDataSourceSearchContext();
+
+      const indexPattern = dataSourceContext?.indexPattern;
+
+      // Preserve the dashboard query and RBAC filters when an OpenSearch data
+      // source is available, but remove only the currently pinned agent. The
+      // The SCA inventory page in Wazuh 4.14.x is API-backed and can
+      // legitimately have no data-source index pattern. In that case the
+      // backend falls back to the configured Wazuh alerts pattern and applies
+      // the selected agent IDs plus SCA filters server-side.
+      const filters = (dataSourceContext?.filters || []).filter(
+        filter =>
+          filter?.meta?.controlledBy !==
+          DATA_SOURCE_FILTER_CONTROLLED_PINNED_AGENT,
+      );
+
+      // Current-state SCA reports intentionally omit the dashboard time picker.
+      // The backend reads the latest indexed event for every selected control.
+      const serverSideQuery = indexPattern
+        ? buildOpenSearchQuery(
+            indexPattern,
+            dataSourceContext?.query,
+            filters,
+            getOpenSearchQueryConfig(getUiSettings()),
+          )
+        : { match_all: {} };
+
+      const browserTimezone = moment.tz.guess(true);
+      const config = this.wazuhConfig.getConfig();
+      const reportTimeout = Math.max(
+        Number(config?.timeout) || 0,
+        30 * 60 * 1000,
+      );
+
+      const data = {
+        array: [],
+        serverSideQuery,
+        filters,
+        searchBar: dataSourceContext?.query?.query || '',
+        tables: [],
+        tab: 'sca',
+        section: 'agents',
+        agents,
+        browserTimezone,
+        indexPatternTitle: indexPattern?.title,
+        scaOptions: { details: options?.details === true },
+        apiId: JSON.parse(AppState.getCurrentAPI()).id,
+      };
+
+      const response = await WzRequest.genericReq(
+        'POST',
+        '/reports/modules/sca',
+        data,
+        {
+          checkCurrentApiIsUp: false,
+          timeout: reportTimeout,
+        },
+      );
+
+      this.renderSucessReportsToast({ filename: response.data.filename });
+    } catch (error) {
+      const options = {
+        context: `${ReportingService.name}.startScaReport`,
+        level: UI_LOGGER_LEVELS.ERROR,
+        severity: UI_ERROR_SEVERITIES.BUSINESS,
+        store: true,
+        error: {
+          error: error,
+          message: error.message || error,
+          title: `Error creating the report`,
+        },
+      };
+      getErrorOrchestrator().handleError(options);
+    }
   }
 
   async startVis2Png(

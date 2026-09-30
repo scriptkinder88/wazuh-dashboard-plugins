@@ -26,6 +26,7 @@ import {
   buildAgentsTable,
 } from '../lib/reporting/extended-information';
 import { ReportPrinter } from '../lib/reporting/printer';
+import { addScaChecksToReport } from '../lib/reporting/sca-report';
 import {
   AUTHORIZED_AGENTS,
   API_NAME_AGENT_STATUS,
@@ -310,6 +311,7 @@ export class WazuhReportingCtrl {
           tables,
           section,
           indexPatternTitle,
+          scaOptions,
           apiId,
         } = request.body;
         const { moduleID } = request.params;
@@ -325,12 +327,15 @@ export class WazuhReportingCtrl {
           `downloads/reports/${context.wazuhEndpointParams.hashUsername}`,
         );
 
+        const headerAgents =
+          moduleID === 'sca' && Array.isArray(agents) ? false : agents;
+
         await this.renderHeader(
           context,
           printer,
           section,
           moduleID,
-          agents,
+          headerAgents,
           apiId,
         );
 
@@ -347,7 +352,7 @@ export class WazuhReportingCtrl {
           );
         }
 
-        if (time) {
+        if (time && moduleID !== 'sca') {
           additionalTables = await extendedInformation(
             context,
             printer,
@@ -364,6 +369,21 @@ export class WazuhReportingCtrl {
         }
 
         printer.addVisualizations(array, agents, moduleID);
+
+        if (
+          moduleID === 'sca' &&
+          (typeof agents === 'string' || Array.isArray(agents))
+        ) {
+          await addScaChecksToReport(
+            context,
+            printer,
+            agents,
+            indexPatternTitle ||
+              context.wazuh_core.configuration.getSettingValue('pattern'),
+            serverSideQuery,
+            { details: scaOptions?.details === true },
+          );
+        }
 
         if (tables) {
           printer.addTables([...tables, ...(additionalTables || [])]);
@@ -382,10 +402,15 @@ export class WazuhReportingCtrl {
         return ErrorResponse(error.message || error, 5029, 500, response);
       }
     },
-    ({ body: { agents }, params: { moduleID } }) =>
-      `wazuh-module-${
-        agents ? `agents-${agents}` : 'overview'
-      }-${moduleID}-${this.generateReportTimestamp()}.pdf`,
+    ({ body: { agents }, params: { moduleID } }) => {
+      const agentsLabel = Array.isArray(agents)
+        ? `agents-${agents.length}-selected`
+        : agents
+        ? `agents-${agents}`
+        : 'overview';
+
+      return `wazuh-module-${agentsLabel}-${moduleID}-${this.generateReportTimestamp()}.pdf`;
+    },
   );
 
   /**

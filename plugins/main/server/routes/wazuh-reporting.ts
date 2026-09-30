@@ -71,7 +71,11 @@ export function WazuhReportingRoutes(router: IRouter) {
           serverSideQuery: schema.maybe(schema.any()),
           filters: schema.maybe(schema.any()),
           agents: schema.maybe(
-            schema.oneOf([agentIDValidation, schema.boolean()]),
+            schema.oneOf([
+              agentIDValidation,
+              schema.arrayOf(agentIDValidation),
+              schema.boolean(),
+            ]),
           ),
           components: schema.maybe(schema.any()),
           searchBar: schema.maybe(schema.string()),
@@ -87,7 +91,12 @@ export function WazuhReportingRoutes(router: IRouter) {
               schema.string(),
             ]),
           ),
-          indexPatternTitle: schema.string(),
+          indexPatternTitle: schema.maybe(schema.string()),
+          scaOptions: schema.maybe(
+            schema.object({
+              details: schema.maybe(schema.boolean()),
+            }),
+          ),
           apiId: schema.string(),
         }),
         params: schema.object({
