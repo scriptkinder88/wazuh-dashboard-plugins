@@ -1,4 +1,5 @@
 import csv
+import json
 import io
 import os
 import re
@@ -138,8 +139,9 @@ class SharedVectors(unittest.TestCase):
     def test_typescript_vectors_are_current(self):
         sys.path.insert(0, os.path.dirname(__file__))
         import make_vectors
+        # compared as data: the repository formatter may re-indent the file
         with open(make_vectors.OUT, encoding="utf-8") as f:
-            self.assertEqual(f.read(), make_vectors.render(),
+            self.assertEqual(json.load(f), make_vectors.build(),
                              "run tools/ciscat-bridge/tests/make_vectors.py")
 
 
