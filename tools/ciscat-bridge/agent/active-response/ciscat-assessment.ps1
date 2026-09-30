@@ -51,8 +51,17 @@ $reportDir = Join-Path $Ciscat "reports"
 $resultDir = Join-Path $Ciscat "results"
 $flatScript = Join-Path $Ciscat "CISCAT-CsvToFlat.ps1"
 
-if (-not (Test-Path $Ciscat))     { Fail "CIS-CAT root not found: $Ciscat" }
-if (-not (Test-Path $assessor))   { Fail "Assessor-CLI.bat not found: $assessor" }
+# CIS-CAT Pro itself is licensed software provisioned on each agent, never
+# distributed by the manager. Without it, stop here: withdraw the previous
+# results so SCA stops reporting them as current (the policy requires the
+# flatten file), and log the message the manager rule ciscat_rules.xml alerts on.
+if (-not (Test-Path $assessor)) {
+    $oldFlat = Join-Path $resultDir "$FlatName.ciscat-flat"
+    if (Test-Path $oldFlat) {
+        Move-Item -Force -Path $oldFlat -Destination "$oldFlat.stale" -ErrorAction SilentlyContinue
+    }
+    Fail "CIS-CAT Pro not found on $([Environment]::MachineName): $assessor is missing. Assessment stopped; previous results withdrawn from SCA."
+}
 if (-not (Test-Path $flatScript)) { Fail "flatten script not found: $flatScript" }
 if (-not (Test-Path $benchDir))   { Fail "benchmarks folder not found: $benchDir" }
 foreach ($d in @($reportDir, $resultDir)) {

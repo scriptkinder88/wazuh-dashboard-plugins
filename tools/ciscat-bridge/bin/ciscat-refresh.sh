@@ -22,12 +22,13 @@ set -u
 # see this). Ignore SIGPIPE and write to stdout only when it is a terminal.
 trap '' PIPE
 
-CISCAT_PATH="/opt/ciscat/Assessor"
-DATA_DIR="/var/lib/wazuh-ciscat"
+# Overridable for tests only; execd runs the script with the defaults.
+CISCAT_PATH="${CISCAT_PATH:-/opt/ciscat/Assessor}"
+DATA_DIR="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
 CONF="${DATA_DIR}/refresh.conf"
 CACHE_DIR="${DATA_DIR}/reports-cache"
 LOG_DIR="${DATA_DIR}/logs"
-AR_LOG="/var/ossec/logs/active-responses.log"
+AR_LOG="${CISCAT_AR_LOG:-/var/ossec/logs/active-responses.log}"
 
 mkdir -p "$CACHE_DIR" "$LOG_DIR" 2>/dev/null
 RUN_LOG="${LOG_DIR}/refresh_$(date +%Y%m%d_%H%M%S).log"
@@ -39,6 +40,17 @@ log() {
     echo "$(date '+%Y/%m/%d %H:%M:%S') ciscat-refresh: $1" >> "$AR_LOG" 2>/dev/null
 }
 fail() { log "ERROR: $1"; exit 1; }
+
+# CIS-CAT Pro itself is licensed software provisioned on each agent, never
+# distributed by the manager. Without it, stop here: withdraw the previous
+# results so SCA stops reporting them as current (the policy requires the
+# flatten file), and log the message the manager rule ciscat_rules.xml alerts on.
+if [ ! -x "${CISCAT_PATH}/Assessor-CLI.sh" ]; then
+    for old in "$CACHE_DIR"/*/results.txt; do
+        [ -f "$old" ] && mv -f "$old" "${old}.stale" 2>/dev/null
+    done
+    fail "CIS-CAT Pro not found on $(hostname): ${CISCAT_PATH}/Assessor-CLI.sh is missing. Assessment stopped; previous results withdrawn from SCA."
+fi
 
 [ -r "$CONF" ] || fail "config not found: $CONF"
 . "$CONF"
