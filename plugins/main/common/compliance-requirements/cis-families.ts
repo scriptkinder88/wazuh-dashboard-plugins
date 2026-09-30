@@ -677,6 +677,29 @@ export const cisFamiliesFile: {
     '17': 'Advanced Audit Policy Configuration',
     '18': 'Administrative Templates (Computer)',
   },
+  // CIS-CAT Pro results bridged into SCA by a fleet generator. Checks written
+  // by the generator carry their family title (`cis_family` compliance), which
+  // wins over these entries; they cover policies generated before that.
+  // CIS Microsoft Windows Server 2025 Benchmark v2.0.0, tailored Level 1 Member Server
+  cis_win2025_tailored_l1_ms: {
+    '1': 'Account Policies',
+    '2': 'Local Policies',
+    '5': 'System Services',
+    '9': 'Windows Defender Firewall with Advanced Security (formerly Windows Firewall with Advanced Security)',
+    '17': 'Advanced Audit Policy Configuration',
+    '18': 'Administrative Templates (Computer)',
+    '19': 'Administrative Templates (User)',
+  },
+  // CIS Red Hat Enterprise Linux 7 Benchmark v4.0.0, tailored Level 1 Server
+  // (v4.0.0 swaps families 4 and 5 compared with v3.1.1)
+  cis_rhel7_tailored_l1_server: {
+    '1': 'Initial Setup',
+    '2': 'Services',
+    '3': 'Network',
+    '4': 'Access, Authentication and Authorization',
+    '5': 'Logging and Auditing',
+    '6': 'System Maintenance',
+  },
   // CIS Distribution Independent Linux Benchmark v2.0.0
   sca_distro_independent_linux: {
     '1': 'Initial Setup',

@@ -451,13 +451,19 @@ const compareFamilies = (a: string, b: string) => {
   return compareCisReferences(a, b);
 };
 
-// Family titles come from the CIS family index, per policy; unknown ones show
-// the number only.
-const getFamilyLabel = (family: string, policyId?: string) => {
+// Family titles carried by the checks (`cis_family` compliance, from the
+// benchmark itself) win; then the CIS family index, per policy; unknown ones
+// show the number only.
+const getFamilyLabel = (
+  family: string,
+  policyId?: string,
+  checkFamilyTitles?: Map<string, string>,
+) => {
   if (family === UNMAPPED_FAMILY) {
     return 'Not mapped to a family';
   }
-  const title = getCisFamilyTitle(policyId, family);
+  const title =
+    checkFamilyTitles?.get(family) || getCisFamilyTitle(policyId, family);
 
   return title ? `Family ${family} - ${title}` : `Family ${family}`;
 };
@@ -472,6 +478,7 @@ const truncateLabel = (label: string) =>
 const buildFamilyBarsSvg = (
   families: Array<{ family: string; counters: ResultCounters }>,
   policyId?: string,
+  checkFamilyTitles?: Map<string, string>,
 ) => {
   const rowHeight = 16;
   const labelWidth = 230;
@@ -500,7 +507,11 @@ const buildFamilyBarsSvg = (
         .join('');
 
       return (
-        svgText(0, y + 9, truncateLabel(getFamilyLabel(family, policyId))) +
+        svgText(
+          0,
+          y + 9,
+          truncateLabel(getFamilyLabel(family, policyId, checkFamilyTitles)),
+        ) +
         segments +
         svgText(
           labelWidth + barWidth + 6,
@@ -529,7 +540,12 @@ const addScaFamilySections = (
   }: {
     policySummaries: Map<
       string,
-      { key: string; policy: string; policyId?: string }
+      {
+        key: string;
+        policy: string;
+        policyId?: string;
+        familyTitles?: Map<string, string>;
+      }
     >;
     policyInstanceCoverage: Map<string, { policyKey: string; status: string }>;
     familyCounters: Map<string, Map<string, ResultCounters>>;
@@ -557,8 +573,9 @@ const addScaFamilySections = (
       'Controls are grouped by the first level of their CIS recommendation ' +
       'number (family 1 holds 1.1.1, 1.2, ...). The number comes from the ' +
       'check title for CIS-CAT Pro imports and from the policy CIS ' +
-      'compliance mapping for Wazuh policies. Family titles are not ' +
-      'provided by Wazuh 4.x and are not shown.',
+      'compliance mapping for Wazuh policies. Family titles come from the ' +
+      'checks when a CIS-CAT bridge adds them, otherwise from the CIS ' +
+      'family index for the policy; unknown families show the number only.',
     style: 'standard',
   });
 
@@ -588,7 +605,7 @@ const addScaFamilySections = (
     }
 
     printer.addContent({
-      svg: buildFamilyBarsSvg(families, summary.policyId),
+      svg: buildFamilyBarsSvg(families, summary.policyId, summary.familyTitles),
       margin: [0, 0, 0, 6],
     });
 
@@ -606,7 +623,11 @@ const addScaFamilySections = (
         const score = complete ? getCountersScore(counters) : null;
 
         return {
-          family: getFamilyLabel(family, summary.policyId),
+          family: getFamilyLabel(
+            family,
+            summary.policyId,
+            summary.familyTitles,
+          ),
           controls: getCountersTotal(counters),
           passed: counters.passed,
           failed: counters.failed,
@@ -645,9 +666,11 @@ const addScaFamilySections = (
       const controls = byFamily.get(family);
 
       printer.addSimpleTable({
-        title: `${getFamilyLabel(family, summary.policyId)} (${
-          controls.length
-        })`,
+        title: `${getFamilyLabel(
+          family,
+          summary.policyId,
+          summary.familyTitles,
+        )} (${controls.length})`,
         columns: [
           { id: 'reference', label: 'CIS' },
           { id: 'title', label: 'Control' },
@@ -803,6 +826,14 @@ export async function addScaChecksToReport(
       const check = source?.data?.sca?.check || {};
       const cis = resolveCisReference(check);
       const family = cis.family || UNMAPPED_FAMILY;
+      if (cis.familyTitle) {
+        if (!policySummary.familyTitles) {
+          policySummary.familyTitles = new Map<string, string>();
+        }
+        if (!policySummary.familyTitles.has(family)) {
+          policySummary.familyTitles.set(family, cis.familyTitle);
+        }
+      }
       if (!familyCounters.has(policyKey)) {
         familyCounters.set(policyKey, new Map());
       }

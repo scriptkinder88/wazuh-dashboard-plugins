@@ -184,13 +184,18 @@ export class InventoryPolicyChecksTable extends Component<Props, State> {
   }
 
   renderCisReference(item) {
-    const { reference, family } = resolveCisReference(item);
+    const {
+      reference,
+      family,
+      familyTitle: checkFamilyTitle,
+    } = resolveCisReference(item);
 
     if (reference) {
-      const familyTitle = getCisFamilyTitle(
-        this.props?.lookingPolicy?.policy_id,
-        family,
-      );
+      // The title carried by the check comes from its own benchmark version;
+      // the family index is the fallback.
+      const familyTitle =
+        checkFamilyTitle ||
+        getCisFamilyTitle(this.props?.lookingPolicy?.policy_id, family);
       const cisReference = (
         <span data-test-subj='sca-check-cis-reference'>{reference}</span>
       );

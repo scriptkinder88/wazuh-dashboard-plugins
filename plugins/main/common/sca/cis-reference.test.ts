@@ -1,4 +1,5 @@
 import {
+  cisFamilyTitleFromCompliance,
   cisReferenceFromCompliance,
   cisReferenceFromTitle,
   compareCisReferences,
@@ -94,6 +95,51 @@ describe('CIS recommendation numbers', () => {
     });
     expect(resolveCisReference({ title: 'Web check' })).toEqual({
       title: 'Web check',
+    });
+  });
+
+  it('reads the family title carried by the check', () => {
+    // Wazuh API list and indexed alert object.
+    expect(
+      cisFamilyTitleFromCompliance(
+        [
+          { key: 'cis_csc_v8', value: '5.2' },
+          {
+            key: 'cis_family',
+            value: '4 Access, Authentication and Authorization',
+          },
+        ],
+        '4',
+      ),
+    ).toBe('Access, Authentication and Authorization');
+    expect(
+      cisFamilyTitleFromCompliance(
+        { cis_family: ['18 - Admin  Templates'] },
+        '18',
+      ),
+    ).toBe('Admin Templates');
+    // Only the check's own family, and only well-formed values.
+    expect(
+      cisFamilyTitleFromCompliance({ cis_family: '1 Initial Setup' }, '2'),
+    ).toBeUndefined();
+    expect(
+      cisFamilyTitleFromCompliance({ cis_family: 'Initial Setup' }, '1'),
+    ).toBeUndefined();
+    expect(cisFamilyTitleFromCompliance(undefined, '1')).toBeUndefined();
+    expect(
+      resolveCisReference({
+        title: '1.1.1 Ensure mounting is disabled',
+        compliance: [
+          { key: 'cis_csc_v8', value: '4.8' },
+          { key: 'cis_family', value: '1 Initial Setup' },
+        ],
+      }),
+    ).toEqual({
+      reference: '1.1.1',
+      family: '1',
+      familyTitle: 'Initial Setup',
+      title: 'Ensure mounting is disabled',
+      source: 'title',
     });
   });
 
