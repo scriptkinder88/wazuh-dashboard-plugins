@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 dist/
+# the repo root ignores bin/ (build output); here bin/ is source
+!/bin/
