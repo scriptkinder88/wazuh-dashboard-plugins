@@ -12,7 +12,7 @@ installer:
 - **The benchmarks** stay in `/opt/ciscat/benchmarks` on the master.
 
 When an agent lacks the Assessor, its run stops with `CIS-CAT Pro not found on <host>` (rule
-100950, shown in Configuration Assessment > Events), and its previous results are withdrawn from
+100950, or the first free id up to 100999, shown in Configuration Assessment > Events), and its previous results are withdrawn from
 SCA.
 
 ## How it works

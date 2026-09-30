@@ -33,7 +33,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("CISCAT_INSTALL_ROOT", "/")  # tests install into a fake root
-RULE_ID = "100950"
+# CIS-CAT alert rule: the first id of this range not used by another rule file
+RULE_IDS = range(100950, 101000)
 PLUGIN_TOOL = "/usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin"
 
 MANAGED_BIN = [
@@ -257,19 +258,32 @@ def install_files(payload):
 
 
 def install_rule(payload):
+    """Installs the rule with a free id. Returns the id when the file changed, else None."""
     dst = P("/var/ossec/etc/rules/ciscat_rules.xml")
     others = [f for f in glob.glob(P("/var/ossec/etc/rules/*.xml")) + glob.glob(P("/var/ossec/ruleset/rules/*.xml"))
               if os.path.abspath(f) != os.path.abspath(dst)]
+    used = set()
     for f in others:
         with open(f, encoding="utf-8", errors="replace") as fh:
-            if re.search(r'<rule\s+id="{0}"'.format(RULE_ID), fh.read()):
-                say("WARNING: rule id {0} already used in {1}: CIS-CAT rule NOT installed".format(RULE_ID, f))
-                return False
-    src = os.path.join(payload, "rules", "ciscat_rules.xml")
-    if os.path.exists(dst) and sha256(dst) == sha256(src):
-        return False
+            used.update(int(i) for i in re.findall(r'<rule\s[^>]*\bid="(\d+)"', fh.read()))
+    current = None
+    if os.path.exists(dst):
+        with open(dst, encoding="utf-8") as fh:
+            m = re.search(r'<rule\s[^>]*\bid="(\d+)"', fh.read())
+            current = int(m.group(1)) if m else None
+    free = [i for i in RULE_IDS if i not in used]
+    if not free:
+        say("WARNING: no free rule id in {0}-{1}: CIS-CAT rule NOT installed".format(
+            RULE_IDS[0], RULE_IDS[-1]))
+        return None
+    rule_id = current if current in free else free[0]  # keep the id already in place
+    with open(os.path.join(payload, "rules", "ciscat_rules.xml"), encoding="utf-8") as fh:
+        content = re.sub(r'(<rule\s[^>]*\bid=")\d+(")', r"\g<1>{0}\2".format(rule_id), fh.read(), count=1)
+    if os.path.exists(dst) and open(dst, encoding="utf-8").read() == content:
+        return None
     previous = open(dst, "rb").read() if os.path.exists(dst) else None
-    shutil.copyfile(src, dst)
+    with open(dst, "w", encoding="utf-8") as fh:
+        fh.write(content)
     own_wazuh(dst, 0o660)
     test = P("/var/ossec/bin/wazuh-analysisd")
     if ROOT == "/" and os.access(test, os.X_OK):
@@ -281,8 +295,8 @@ def install_rule(payload):
                 with open(dst, "wb") as f:
                     f.write(previous)
             say("WARNING: ruleset test failed, CIS-CAT rule not installed:\n" + out[-2000:])
-            return False
-    return True
+            return None
+    return rule_id
 
 
 def migrate_exclusions():
@@ -360,9 +374,10 @@ def master(payload, args, version):
     with open(P("/opt/ciscat/VERSION"), "w") as f:
         f.write(version + "\n")
 
-    if install_rule(payload):
+    rule_id = install_rule(payload)
+    if rule_id:
         say("manager rule {0} installed: restart wazuh-manager to load it{1}".format(
-            RULE_ID, " (doing it now)" if args.restart_manager else " (--restart-manager)"))
+            rule_id, " (doing it now)" if args.restart_manager else " (--restart-manager)"))
         if args.restart_manager and ROOT == "/":
             run(["systemctl", "restart", "wazuh-manager"], check=True)
 

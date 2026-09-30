@@ -178,7 +178,15 @@ def api_json(method, endpoint, token, body=None):
 
 
 def get_token():
-    return api_call("POST", "/security/user/authenticate?raw=true")
+    import urllib.error
+    try:
+        return api_call("POST", "/security/user/authenticate?raw=true")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            sys.exit("Wazuh API authentication failed for user '{0}' (password from {1}). Update the "
+                     "password file (chmod 600) or pass --password-file.".format(
+                         API["user"], API.get("source") or "the default"))
+        raise
 
 
 def group_agents(token, group, active_only=True, verbose=True):
@@ -596,10 +604,10 @@ def load_api_credentials(args):
     if args.user:
         API["user"] = args.user
     if args.password:
-        API["password"] = args.password
+        API["password"], API["source"] = args.password, "--password"
         return
     if os.environ.get("WAZUH_API_PASSWORD"):
-        API["password"] = os.environ["WAZUH_API_PASSWORD"]
+        API["password"], API["source"] = os.environ["WAZUH_API_PASSWORD"], "$WAZUH_API_PASSWORD"
         return
     conf = {}
     if os.path.isfile(ORCH_CONF):
@@ -618,6 +626,7 @@ def load_api_credentials(args):
               file=sys.stderr)
     with open(pfile, encoding="utf-8") as f:
         API["password"] = f.readline().rstrip("\r\n")
+    API["source"] = pfile
     if not args.user and not args.password_file and conf.get("api_user"):
         API["user"] = conf["api_user"]
 

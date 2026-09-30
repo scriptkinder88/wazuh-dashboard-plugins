@@ -14,6 +14,7 @@ class FakeWazuh:
         self.groups = {g for a in agents.values() for g in a["group"]} | {"default"}
         self.calls = []
         self.ar = []
+        self.reject_auth = False
         for g in self.groups:
             os.makedirs(os.path.join(shared_dir, g), exist_ok=True)
 
@@ -61,6 +62,11 @@ class FakeWazuh:
                 q = dict(urllib.parse.parse_qsl(u.query))
                 n = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(n)) if n else None
+                if fake.reject_auth and u.path == "/security/user/authenticate":
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b'{"title": "Unauthorized"}')
+                    return
                 try:
                     data, raw = fake.handle(self.command, u.path, q, body)
                     payload = data.encode() if raw else json.dumps({"error": 0, "data": data}).encode()

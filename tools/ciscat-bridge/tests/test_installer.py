@@ -146,12 +146,16 @@ class Installer(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertFalse(os.path.exists(self.path("opt/ciscat/bin/ciscat-scheduler.py")))
 
-    def test_rule_id_clash_is_refused(self):
+    def test_rule_takes_the_first_free_id_and_keeps_it(self):
         with open(self.path("var/ossec/etc/rules/local_rules.xml"), "w") as f:
-            f.write('<group name="local,"><rule id="100950" level="3"><match>x</match></rule></group>')
+            f.write('<group name="local,"><rule id="100950" level="3"><match>x</match></rule>'
+                    '<rule id="100951" level="3" frequency="2"><match>y</match></rule></group>')
         out = self.install()
-        self.assertIn("rule id 100950 already used", out)
-        self.assertFalse(os.path.exists(self.path("var/ossec/etc/rules/ciscat_rules.xml")))
+        self.assertIn("manager rule 100952 installed", out)
+        with open(self.path("var/ossec/etc/rules/ciscat_rules.xml")) as f:
+            self.assertIn('<rule id="100952" level="7">', f.read())
+        # a later clash-free run keeps 100952 and reports nothing to change
+        self.assertNotIn("manager rule", self.install())
 
 
     def test_dashboard_plugin_is_installed_only_with_the_right_checksum(self):
