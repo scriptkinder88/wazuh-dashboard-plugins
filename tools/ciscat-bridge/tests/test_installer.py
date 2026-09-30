@@ -27,6 +27,16 @@ OS_LIBRARY = {
 OLD_CRON = "0 22-23,0-5 * * *  root  /opt/ciscat/bin/ciscat-orchestrator.sh >/dev/null 2>&1\n"
 
 
+def plugin_zip(path):
+    """A minimal archive with the layout the plugin tool expects; returns its SHA-256."""
+    import hashlib
+    import zipfile
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("opensearch-dashboards/wazuh/package.json", '{"version": "new"}')
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 class Installer(unittest.TestCase):
     def setUp(self):
         self.out = tempfile.mkdtemp()
@@ -167,10 +177,7 @@ class Installer(unittest.TestCase):
             f.write('#!/bin/sh\necho "$@" >> {0}\n'.format(calls))
         os.chmod(tool, 0o755)
         zip_path = self.path("wazuh-4.14.10.zip")
-        with open(zip_path, "wb") as f:
-            f.write(b"PK fake plugin")
-        import hashlib
-        good = hashlib.sha256(b"PK fake plugin").hexdigest()
+        good = plugin_zip(zip_path)
         p = subprocess.run(["sh", self.script, "--plugin-file", zip_path, "--plugin-sha256", "0" * 64],
                            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.assertNotEqual(p.returncode, 0)
@@ -178,10 +185,60 @@ class Installer(unittest.TestCase):
         self.assertFalse(os.path.exists(calls))
         out = self.install("--plugin-file", zip_path, "--plugin-sha256", good)
         with open(calls) as f:
-            self.assertEqual(f.read().splitlines(),
-                             ["remove wazuh", "install file://" + zip_path])
+            got = f.read().splitlines()
+        self.assertEqual(got[0], "remove wazuh")
+        self.assertRegex(got[1], r"^install file:///.*/ciscat-plugin-[^/]+/wazuh-plugin\.zip$")
         self.assertNotIn("Master:", out)
         self.assertIn("restart wazuh-dashboard to load it", out)
+
+    def test_github_artifact_wrapper_is_opened(self):
+        import hashlib
+        import io
+        import zipfile
+        os.remove(self.path("var/ossec/bin/wazuh-analysisd"))
+        tool = self.path("usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin")
+        os.makedirs(os.path.dirname(tool))
+        seen = self.path("seen.txt")
+        # the fake tool records what the archive it receives contains
+        with open(tool, "w") as f:
+            f.write('#!/bin/sh\n[ "$1" = install ] && python3 -c "import sys,zipfile;'
+                    'print(zipfile.ZipFile(sys.argv[1][7:]).namelist())" "$2" > {0}\nexit 0\n'.format(seen))
+        os.chmod(tool, 0o755)
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, "w") as z:
+            z.writestr("opensearch-dashboards/wazuh/package.json", "{}")
+        outer = self.path("artifact.zip")
+        with zipfile.ZipFile(outer, "w") as z:
+            z.writestr("wazuh-4.14.10-00.zip", inner.getvalue())
+        with open(outer, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        out = self.install("--plugin-file", outer, "--plugin-sha256", digest)
+        self.assertIn("taken from the wrapper archive", out)
+        with open(seen) as f:
+            self.assertIn("opensearch-dashboards/wazuh/package.json", f.read())
+
+    def test_failed_plugin_install_restores_the_previous_plugin(self):
+        os.remove(self.path("var/ossec/bin/wazuh-analysisd"))
+        tool = self.path("usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin")
+        os.makedirs(os.path.dirname(tool))
+        plugin = self.path("usr/share/wazuh-dashboard/plugins/wazuh")
+        os.makedirs(plugin)
+        with open(os.path.join(plugin, "package.json"), "w") as f:
+            f.write('{"version": "old"}')
+        # remove works, install fails (as with an unreadable zip)
+        with open(tool, "w") as f:
+            f.write('#!/bin/sh\nif [ "$1" = remove ]; then rm -rf "{0}"; exit 0; fi\n'
+                    'echo "EACCES: permission denied"; exit 70\n'.format(plugin))
+        os.chmod(tool, 0o755)
+        zip_path = self.path("p.zip")
+        digest = plugin_zip(zip_path)
+        p = subprocess.run(["sh", self.script, "--plugin-file", zip_path, "--plugin-sha256",
+                            digest], env=self.env,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("previous plugin restored", p.stdout)
+        with open(os.path.join(plugin, "package.json")) as f:
+            self.assertIn("old", f.read())
 
 
 if __name__ == "__main__":

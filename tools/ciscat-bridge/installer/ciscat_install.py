@@ -408,6 +408,29 @@ def master(payload, args, version):
     return rc
 
 
+def unwrap_plugin_zip(path):
+    """The plugin zip itself, also when it arrives inside the zip GitHub wraps artifacts in."""
+    import zipfile
+    for _ in range(2):
+        try:
+            with zipfile.ZipFile(path) as z:
+                names = z.namelist()
+                if any(n.startswith("opensearch-dashboards/") for n in names):
+                    return path
+                inner = [n for n in names if n.endswith(".zip") and "/" not in n.strip("/")]
+                if len(names) != 1 or len(inner) != 1:
+                    die("not an OpenSearch Dashboards plugin zip (no opensearch-dashboards/ folder): " + path)
+                out = os.path.join(os.path.dirname(path), "inner-" + os.path.basename(inner[0]))
+                with z.open(inner[0]) as src, open(out, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                os.chmod(out, 0o644)
+                say("plugin zip taken from the wrapper archive: " + inner[0])
+                path = out
+        except zipfile.BadZipFile:
+            die("not a zip file: " + path)
+    die("plugin zip nested too deep: " + path)
+
+
 def dashboard(args):
     step("Dashboard: Wazuh plugin")
     if not (args.plugin_url or args.plugin_file):
@@ -415,18 +438,43 @@ def dashboard(args):
         return 0
     if not re.match(r"^[0-9a-f]{64}$", args.plugin_sha256 or ""):
         die("--plugin-sha256 (64 hex characters) is required to install the plugin")
-    tmp = tempfile.mkdtemp()
-    zip_path = args.plugin_file
+    # a private dir the service user can read: the zip may sit in a home dir it cannot reach
+    tmp = tempfile.mkdtemp(prefix="ciscat-plugin-")
+    os.chmod(tmp, 0o755)
+    staged = os.path.join(tmp, "wazuh-plugin.zip")
     if args.plugin_url:
-        zip_path = os.path.join(tmp, "wazuh-plugin.zip")
-        run(["curl", "-fsSL", "--proto", "=https", "-o", zip_path, args.plugin_url], check=True)
-    if sha256(zip_path) != args.plugin_sha256:
-        die("plugin checksum mismatch: refusing to install " + zip_path)
+        run(["curl", "-fsSL", "--proto", "=https", "-o", staged, args.plugin_url], check=True)
+    else:
+        shutil.copyfile(args.plugin_file, staged)
+    os.chmod(staged, 0o644)
+    if sha256(staged) != args.plugin_sha256:
+        die("plugin checksum mismatch: refusing to install " + (args.plugin_url or args.plugin_file))
+    staged = unwrap_plugin_zip(staged)
     tool = P(PLUGIN_TOOL)
     # the plugin tool must run as the dashboard service user, not root
     user = ["runuser", "-u", "wazuh-dashboard", "--"] if ROOT == "/" and os.geteuid() == 0 else []
+    plugins = P("/usr/share/wazuh-dashboard/plugins")
+    current = os.path.join(plugins, "wazuh")
+    saved = None
+    if os.path.isdir(current):
+        saved = os.path.join(P("/opt/ciscat/backup"), "wazuh-plugin-{0}.tgz".format(time.strftime("%Y%m%d-%H%M%S")))
+        os.makedirs(os.path.dirname(saved), exist_ok=True)
+        with tarfile.open(saved, "w:gz") as tar:
+            tar.add(current, arcname="wazuh")
+        say("current plugin saved: " + saved)
     run(user + [tool, "remove", "wazuh"])
-    run(user + [tool, "install", "file://" + os.path.abspath(zip_path)], check=True)
+    rc, out = run(user + [tool, "install", "file://" + staged])
+    shutil.rmtree(tmp, ignore_errors=True)
+    if rc != 0:
+        if saved:  # never leave the dashboard without its plugin
+            if os.path.isdir(current):
+                shutil.rmtree(current)
+            with tarfile.open(saved) as tar:
+                tar.extractall(plugins)
+            if ROOT == "/":
+                run(["chown", "-R", "wazuh-dashboard:wazuh-dashboard", current])
+            die("plugin install failed, previous plugin restored:\n" + out[-2000:])
+        die("plugin install failed:\n" + out[-2000:])
     say("plugin installed")
     if args.restart_dashboard:
         run(["systemctl", "restart", "wazuh-dashboard"], check=True)
