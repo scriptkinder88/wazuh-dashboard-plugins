@@ -26,8 +26,9 @@ export interface LoadedList {
 
 /** Names of the ciscat-* list files present on the manager. */
 export const existingLists = async (): Promise<Set<string>> => {
-  const response = await WzRequest.apiReq('GET', '/lists', {
-    params: { search: 'ciscat-', select: 'filename', limit: 500 },
+  // /lists/files returns names only; /lists would return every list's items
+  const response = await WzRequest.apiReq('GET', '/lists/files', {
+    params: { search: 'ciscat-', limit: 500 },
   });
   const items = response?.data?.data?.affected_items || [];
   return new Set(
