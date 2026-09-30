@@ -181,16 +181,11 @@ export const makeExclusions = async (
   }
   const { level, role } = profileLevelRole(input.column);
   const needsValue = input.scope === 'host' || input.scope === 'app_group';
-  const values = needsValue
-    ? Array.from(
-        new Set(
-          input.values
-            .flatMap(v => v.split(/[\s,;]+/))
-            .map(v => v.trim())
-            .filter(Boolean),
-        ),
-      )
-    : [''];
+  const names = input.values
+    .flatMap(v => v.split(/[\s,;]+/))
+    .map(v => v.trim())
+    .filter(Boolean);
+  const values = needsValue ? Array.from(new Set(names)) : [''];
   if (needsValue && !values.length) {
     throw new StoreError(
       input.scope === 'host'
@@ -250,14 +245,8 @@ const WEEKDAYS = [
 ];
 
 const ordinal = (n: number) => {
-  const suffix =
-    n % 10 === 1 && n % 100 !== 11
-      ? 'st'
-      : n % 10 === 2 && n % 100 !== 12
-      ? 'nd'
-      : n % 10 === 3 && n % 100 !== 13
-      ? 'rd'
-      : 'th';
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th';
   return `${n}${suffix}`;
 };
 

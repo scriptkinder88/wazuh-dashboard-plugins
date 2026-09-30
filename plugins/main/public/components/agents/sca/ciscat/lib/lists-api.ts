@@ -5,6 +5,7 @@
  */
 import { WzRequest } from '../../../../../react-services';
 import { getHttp } from '../../../../../kibana-services';
+// eslint-disable-next-line max-len
 import { ResourcesHandler } from '../../../../../controllers/management/components/management/common/resources-handler';
 import {
   CISCAT_LISTS,

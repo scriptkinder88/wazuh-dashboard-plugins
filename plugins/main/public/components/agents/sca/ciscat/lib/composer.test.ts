@@ -1,5 +1,6 @@
 /* eslint-disable camelcase */ // record fields are the snake_case wire format
 import { webcrypto } from 'crypto';
+import { TextDecoder, TextEncoder } from 'util';
 import { StoreError } from '../../../../../../common/ciscat/store';
 import {
   buildRows,
@@ -12,11 +13,12 @@ import {
   profileLevelRole,
 } from './composer';
 
-beforeAll(() => {
-  if (!globalThis.crypto?.subtle) {
-    Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
-  }
-});
+// jsdom (the CI test environment) lacks Web Crypto and TextEncoder, which
+// every browser has.
+Object.assign(globalThis, { TextEncoder, TextDecoder });
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
+}
 
 const bench = parseBench(
   {

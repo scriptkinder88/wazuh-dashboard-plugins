@@ -1,4 +1,5 @@
 import { webcrypto } from 'crypto';
+import { TextDecoder, TextEncoder } from 'util';
 import vectors from './contract-vectors.json';
 import {
   StoreError,
@@ -18,12 +19,12 @@ import {
 const WAZUH_CDB_LINE =
   /(?:^"([\w\-: ]+?)"|^[^:"\s]+):(?:"([\w\-: ]*?)"$|[^:"]*$)/;
 
-beforeAll(() => {
-  // jsdom/older node environments may not expose Web Crypto
-  if (!globalThis.crypto?.subtle) {
-    Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
-  }
-});
+// jsdom (the CI test environment) lacks Web Crypto and TextEncoder, which
+// every browser has.
+Object.assign(globalThis, { TextEncoder, TextDecoder });
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
+}
 
 describe('CIS-CAT store contract (shared vectors with ciscat_store.py)', () => {
   it('normalizes, keys and encodes exclusions like the master', async () => {
