@@ -25,6 +25,19 @@ describe('CIS family titles', () => {
     );
   });
 
+  it('covers the CIS-CAT fleet policies', () => {
+    expect(getCisFamilyTitle('cis_win2025_tailored_l1_ms', '19')).toBe(
+      'Administrative Templates (User)',
+    );
+    // RHEL 7 v4.0.0 swaps families 4 and 5 compared with v3.1.1.
+    expect(getCisFamilyTitle('cis_rhel7_tailored_l1_server', '4')).toBe(
+      'Access, Authentication and Authorization',
+    );
+    expect(getCisFamilyTitle('cis_rhel7_linux', '4')).toBe(
+      'Logging and Auditing',
+    );
+  });
+
   it('returns nothing for unknown policies, families or unsafe keys', () => {
     expect(getCisFamilyTitle('custom_policy', '1')).toBeUndefined();
     expect(getCisFamilyTitle('cis_rhel9_linux', '99')).toBeUndefined();

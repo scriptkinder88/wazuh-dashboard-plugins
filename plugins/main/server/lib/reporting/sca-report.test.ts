@@ -798,6 +798,45 @@ describe('SCA indexed report controls', () => {
     expect(chart.svg).toContain('Family 1 - Initial Setup');
   });
 
+  it('prefers the family titles carried by the checks', async () => {
+    // A CIS-CAT bridge copies the benchmark group title into `cis_family`, so
+    // it follows the assessed benchmark version rather than the index.
+    const policy = 'cis_rhel9_linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed', {
+          cis: '1.1.1',
+          cis_family: '1 Initial Setup (bridged)',
+        }),
+        checkBucket('003', policy, '2', 'passed', {
+          cis: '5.2.1',
+          cis_family: '4 Not this family',
+        }),
+      ],
+      [summaryBucket('003', policy, 2, 1, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      '003',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    expect(
+      tables
+        .find(table => table.title === 'Results by family (2)')
+        .items.map(item => item.family),
+    ).toEqual([
+      'Family 1 - Initial Setup (bridged)',
+      'Family 5 - Access, Authentication and Authorization',
+    ]);
+  });
+
   it('uses CIS-CAT Pro title numbers and withholds partial pass rates', async () => {
     const policy = 'CIS-CAT Pro tailored';
     const imported = (checkId: string, title: string, result: string) => {
