@@ -8,39 +8,20 @@
   },
   "families": {
     "windows_server": {
-      "levels": [
-        "Level_1",
-        "Level_2",
-        "Next_Generation_Windows_Security"
-      ],
-      "roles": [
-        "Member_Server",
-        "Domain_Controller"
-      ],
+      "levels": ["Level_1", "Level_2", "Next_Generation_Windows_Security"],
+      "roles": ["Member_Server", "Domain_Controller"],
       "default_role": "Member_Server",
       "rule_number_depth": "variable (e.g. 1.1.1)"
     },
     "rhel": {
-      "levels": [
-        "Level_1",
-        "Level_2"
-      ],
-      "roles": [
-        "Server",
-        "Workstation"
-      ],
+      "levels": ["Level_1", "Level_2"],
+      "roles": ["Server", "Workstation"],
       "default_role": "Server",
       "rule_number_depth": "variable (e.g. 1.1.1.1)"
     },
     "debian": {
-      "levels": [
-        "Level_1",
-        "Level_2"
-      ],
-      "roles": [
-        "Server",
-        "Workstation"
-      ],
+      "levels": ["Level_1", "Level_2"],
+      "roles": ["Server", "Workstation"],
       "default_role": "Server",
       "rule_number_depth": "variable (e.g. 1.1.1.1)"
     }

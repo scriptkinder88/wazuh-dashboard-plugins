@@ -26,14 +26,14 @@ Wazuh 4.x accepts a list value only without `:` and `"` (`validate_cdb_list`). E
 
 Each file has exactly one writer, so the two sides never overwrite each other.
 
-| File | Writer | Key | Record |
-|---|---|---|---|
-| `ciscat-exclusions` | dashboard | `e` + first 16 hex of SHA-1 of `os_key\|scope\|scope_value(lower)\|level\|role(lower)\|rule` | exclusion |
-| `ciscat-schedule` | dashboard | `j` + 12 hex | job |
-| `ciscat-requests` | dashboard | `r` + epoch ms + 4 hex | request |
-| `ciscat-status` | master | see below | status |
-| `ciscat-oskeys` | master | os key | OS entry |
-| `ciscat-bench-<os_key>` | master | rule number, plus `_meta` | benchmark rule |
+| File                    | Writer    | Key                                                                                          | Record         |
+| ----------------------- | --------- | -------------------------------------------------------------------------------------------- | -------------- |
+| `ciscat-exclusions`     | dashboard | `e` + first 16 hex of SHA-1 of `os_key\|scope\|scope_value(lower)\|level\|role(lower)\|rule` | exclusion      |
+| `ciscat-schedule`       | dashboard | `j` + 12 hex                                                                                 | job            |
+| `ciscat-requests`       | dashboard | `r` + epoch ms + 4 hex                                                                       | request        |
+| `ciscat-status`         | master    | see below                                                                                    | status         |
+| `ciscat-oskeys`         | master    | os key                                                                                       | OS entry       |
+| `ciscat-bench-<os_key>` | master    | rule number, plus `_meta`                                                                    | benchmark rule |
 
 The exclusion key is derived from the record itself, so the same exclusion cannot appear twice.
 The master rejects a record whose key does not match it.
@@ -42,26 +42,27 @@ The master rejects a record whose key does not match it.
 
 **Exclusion** (`ciscat_store.validate_exclusion`)
 
-| Field | Rule |
-|---|---|
-| `os_key` | `^[a-z0-9_]{1,64}$`: the benchmark the rule number belongs to |
-| `scope` | `os`, `global`, `host` or `app_group` |
-| `scope_value` | `os` → the os key; `global` → `all`; `host` → agent name; `app_group` → Wazuh group name |
-| `level` | `L1`, `L2`, `NG` or `ALL` |
-| `role` | optional profile role (`Server`, `Member_Server`, …); empty = any role |
-| `rule` | CIS number, `^[0-9]+(\.[0-9]+){0,9}$` |
-| `reason`, `ticket`, `owner` | audit text; empty becomes `n/a` |
-| `updated_by`, `updated_at` | who and when (ISO 8601) |
+| Field                       | Rule                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------- |
+| `os_key`                    | `^[a-z0-9_]{1,64}$`: the benchmark the rule number belongs to                            |
+| `scope`                     | `os`, `global`, `host` or `app_group`                                                    |
+| `scope_value`               | `os` → the os key; `global` → `all`; `host` → agent name; `app_group` → Wazuh group name |
+| `level`                     | `L1`, `L2`, `NG` or `ALL`                                                                |
+| `role`                      | optional profile role (`Server`, `Member_Server`, …); empty = any role                   |
+| `rule`                      | CIS number, `^[0-9]+(\.[0-9]+){0,9}$`                                                    |
+| `reason`, `ticket`, `owner` | audit text; empty becomes `n/a`                                                          |
+| `updated_by`, `updated_at`  | who and when (ISO 8601)                                                                  |
 
 **Job** (`ciscat_store.validate_job`). Times are in the master's local time.
 
-| `type` | Fields |
-|---|---|
-| `once` | `at`: `YYYY-MM-DDTHH:MM` |
+| `type`    | Fields                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `once`    | `at`: `YYYY-MM-DDTHH:MM`                                                                 |
 | `monthly` | `day` 1..31 (a short month uses its last day) or −1..−28 (−1 = last day); `time` `HH:MM` |
-| `weekly` | `weekday` 0..6 (0 = Monday); `time` `HH:MM` |
+| `weekly`  | `weekday` 0..6 (0 = Monday); `time` `HH:MM`                                              |
 
 Common fields:
+
 - `targets`: os keys, or `["*"]` for every active OS;
 - `wave_size` (default 50);
 - `wave_pause_s` (default 300);
@@ -80,12 +81,12 @@ removes old processed requests. Two actions exist:
 
 **Status** (`ciscat-status`, written by the master)
 
-| Key | Record |
-|---|---|
-| `scheduler` | `last_tick`, `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read |
-| `apply` | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded) |
-| `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed` |
-| `requests` | `processed`: request keys already handled |
+| Key             | Record                                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `scheduler`     | `last_tick`, `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read                         |
+| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded) |
+| `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed`                                                      |
+| `requests`      | `processed`: request keys already handled                                                                                   |
 
 **Benchmark** (`ciscat-bench-<os_key>`, written by the master from the XCCDF)
 

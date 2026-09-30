@@ -6,6 +6,7 @@ edits the exclusions and the schedules. The manager applies them.
 
 CIS-CAT Pro and the CIS benchmarks are licensed. They are not part of this repository or of the
 installer:
+
 - **The Assessor** is provisioned on each agent: `/opt/ciscat/Assessor` on Linux,
   `C:\Program Files (x86)\ciscat` on Windows.
 - **The benchmarks** stay in `/opt/ciscat/benchmarks` on the master.
@@ -48,6 +49,7 @@ sh ciscat-bridge-install-<version>.sh --apply --restart-manager
 ```
 
 What it does:
+
 - It refuses a cluster worker and a damaged copy (the payload SHA-256 is checked before anything
   changes).
 - It backs up everything it touches to `/opt/ciscat/backup/ciscat-bridge-<date>.tgz`. Restore it
