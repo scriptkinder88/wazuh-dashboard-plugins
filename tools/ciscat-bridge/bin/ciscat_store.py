@@ -353,14 +353,21 @@ def exclusions_from_csv_rows(rows, os_key, updated_by="migration", updated_at=""
         def cell(name):
             i = idx.get(name)
             return raw[i].strip() if i is not None and i < len(raw) else ""
-        rec = {"os_key": os_key, "scope": cell("scope"), "scope_value": cell("scope_value"),
-               "level": cell("level") or "ALL", "role": cell("role"), "rule": cell("rule"),
-               "reason": cell("reason"), "ticket": cell("ticket"), "owner": cell("owner"),
-               "updated_by": updated_by, "updated_at": updated_at}
-        try:
-            norm = validate_exclusion(rec)
-        except StoreError as exc:
-            errors.append("row {}: {}".format(n, exc))
-            continue
-        records[exclusion_key(norm)] = norm
+        scope, values = cell("scope").lower(), [cell("scope_value")]
+        # scopes written by the old HTML exclusion composer
+        if scope == "group":
+            scope = "app_group"
+        elif scope == "host_list":
+            scope, values = "host", [v for v in re.split(r"[\s,;|]+", values[0]) if v]
+        for value in values or [""]:
+            rec = {"os_key": os_key, "scope": scope, "scope_value": value,
+                   "level": cell("level") or "ALL", "role": cell("role"), "rule": cell("rule"),
+                   "reason": cell("reason"), "ticket": cell("ticket"), "owner": cell("owner"),
+                   "updated_by": updated_by, "updated_at": updated_at}
+            try:
+                norm = validate_exclusion(rec)
+            except StoreError as exc:
+                errors.append("row {}: {}".format(n, exc))
+                continue
+            records[exclusion_key(norm)] = norm
     return records, errors

@@ -96,6 +96,16 @@ class Exclusions(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(set(back), {k for k, r in recs.items() if r["os_key"] == "rhel7"})
 
+    def test_maps_old_composer_scopes(self):
+        rows = [["scope", "scope_value", "level", "role", "rule", "reason"],
+                ["group", "app-sap", "L1", "Server", "1.1", "x"],
+                ["host_list", "web-01; web-02,web-03", "L1", "Server", "1.2", "y"]]
+        records, errors = s.exclusions_from_csv_rows(rows, "rhel7")
+        self.assertEqual(errors, [])
+        got = sorted((r["scope"], r["scope_value"], r["rule"]) for r in records.values())
+        self.assertEqual(got, [("app_group", "app-sap", "1.1"), ("host", "web-01", "1.2"),
+                               ("host", "web-02", "1.2"), ("host", "web-03", "1.2")])
+
     def test_reads_legacy_positional_csv(self):
         rows = [["# comment"], ["os", "rhel7", "l1", "1.1.1.1", "why", "T-1", "me"],
                 ["bogus", "x", "l1", "1.1"]]
