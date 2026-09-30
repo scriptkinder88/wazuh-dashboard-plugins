@@ -40,7 +40,7 @@ AT_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]$"
 SCOPES = ("os", "global", "host", "app_group")
 LEVELS = ("L1", "L2", "NG", "ALL")
 JOB_TYPES = ("once", "monthly", "weekly")
-REQUEST_ACTIONS = ("apply",)
+REQUEST_ACTIONS = ("apply", "run")
 
 
 class StoreError(ValueError):
@@ -229,6 +229,8 @@ def validate_exclusions(records):
     """({key: record} valid and keyed as the contract says, [errors])."""
     valid, errors = {}, []
     for key, rec in records.items():
+        if key.startswith("_"):  # metadata / placeholder, not a record
+            continue
         try:
             norm = validate_exclusion(rec)
         except StoreError as exc:
@@ -296,6 +298,9 @@ def validate_request(rec):
     out["action"] = _text(rec, "action", 16, required=True)
     if out["action"] not in REQUEST_ACTIONS:
         raise StoreError("action: one of {}".format(", ".join(REQUEST_ACTIONS)))
+    if out["action"] == "run":  # "Run now": same parameters as a job, no time
+        job = validate_job(dict(rec, type="once", at="2000-01-01T00:00"))
+        out.update({k: job[k] for k in ("targets", "wave_size", "wave_pause_s", "label")})
     out["requested_by"] = _text(rec, "requested_by", 128)
     out["requested_at"] = _text(rec, "requested_at", 40)
     return out
@@ -304,6 +309,8 @@ def validate_request(rec):
 def validate_records(records, validator):
     valid, errors = {}, []
     for key, rec in records.items():
+        if key.startswith("_"):  # metadata / placeholder, not a record
+            continue
         try:
             valid[key] = validator(rec)
         except StoreError as exc:

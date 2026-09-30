@@ -94,6 +94,22 @@ class Scheduler(unittest.TestCase):
         self.assertEqual(self.status()["requests"]["processed"],
                          ["r1700000000000aaaa", "r1700000000001bbbb"])
 
+    def test_run_now_request_starts_after_apply(self):
+        reqs = {"r1700000000000aaaa": {"action": "apply"},
+                "r1700000000001bbbb": {"action": "run", "targets": ["windows_server_2025"],
+                                       "wave_size": 10, "requested_by": "alice"}}
+        store.write_list(store.REQUESTS, reqs, self.lists)
+        self.tick("2026-10-01T10:00:00")
+        calls = self.wait_calls(3)
+        self.assertEqual(calls[1], ["apply", "--request", "r1700000000000aaaa"])
+        self.assertEqual(calls[2], ["trigger", "--targets", "windows_server_2025", "--wave-size",
+                                    "10", "--wave-pause", "300", "--job", "r1700000000001bbbb"])
+        st = self.status()
+        self.assertEqual(st["job-r1700000000001bbbb"]["requested_by"], "alice")
+        self.assertIn("utc_offset", st["scheduler"])
+        self.tick("2026-10-01T10:05:00")  # the run-now status is not a deleted job
+        self.assertIn("job-r1700000000001bbbb", self.status())
+
     def test_missed_runs_are_reported_not_run(self):
         store.update_records(store.STATUS, {"scheduler": {"last_tick": "2026-10-01T02:00:00",
                                                           "last_sync": "2026-10-01T09:30:00"}},
@@ -111,11 +127,11 @@ class Scheduler(unittest.TestCase):
         store.update_records(store.STATUS, {
             "scheduler": {"last_tick": "2026-10-01T10:00:00", "last_sync": "2026-10-01T09:59:00"},
             "job-jcccccccccccc": {"state": "running", "last_run": "2026-10-01T09:00:00+02:00"},
-            "job-jgone00000000": {"state": "ok"}}, self.lists, os.path.join(self.d, "run"))
+            "job-jdead00000000": {"state": "ok"}}, self.lists, os.path.join(self.d, "run"))
         out = self.tick("2026-10-01T10:05:00")
         self.assertIn("still running", out)
         self.assertEqual(self.calls(), [])
-        self.assertNotIn("job-jgone00000000", self.status())
+        self.assertNotIn("job-jdead00000000", self.status())
 
 
 if __name__ == "__main__":

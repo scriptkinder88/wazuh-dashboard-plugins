@@ -73,8 +73,9 @@ class Exclusions(unittest.TestCase):
         b = exclusion(scope="host", scope_value="web-01", reason="other")
         self.assertEqual(s.exclusion_key(a), s.exclusion_key(b))
         self.assertNotEqual(s.exclusion_key(a), s.exclusion_key(exclusion(rule="1.1.1.2")))
-        valid, errors = s.validate_exclusions({"e0000000000000000": a})
+        valid, errors = s.validate_exclusions({"e0000000000000000": a, "_empty": {"v": 1}})
         self.assertEqual(valid, {})
+        self.assertEqual(len(errors), 1)
         self.assertIn("key does not match", errors[0])
 
     def test_csv_round_trip_with_csv_to_custom_xccdf_layout(self):
@@ -127,6 +128,19 @@ class Jobs(unittest.TestCase):
         self.assertEqual(s.validate_request({"action": "apply"})["action"], "apply")
         with self.assertRaises(s.StoreError):
             s.validate_request({"action": "rm -rf"})
+        run = s.validate_request({"action": "run", "targets": ["rhel7"], "wave_size": 5})
+        self.assertEqual((run["targets"], run["wave_size"], run["wave_pause_s"]), (["rhel7"], 5, 300))
+        with self.assertRaises(s.StoreError):
+            s.validate_request({"action": "run", "targets": ["$(id)"]})
+
+
+class SharedVectors(unittest.TestCase):
+    def test_typescript_vectors_are_current(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import make_vectors
+        with open(make_vectors.OUT, encoding="utf-8") as f:
+            self.assertEqual(f.read(), make_vectors.render(),
+                             "run tools/ciscat-bridge/tests/make_vectors.py")
 
 
 if __name__ == "__main__":

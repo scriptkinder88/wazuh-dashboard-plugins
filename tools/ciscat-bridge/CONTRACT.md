@@ -19,6 +19,8 @@ Wazuh 4.x accepts a list value only without `:` and `"` (`validate_cdb_list`). E
 - Keys match `^[A-Za-z0-9._-]{1,128}$`.
 - The JSON is UTF-8, has sorted keys, and always carries `"v": 1` (the schema version).
 - Lines that do not decode are reported and ignored. They never stop the other lines from being read.
+- Keys starting with `_` are metadata, not records (`_meta` in benchmark sheets; `_empty` keeps a
+  list file non-empty after its last record is removed). Validators skip them.
 
 ## Files and writers
 
@@ -65,17 +67,22 @@ Common fields:
 - `wave_pause_s` (default 300);
 - `enabled`, `label`, `created_by`, `created_at`.
 
-"Run now" is a `once` job at the current minute.
+To start a run immediately, use a `run` request rather than a job.
 
-**Request**: `{"action": "apply"}` asks the master to regenerate and publish the policies from
-the current exclusions. The master records processed request keys in `ciscat-status`, and the
-dashboard removes old processed requests.
+**Request**. The master records processed request keys in `ciscat-status`, and the dashboard
+removes old processed requests. Two actions exist:
+
+- `{"action": "apply"}` asks the master to regenerate and publish the policies from the current
+  exclusions.
+- `{"action": "run", "targets", "wave_size", "wave_pause_s", "label"}` is "Run now". It starts
+  right away, after any pending apply, without a time, so the browser and master time zones do
+  not matter. Its status is `job-<request key>`.
 
 **Status** (`ciscat-status`, written by the master)
 
 | Key | Record |
 |---|---|
-| `scheduler` | `last_tick` and the bridge version |
+| `scheduler` | `last_tick`, `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read |
 | `apply` | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded) |
 | `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed` |
 | `requests` | `processed`: request keys already handled |

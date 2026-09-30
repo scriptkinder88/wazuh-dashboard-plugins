@@ -11,8 +11,10 @@ Data contract: CONTRACT.md. Nothing here takes a command from the lists: a list 
 among fixed actions and validated parameters.
 """
 import os
+import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +31,8 @@ SYNC_EVERY = timedelta(hours=1)
 RUNNING_LIMIT = timedelta(hours=12)  # a job reported running longer than this is presumed dead
 KEEP_PROCESSED = 200
 FMT = "%Y-%m-%dT%H:%M:%S"
+SCHEDULED_KEY = re.compile(r"^job-j[0-9a-f]{12}$")
+KEEP_RUNS = 20
 
 
 def log(msg):
@@ -85,11 +89,21 @@ def tick(now):
         log("WARNING request rejected: " + e)
     processed = list(status.get("requests", {}).get("processed", []))
     pending = sorted(k for k in requests if k not in processed)
-    if pending:
+    applies = [k for k in pending if requests[k]["action"] == "apply"]
+    if applies:
         log("apply requested by {0} ({1} request(s))".format(
-            requests[pending[-1]].get("requested_by") or "?", len(pending)))
-        rc = fleet("apply", "--request", pending[-1])
+            requests[applies[-1]].get("requested_by") or "?", len(applies)))
+        rc = fleet("apply", "--request", applies[-1])
         log("apply finished rc={0}".format(rc))
+    # "Run now" requests start after a pending apply, so they assess the new policies
+    for key in (k for k in pending if requests[k]["action"] == "run"):
+        req = requests[key]
+        log("run now requested by {0}: start {1}".format(
+            req.get("requested_by") or "?", " ".join(start_trigger(key, req)[2:])))
+        patches["job-" + key] = {"state": "starting", "last_run": now.strftime(FMT),
+                                 "label": req.get("label") or "Run now",
+                                 "requested_by": req.get("requested_by", "")}
+    if pending:
         processed = (processed + pending)[-KEEP_PROCESSED:]
         patches["requests"] = {"processed": processed}
 
@@ -119,9 +133,14 @@ def tick(now):
         nxt = schedule.next_run(job, now) if job["enabled"] else None
         patch["next_run"] = nxt.strftime("%Y-%m-%dT%H:%M") if nxt else ""
         patches[skey] = patch
-    remove = [k for k in status if k.startswith("job-") and k[4:] not in jobs]
+    # status of deleted jobs goes; "Run now" results keep the most recent KEEP_RUNS
+    remove = [k for k in status if SCHEDULED_KEY.match(k) and k[4:] not in jobs]
+    runs = sorted((k for k in status if k.startswith("job-r")),
+                  key=lambda k: status[k].get("last_run", ""), reverse=True)
+    remove += runs[KEEP_RUNS:]
 
-    sched = {"last_tick": now.strftime(FMT), "jobs": len(jobs)}
+    sched = {"last_tick": now.strftime(FMT), "jobs": len(jobs),
+             "tz": time.strftime("%Z"), "utc_offset": time.strftime("%z")}
     if synced:
         sched["last_sync"] = synced
     patches["scheduler"] = sched
