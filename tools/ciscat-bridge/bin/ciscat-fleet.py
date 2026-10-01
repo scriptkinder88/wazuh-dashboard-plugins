@@ -33,7 +33,7 @@ import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 import ciscat_platform as platform  # noqa: E402
 
-VERSION = "3.0.2"
+VERSION = "3.0.3"
 PLATFORM = platform.detect()
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
@@ -403,11 +403,21 @@ def publish_windows(os_key, cfg, art, exc_csv):
         f.write("Profile={0}\n".format(profile_id(level, cfg["role"])))
         f.write("FlatName={0}\n".format(flat[:-len(".ciscat-flat")] if flat.endswith(".ciscat-flat")
                                           else flat))
+    # OVAL and CPE companions under their original names: the XCCDF checks reference them by href,
+    # and the agent's CIS-CAT may not ship this benchmark (a newer version, a STIG)
+    pfx = cfg["benchmark"][:-len("-xccdf.xml")]
+    companions = []
+    for suf in ("-oval.xml", "-cpe-oval.xml", "-cpe-dictionary.xml"):
+        src = os.path.join(PATHS["benchmarks_dir"], pfx + suf)
+        if os.path.isfile(src):
+            shutil.copyfile(src, os.path.join(gdir, pfx + suf))
+            companions.append(pfx + suf)
     with open(os.path.join(gdir, "ciscat-manifest.csv"), "w") as f:
         f.write("# ciscat-manifest: name;sha256 (generated on the manager)\n")
-        for name in (tailoring, "ciscat-params.txt"):
+        for name in [tailoring, "ciscat-params.txt"] + companions:
             f.write("{0};{1}\n".format(name, sha256(os.path.join(gdir, name))))
-    print("    published: custom + {0} + params + manifest".format(tailoring))
+    print("    published: custom + {0} + params + {1} companion(s) + manifest".format(
+        tailoring, len(companions)))
     own_dir(gdir)
 
 
