@@ -28,7 +28,7 @@ sys.path.insert(0, BIN_DIR)
 import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
@@ -124,7 +124,12 @@ def load_os_library():
         if not store.OS_KEY_RE.match(key):
             sys.exit("os-library: invalid os key {0!r}".format(key))
     # every benchmark present in the benchmarks folder is an OS too (see ciscat_discover.py)
-    return discover.merge(lib, PATHS["benchmarks_dir"])
+    lib, notes = discover.merge(lib, PATHS["benchmarks_dir"])
+    # the group each OS applies to can be chosen in the dashboard
+    records, _ = store.read_list(store.TARGETS, PATHS["lists_dir"])
+    targets, errors = store.validate_targets(records)
+    notes += ["ciscat-targets: " + e for e in errors]
+    return discover.apply_targets(lib, targets), notes
 
 
 OS_LIBRARY, DISCOVERY_NOTES = load_os_library()
@@ -394,6 +399,25 @@ def publish_windows(os_key, cfg, art, exc_csv):
     own_dir(gdir)
 
 
+def policy_enabled(group, policy_file):
+    """True when the group's agent.conf already loads the policy (set up by hand or by v1)."""
+    try:
+        with open(os.path.join(PATHS["shared_dir"], group, "agent.conf"), encoding="utf-8") as f:
+            return policy_file in f.read()
+    except OSError:
+        return False
+
+
+def sca_agent_conf(cfg, policy_file):
+    """agent.conf of a combo group (owned by the bridge): load the SCA policy shipped with it."""
+    path = ("shared/" if cfg["family"] == "windows" else "etc/shared/") + policy_file
+    return ("<!-- managed by the CIS-CAT bridge: SCA policy {0} -->\n"
+            "<agent_config>\n  <sca>\n    <enabled>yes</enabled>\n"
+            "    <scan_on_start>yes</scan_on_start>\n    <policies>\n"
+            "      <policy>{1}</policy>\n    </policies>\n  </sca>\n</agent_config>\n"
+            ).format(cfg["policy_id"], path)
+
+
 def apply_os(os_key, cfg, exclusions, token, apply_):
     """Plan or apply one OS. Returns a summary for ciscat-status."""
     bench = os.path.join(PATHS["benchmarks_dir"], cfg["benchmark"])
@@ -440,6 +464,12 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
     # 3. combo groups hold the policy (before it leaves the OS group, so agents never miss it)
     existing = existing_groups(token)
     policy_file = os.path.basename(art["policy"])
+    # OSes set up by hand keep loading the policy as they always did; a discovered OS, or one moved
+    # to another group from the dashboard, gets the policy loaded by its combo groups
+    sca_conf = None
+    if (cfg.get("discovered") or cfg.get("group_source") == "dashboard") and \
+            not policy_enabled(cfg["group"], policy_file):
+        sca_conf = sca_agent_conf(cfg, policy_file)
     for cid, b in built.items():
         g = combo_group(os_key, cid)
         if g not in existing:
@@ -448,6 +478,9 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
         gdir = os.path.join(PATHS["shared_dir"], g)
         os.makedirs(gdir, exist_ok=True)
         shutil.copyfile(b["policy"], os.path.join(gdir, policy_file))
+        if sca_conf:
+            with open(os.path.join(gdir, "agent.conf"), "w") as f:
+                f.write(sca_conf)
         own_dir(gdir)
     # 4. assignments: add the right combo group, then drop the others of this OS
     moved = 0
@@ -461,6 +494,13 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
                 if g != target and is_combo_group(os_key, g):
                     api_json("DELETE", "/agents/{0}/group/{1}".format(aid, g), token)
     summary["moved"] = moved
+    # agents that left the OS group (or whose OS now applies to another group) leave its combos
+    current = {aid for c in combos.values() for aid, _, _ in c["agents"]}
+    for g in sorted(existing):
+        if is_combo_group(os_key, g):
+            for aid, _, _ in group_agents(token, g, active_only=False, verbose=False):
+                if aid not in current:
+                    api_json("DELETE", "/agents/{0}/group/{1}".format(aid, g), token)
     # 5. combo groups nobody uses any more
     stale = sorted(g for g in existing if is_combo_group(os_key, g)
                    and g not in {combo_group(os_key, cid) for cid in combos})
@@ -491,7 +531,8 @@ def act_sync():
         entry = {"group": cfg["group"], "policy_id": cfg["policy_id"], "benchmark": cfg["benchmark"],
                  "active": bool(cfg["active"]), "role": cfg["role"], "available": os.path.isfile(bench),
                  "levels": sorted({lvl for _, lvl in cfg["profiles"]}),
-                 "discovered": bool(cfg.get("discovered"))}
+                 "discovered": bool(cfg.get("discovered")), "title": cfg.get("title", os_key),
+                 "group_source": cfg.get("group_source", "library")}
         if entry["available"]:
             bench_id, version, prof_keys, cols, profiles, titles, nums = sheet.extract(bench)
             with open(bench, encoding="utf-8", errors="replace") as f:

@@ -23,7 +23,18 @@ def build():
         {"os_key": "rhel7", "scope": "app_group", "scope_value": "app-sap", "level": "L2",
          "role": "Workstation", "rule": "5.2.1", "owner": "  ops   team "},
     ]
-    out = {"exclusions": [], "jobs": [], "invalid_exclusions": [], "invalid_jobs": []}
+    out = {"exclusions": [], "jobs": [], "invalid_exclusions": [], "invalid_jobs": [],
+           "targets": [], "invalid_targets": []}
+    for rec in ({"group": "linux-prod", "updated_by": " alice ", "updated_at": "2026-10-01T12:00:00Z"},
+                {"group": "os-rhel9_v2.0.0", "extra": 1}):
+        out["targets"].append({"input": rec, "normalized": s.validate_target(rec)})
+    out["invalid_targets"] = [{"group": ""}, {"group": "two words"}, {"group": 5}, {}]
+    for rec in out["invalid_targets"]:
+        try:
+            s.validate_target(rec)
+            raise AssertionError("expected invalid: {}".format(rec))
+        except s.StoreError:
+            pass
     for rec in exclusions:
         norm = s.validate_exclusion(rec)
         out["exclusions"].append({"input": rec, "normalized": norm,

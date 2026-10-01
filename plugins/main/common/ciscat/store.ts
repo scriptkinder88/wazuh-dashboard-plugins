@@ -14,6 +14,7 @@ export const CISCAT_LISTS = {
   requests: 'ciscat-requests',
   status: 'ciscat-status',
   oskeys: 'ciscat-oskeys',
+  targets: 'ciscat-targets',
 };
 export const CISCAT_BENCH_PREFIX = 'ciscat-bench-';
 export const CISCAT_SCHEMA_VERSION = 1;
@@ -348,6 +349,30 @@ export const validateJob = (rec: ListRecord): Job => {
   out.created_by = text(rec, 'created_by', 128);
   out.created_at = text(rec, 'created_at', 40);
   return out as Job;
+};
+
+export interface Target {
+  v: number;
+  group: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+/** Wazuh group an OS (benchmark) applies to, chosen in the dashboard; keyed by os key. */
+export const validateTarget = (rec: ListRecord): Target => {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
+    throw new StoreError('record must be an object');
+  }
+  const group = text(rec, 'group', 255, true);
+  if (!NAME_RE.test(group)) {
+    throw new StoreError('group: Wazuh group name expected');
+  }
+  return {
+    v: CISCAT_SCHEMA_VERSION,
+    group,
+    updated_by: text(rec, 'updated_by', 128),
+    updated_at: text(rec, 'updated_at', 40),
+  };
 };
 
 const randomHex = (bytes: number) =>
