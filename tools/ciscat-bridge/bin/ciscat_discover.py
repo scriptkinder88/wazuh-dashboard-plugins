@@ -18,7 +18,9 @@ and runs. Choosing a group in the dashboard activates the OS again (the choice i
 import os
 import re
 
-BENCH_RE = re.compile(r"^CIS_(?P<product>.+?)_Benchmark_v(?P<version>[0-9][0-9A-Za-z.]*)-xccdf\.xml$")
+# "_Benchmark" is missing from a few names (CIS_Microsoft_Windows_Server_2025_Stand-alone_v2.0.0)
+BENCH_RE = re.compile(
+    r"^CIS_(?P<product>.+?)(?:_Benchmark)?_v(?P<version>[0-9][0-9A-Za-z.]*)-xccdf\.xml$")
 PROFILE_RE = re.compile(
     r'<xccdf:Profile\b[^>]*\bid="xccdf_org\.cisecurity\.benchmarks_profile_'
     r'(Level_1|Level_2|Next_Generation_Windows_Security)_-_([A-Za-z0-9_]+)"')
