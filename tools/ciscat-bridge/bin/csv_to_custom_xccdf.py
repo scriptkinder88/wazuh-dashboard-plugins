@@ -130,14 +130,34 @@ def level_matches(entry_level, sigla):
     return entry_level == "ALL" or entry_level == sigla
 
 
+def family_from_benchmark(data):
+    """Levels and roles read from the benchmark's own profiles, for an OS without a family in
+    ciscat-profiles.json (e.g. a benchmark discovered on the manager)."""
+    levels, roles = [], []
+    for level, r in re.findall(r'<xccdf:Profile\b[^>]*\bid="xccdf_org\.cisecurity\.benchmarks_profile_'
+                               r'(Level_1|Level_2|Next_Generation_Windows_Security)_-_([A-Za-z0-9_]+)"',
+                               data):
+        if level not in levels:
+            levels.append(level)
+        if r not in roles:
+            roles.append(r)
+    if not roles:
+        return None
+    default = next((r for r in ("Server", "Member_Server") if r in roles), roles[0])
+    return {"levels": levels, "roles": roles, "default_role": default}
+
+
 def build_custom_xccdf(csv_path, benchmark_path, host, os_key, role, app_groups, out_path):
     family = family_of(os_key)
-    if family is None:
-        sys.exit(f"[ERROR] cannot determine family for os_key '{os_key}'")
-    if family not in FAMILIES:
-        sys.exit(f"[ERROR] family '{family}' not in ciscat-profiles.json")
-
-    fam = FAMILIES[family]
+    if family in FAMILIES:
+        fam = FAMILIES[family]
+    else:
+        with open(benchmark_path, encoding="utf-8") as f:
+            fam = family_from_benchmark(f.read())
+        if fam is None:
+            sys.exit(f"[ERROR] cannot determine levels and roles for os_key '{os_key}' "
+                     f"from {benchmark_path}")
+        family = family or os_key
     fam_levels = fam["levels"]            # e.g. ['Level_1','Level_2'] or with NG for windows
     fam_roles = fam["roles"]              # e.g. ['Server','Workstation'] or Member/DC
     default_role = fam["default_role"]

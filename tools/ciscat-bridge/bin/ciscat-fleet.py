@@ -26,8 +26,9 @@ from datetime import datetime
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BIN_DIR)
 import ciscat_store as store  # noqa: E402
+import ciscat_discover as discover  # noqa: E402
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
@@ -122,10 +123,11 @@ def load_os_library():
     for key in lib:
         if not store.OS_KEY_RE.match(key):
             sys.exit("os-library: invalid os key {0!r}".format(key))
-    return lib
+    # every benchmark present in the benchmarks folder is an OS too (see ciscat_discover.py)
+    return discover.merge(lib, PATHS["benchmarks_dir"])
 
 
-OS_LIBRARY = load_os_library()
+OS_LIBRARY, DISCOVERY_NOTES = load_os_library()
 
 
 # ----------------------------------------------------------------- helpers
@@ -208,6 +210,11 @@ def group_agents(token, group, active_only=True, verbose=True):
         offset += len(items)
         if not items or offset >= data.get("total_affected_items", 0):
             return out
+
+
+def existing_groups(token):
+    return {g["name"] for g in api_json("GET", "/groups?limit=100000&select=name", token)
+            .get("affected_items", [])}
 
 
 def profile_name(os_key, level, role):
@@ -372,10 +379,18 @@ def publish_windows(os_key, cfg, art, exc_csv):
     shutil.copyfile(art["custom"], os.path.join(gdir, cfg["base"] + "-custom.xml"))
     tailoring = "tailoring-{0}.csv".format(os_key)
     shutil.copyfile(exc_csv, os.path.join(gdir, tailoring))
+    # profile and result name of this OS for ciscat-assessment.ps1 (one script for every Windows OS)
+    _, level = cfg["profiles"][0]
+    flat = cfg["flat_path"].replace("/", "\\").split("\\")[-1]
+    with open(os.path.join(gdir, "ciscat-params.txt"), "w") as f:
+        f.write("Profile={0}\n".format(profile_id(level, cfg["role"])))
+        f.write("FlatName={0}\n".format(flat[:-len(".ciscat-flat")] if flat.endswith(".ciscat-flat")
+                                          else flat))
     with open(os.path.join(gdir, "ciscat-manifest.csv"), "w") as f:
         f.write("# ciscat-manifest: name;sha256 (generated on the manager)\n")
-        f.write("{0};{1}\n".format(tailoring, sha256(os.path.join(gdir, tailoring))))
-    print("    published: custom + {0} + manifest".format(tailoring))
+        for name in (tailoring, "ciscat-params.txt"):
+            f.write("{0};{1}\n".format(name, sha256(os.path.join(gdir, name))))
+    print("    published: custom + {0} + params + manifest".format(tailoring))
     own_dir(gdir)
 
 
@@ -423,8 +438,7 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
     summary["checks"] = {cid: b["checks"] for cid, b in built.items()}
 
     # 3. combo groups hold the policy (before it leaves the OS group, so agents never miss it)
-    existing = {g["name"] for g in api_json("GET", "/groups?limit=100000&select=name", token)
-                .get("affected_items", [])}
+    existing = existing_groups(token)
     policy_file = os.path.basename(art["policy"])
     for cid, b in built.items():
         g = combo_group(os_key, cid)
@@ -469,12 +483,15 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
 def act_sync():
     import benchmark_to_sheet as sheet
     import xccdf_to_sca_policy as gen
+    for note in DISCOVERY_NOTES:
+        print("[discovery] " + note)
     oskeys = {}
     for os_key, cfg in OS_LIBRARY.items():
         bench = os.path.join(PATHS["benchmarks_dir"], cfg["benchmark"])
         entry = {"group": cfg["group"], "policy_id": cfg["policy_id"], "benchmark": cfg["benchmark"],
                  "active": bool(cfg["active"]), "role": cfg["role"], "available": os.path.isfile(bench),
-                 "levels": sorted({lvl for _, lvl in cfg["profiles"]})}
+                 "levels": sorted({lvl for _, lvl in cfg["profiles"]}),
+                 "discovered": bool(cfg.get("discovered"))}
         if entry["available"]:
             bench_id, version, prof_keys, cols, profiles, titles, nums = sheet.extract(bench)
             with open(bench, encoding="utf-8", errors="replace") as f:
@@ -507,10 +524,16 @@ def act_plan_apply(apply_, restart=False, request=None):
     failed = False
     if apply_:
         update_status("apply", status)
+    groups = existing_groups(token)
     for os_key, cfg in OS_LIBRARY.items():
         print("[{0}] group={1} active={2}".format(os_key, cfg["group"], cfg["active"]))
         if not cfg["active"]:
             print("  [skip] inactive in library"); continue
+        if cfg["group"] not in groups:
+            # a benchmark nobody uses yet: create the group and add agents to it
+            print("  [skip] group {0} does not exist".format(cfg["group"]))
+            status["per_os"][os_key] = {"agents": 0, "skipped": "no group " + cfg["group"]}
+            continue
         try:
             status["per_os"][os_key] = apply_os(os_key, cfg, exclusions, token, apply_)
         except Exception as e:
@@ -538,8 +561,11 @@ def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
               "targets": targets or ["*"]}
     if job:
         update_status("job-" + job, result)
+    groups = existing_groups(token)
     for os_key, cfg in OS_LIBRARY.items():
         if not cfg["active"] or (targets and "*" not in targets and os_key not in targets):
+            continue
+        if cfg["group"] not in groups:
             continue
         agents = []
         for aid, name, _ in group_agents(token, cfg["group"], active_only=False, verbose=False):
@@ -580,8 +606,9 @@ def act_report():
     print("{0:<5} {1:<28} {2:<38} {3:>6} {4:>6} {5:>6} {6:>7} {7:>6}".format(
         "id", "agent", "policy", "checks", "pass", "fail", "invalid", "score"))
     print("-" * 110)
+    groups = existing_groups(token)
     for os_key, cfg in OS_LIBRARY.items():
-        if not cfg["active"]:
+        if not cfg["active"] or cfg["group"] not in groups:
             continue
         for aid, aname, _ in group_agents(token, cfg["group"]):
             try:
