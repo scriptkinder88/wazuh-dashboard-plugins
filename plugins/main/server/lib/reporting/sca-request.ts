@@ -288,7 +288,6 @@ export async function forEachLatestScaCheck(
   pattern: string,
   serverSideQuery: any,
   agentIds: string | string[],
-  latestPolicySummaries: Map<string, any>,
   onCheck: (entry: { key: any; source: any }) => Promise<void> | void,
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
@@ -382,27 +381,8 @@ export async function forEachLatestScaCheck(
         continue;
       }
 
-      const agentId = String(bucket?.key?.agent_id || source?.agent?.id || '');
-      const policyKey = String(
-        bucket?.key?.policy ||
-          source?.data?.sca?.policy ||
-          source?.data?.sca?.policy_id ||
-          '',
-      );
-      const latestSummary = latestPolicySummaries.get(
-        `${agentId}::${policyKey}`,
-      );
-      const checkScanId = source?.data?.sca?.scan_id;
-
-      if (
-        latestSummary &&
-        latestSummary.scanId !== null &&
-        typeof latestSummary.scanId !== 'undefined' &&
-        String(checkScanId) !== String(latestSummary.scanId)
-      ) {
-        continue;
-      }
-
+      // SCA check events are emitted only when a check changes. Keep the latest
+      // known state even when its scan_id predates the latest summary.
       await onCheck({ key: bucket.key || {}, source });
     }
 
