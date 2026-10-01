@@ -15,7 +15,11 @@ import { useAsyncAction } from '../../hooks';
 import { ReportingService } from '../../../../react-services';
 import { WzButton } from '../../../common/buttons';
 import { connect } from 'react-redux';
-import { ScaReportAgentSelector } from './sca-report-agent-selector';
+import {
+  SCA_REPORT_TYPE_SNAPSHOT,
+  ScaReportAgentSelector,
+  ScaReportOptions,
+} from './sca-report-agent-selector';
 
 const mapStateToProps = state => ({
   dataSourceSearchContext: state.reportingReducers.dataSourceSearchContext,
@@ -26,12 +30,14 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
     const [isScaSelectorOpen, setIsScaSelectorOpen] = useState(false);
     const isScaReport = moduleID === 'sca';
 
+    // The detailed SCA report is built server-side from the selected agents;
+    // only the dashboard snapshot needs the dashboard search context.
+    const isScaSnapshotAvailable = Boolean(
+      dataSourceSearchContext?.indexPattern &&
+        dataSourceSearchContext?.overviewDashboardSavedObjectId,
+    );
     const disabledReport = isScaReport
-      ? Boolean(
-          dataSourceSearchContext?.isSearching ||
-            !dataSourceSearchContext?.indexPattern ||
-            !dataSourceSearchContext?.overviewDashboardSavedObjectId,
-        )
+      ? Boolean(dataSourceSearchContext?.isSearching)
       : ![
           !dataSourceSearchContext?.isSearching,
           dataSourceSearchContext?.totalResults,
@@ -40,11 +46,18 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
 
     const totalResults = dataSourceSearchContext?.totalResults;
     const action = useAsyncAction(
-      async (scaAgentIds: string[] = []) => {
+      async (scaAgentIds: string[] = [], scaOptions?: ScaReportOptions) => {
         const reportingService = new ReportingService();
 
         if (isScaReport) {
-          await reportingService.generateScaMultiServerPDFReport(scaAgentIds);
+          if (scaOptions?.type === SCA_REPORT_TYPE_SNAPSHOT) {
+            await reportingService.generateScaMultiServerPDFReport(scaAgentIds);
+            return;
+          }
+
+          await reportingService.generateScaDetailedPDFReport(scaAgentIds, {
+            details: scaOptions?.details === true,
+          });
           return;
         }
 
@@ -76,9 +89,10 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
         {isScaReport && isScaSelectorOpen && (
           <ScaReportAgentSelector
             initialAgentId={agent?.id}
+            isSnapshotAvailable={isScaSnapshotAvailable}
             onCancel={() => setIsScaSelectorOpen(false)}
-            onGenerate={async agentIds => {
-              await action.run(agentIds);
+            onGenerate={async (agentIds, options) => {
+              await action.run(agentIds, options);
               setIsScaSelectorOpen(false);
             }}
           />

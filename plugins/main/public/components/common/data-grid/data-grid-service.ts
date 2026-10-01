@@ -212,7 +212,7 @@ export const parseColumns = (
   // merge the properties of the field with the default columns
   if (!fields?.length) return defaultColumns;
 
-  return fields
+  const fieldColumns = fields
     .filter(field => field.name !== '_source')
     .map(field =>
       mapToDataGridColumn(
@@ -225,6 +225,28 @@ export const parseColumns = (
         defaultColumns,
       ),
     );
+  const fieldNames = new Set(fieldColumns.map(column => column.id));
+
+  // Computed columns have no index pattern field: their value is rendered from
+  // the whole row, so they can be neither sorted nor filtered.
+  const computedColumns = defaultColumns
+    .filter(
+      column =>
+        column.computed &&
+        typeof column.render === 'function' &&
+        !fieldNames.has(column.id),
+    )
+    .map(
+      column =>
+        ({
+          name: column.id,
+          actions: { showHide: true },
+          ...column,
+          isSortable: false,
+        } as tDataGridColumn),
+    );
+
+  return [...fieldColumns, ...computedColumns];
 };
 
 /**
