@@ -22,8 +22,18 @@ In the CIS-CAT tab, **Applies to group** chooses the Wazuh group whose agents ge
 (by default `os-<key>`); **Save and apply** has the master publish it to that group. Apply and runs
 skip an OS until its group exists. An entry in `/opt/ciscat/etc/os-library.json` keeps its
 settings (for example `"active": false`; choosing a group in the dashboard activates it again), and one whose benchmark file is missing follows the
-newest version of the same product in the folder. Benchmarks whose profiles are not in the
-`Level 1 - <role>` form (Windows 10/11 desktop) are listed by `sync` as skipped.
+newest version of the same product in the folder.
+
+The bridge assesses the Level 1 profile of each benchmark, preferring the Server, Member Server or
+Database Engine role. Benchmarks without `Level 1 - <role>` profiles are handled too:
+
+- STIG benchmarks with `SEVERITY_CAT_I/II/III` profiles (`MS_`/`DC_` on Windows Server): every
+  category together, role `STIG` (`Member_Server_STIG` on Windows Server);
+- `Level_1` or `Level_1_L1` (Apache, Tomcat, Windows 11): that profile, role `Default`;
+- `Level_1-_<Role>` (MongoDB): that profile.
+
+`sync` lists the others as skipped (network devices, cloud services, browsers): they have no Wazuh
+agent to run on.
 
 ## How it works
 

@@ -98,7 +98,11 @@ removes old processed requests. Two actions exist:
 **OS entry** (`ciscat-oskeys`): `group`, `policy_id`, `benchmark`, `version`, `active`, `available`
 (the benchmark file is on the master), `role`, `levels` and `discovered` (the OS comes from a benchmark
 found in the benchmarks folder, not from `os-library.json`), `title` (benchmark name and version) and
-`group_source` (`dashboard` when the group was chosen in `ciscat-targets`).
+`group_source` (`dashboard` when the group was chosen in `ciscat-targets`). The OS library entry
+of a benchmark without `Level_1_-_<Role>` profiles also has `base_profiles`: the profiles whose
+union is tailored (e.g. `SEVERITY_CAT_I`, `SEVERITY_CAT_II`, `SEVERITY_CAT_III`). Its tailored
+profile keeps the usual id, `TAILORED_Level_1_-_<role>`, and its exclusions of level `L1` or `ALL`
+apply whatever their role.
 
 **Target group** (`ciscat-targets`, key = os key): `group` (the Wazuh group whose agents get the
 benchmark), `updated_by`, `updated_at`. It replaces the group of the OS library at the next apply
