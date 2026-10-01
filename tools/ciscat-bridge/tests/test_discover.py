@@ -46,7 +46,7 @@ class Discover(unittest.TestCase):
         self.assertEqual(discover.family_for("Microsoft_SQL_Server_2019"), "windows")
         self.assertEqual(discover.family_for("IBM_AIX_7.2"), "linux")
 
-    def test_new_benchmarks_become_oses(self):
+    def test_every_benchmark_version_becomes_an_os(self):
         self.put("CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v3.1.1-xccdf.xml", bench(["Server"]))
         self.put("CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v1.0.0-xccdf.xml", bench(["Server"]))
         self.put("CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0-xccdf.xml",
@@ -55,23 +55,28 @@ class Discover(unittest.TestCase):
         self.put("CIS_Microsoft_Windows_Server_2022_Benchmark_v3.0.0-xccdf.xml",
                  bench(["Member_Server", "Domain_Controller"]))
         lib, notes = discover.merge(LIBRARY, self.dir)
-        self.assertEqual(sorted(lib), ["rhel7", "rhel9", "windows_server_2022"])
-        self.assertEqual(lib["rhel7"], LIBRARY["rhel7"])  # configured entries are kept as they are
-        rhel9 = lib["rhel9"]
+        self.assertEqual(sorted(lib), ["rhel7", "rhel9_v1_0_0", "rhel9_v2_0_0",
+                                       "windows_server_2022_v3_0_0"])
+        self.assertEqual(dict(lib["rhel7"], title=None), dict(LIBRARY["rhel7"], title=None))
+        self.assertEqual(lib["rhel7"]["title"], "Red Hat Enterprise Linux 7 v3.1.1")
+        rhel9 = lib["rhel9_v2_0_0"]
+        self.assertEqual(rhel9["title"], "Red Hat Enterprise Linux 9 v2.0.0")
         self.assertEqual(rhel9["benchmark"], "CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0-xccdf.xml")
         self.assertEqual(rhel9["companion_prefix"], "CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0")
         self.assertEqual((rhel9["role"], rhel9["group"], rhel9["profiles"]),
-                         ("Server", "os-rhel9", [["l1_server", "L1"]]))
+                         ("Server", "os-rhel9_v2_0_0", [["l1_server", "L1"]]))
+        self.assertEqual(lib["rhel9_v1_0_0"]["benchmark"],
+                         "CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v1.0.0-xccdf.xml")
         self.assertEqual(rhel9["flat_path"], "/var/lib/wazuh-ciscat/reports-cache/l1_server/results.txt")
         # same Active Response commands as the OS already configured for the family
         self.assertEqual((rhel9["ar_bootstrap"], rhel9["ar_refresh"]),
                          ("!site-bootstrap-linux", "!site-refresh-linux"))
-        win = lib["windows_server_2022"]
+        win = lib["windows_server_2022_v3_0_0"]
         self.assertEqual((win["family"], win["role"], win["ar_assessment"]),
                          ("windows", "Member_Server", "!ciscat-assessment0"))
-        self.assertTrue(win["flat_path"].endswith("\\cis_windows_server_2022.ciscat-flat"))
+        self.assertTrue(win["flat_path"].endswith("\\cis_windows_server_2022_v3_0_0.ciscat-flat"))
         self.assertTrue(win["active"] and win["discovered"])
-        self.assertIn("rhel9: new OS from CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0-xccdf.xml "
+        self.assertIn("rhel9_v2_0_0: new OS from CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0-xccdf.xml "
                       "(role Server)", notes)
 
     def test_configured_os_follows_a_newer_benchmark(self):
@@ -80,9 +85,17 @@ class Discover(unittest.TestCase):
         self.assertEqual(sorted(lib), ["rhel7"])
         self.assertEqual(lib["rhel7"]["benchmark"], "CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v4.0.0-xccdf.xml")
         self.assertEqual(lib["rhel7"]["companion_prefix"], "CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v4.0.0")
+        self.assertEqual(lib["rhel7"]["title"], "Red Hat Enterprise Linux 7 v4.0.0")
         self.assertEqual(LIBRARY["rhel7"]["benchmark"],
                          "CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v3.1.1-xccdf.xml")  # input untouched
         self.assertEqual(len(notes), 1)
+
+    def test_groups_chosen_in_the_dashboard(self):
+        lib = discover.apply_targets(LIBRARY, {"rhel7": {"group": "linux-prod"}, "gone": {"group": "x"}})
+        self.assertEqual((lib["rhel7"]["group"], lib["rhel7"]["group_source"]),
+                         ("linux-prod", "dashboard"))
+        self.assertEqual(sorted(lib), ["rhel7"])
+        self.assertEqual(LIBRARY["rhel7"]["group"], "os-rhel7")
 
     def test_benchmarks_without_role_profiles_are_skipped(self):
         self.put("CIS_Microsoft_Windows_11_Enterprise_Benchmark_v3.0.0-xccdf.xml",
@@ -92,7 +105,9 @@ class Discover(unittest.TestCase):
         self.assertIn("no 'Level 1 - <role>' profile", notes[0])
 
     def test_missing_folder(self):
-        self.assertEqual(discover.merge(LIBRARY, os.path.join(self.dir, "none")), (LIBRARY, []))
+        lib, notes = discover.merge(LIBRARY, os.path.join(self.dir, "none"))
+        self.assertEqual((sorted(lib), lib["rhel7"]["benchmark"], notes),
+                         (["rhel7"], LIBRARY["rhel7"]["benchmark"], []))
 
 
 if __name__ == "__main__":

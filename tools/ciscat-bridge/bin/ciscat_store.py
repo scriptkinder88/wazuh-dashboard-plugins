@@ -25,6 +25,7 @@ SCHEDULE = "ciscat-schedule"
 REQUESTS = "ciscat-requests"
 STATUS = "ciscat-status"
 OSKEYS = "ciscat-oskeys"
+TARGETS = "ciscat-targets"
 BENCH_PREFIX = "ciscat-bench-"
 SCHEMA_VERSION = 1
 
@@ -304,6 +305,35 @@ def validate_request(rec):
     out["requested_by"] = _text(rec, "requested_by", 128)
     out["requested_at"] = _text(rec, "requested_at", 40)
     return out
+
+
+def validate_target(rec):
+    """Wazuh group an OS (benchmark) applies to, chosen in the dashboard. Keyed by os key."""
+    if not isinstance(rec, dict):
+        raise StoreError("record must be an object")
+    out = {"v": SCHEMA_VERSION}
+    out["group"] = _text(rec, "group", 255, required=True)
+    if not NAME_RE.match(out["group"]):
+        raise StoreError("group: Wazuh group name expected")
+    out["updated_by"] = _text(rec, "updated_by", 128)
+    out["updated_at"] = _text(rec, "updated_at", 40)
+    return out
+
+
+def validate_targets(records):
+    """({os_key: record}, [errors])."""
+    valid, errors = {}, []
+    for key, rec in records.items():
+        if key.startswith("_"):
+            continue
+        if not OS_KEY_RE.match(key):
+            errors.append("{}: os key expected".format(key))
+            continue
+        try:
+            valid[key] = validate_target(rec)
+        except StoreError as exc:
+            errors.append("{}: {}".format(key, exc))
+    return valid, errors
 
 
 def validate_records(records, validator):
