@@ -144,3 +144,68 @@ class FleetIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(BENCH_DIR and os.path.isfile(os.path.join(BENCH_DIR, LINUX))
+                     and os.path.isfile(os.path.join(BENCH_DIR, WIN)),
+                     "CISCAT_TEST_BENCHMARKS not set")
+class FleetDiscovery(FleetIntegration):
+    """Benchmarks present on the manager become OSes without editing os-library.json."""
+
+    def setUp(self):
+        super().setUp()
+        # the library only knows Windows; a second Windows benchmark has no group yet
+        os.symlink(os.path.join(BENCH_DIR, WIN), os.path.join(
+            self.paths["benchmarks_dir"], "CIS_Microsoft_Windows_Server_2022_Benchmark_v9.9.9-xccdf.xml"))
+        lib_file = os.path.join(self.env["CISCAT_ETC_DIR"], "os-library.json")
+        with open(lib_file) as f:
+            lib = json.load(f)
+        with open(lib_file, "w") as f:
+            json.dump({"windows_server_2025": lib["windows_server_2025"]}, f)
+        self.fake.agents["001"]["group"] = ["os-ubuntu_linux_20_04_lts"]
+        self.fake.agents["002"]["group"] = ["os-ubuntu_linux_20_04_lts", "app-sap"]
+        self.fake.agents["003"]["group"] = []
+        self.fake.groups = {g for a in self.fake.agents.values() for g in a["group"]} | {"default"}
+        for g in self.fake.groups:
+            os.makedirs(os.path.join(self.paths["shared_dir"], g), exist_ok=True)
+
+    def test_sync_apply_combos_and_trigger(self):
+        out = self.fleet("sync")
+        self.assertIn("ubuntu_linux_20_04_lts: new OS from " + LINUX, out)
+        oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
+        ubuntu = oskeys["ubuntu_linux_20_04_lts"]
+        self.assertEqual((ubuntu["available"], ubuntu["active"], ubuntu["discovered"], ubuntu["role"]),
+                         (True, True, True, "Server"))
+        self.assertTrue(oskeys["windows_server_2022"]["available"])
+        bench, _ = store.read_list("ciscat-bench-ubuntu_linux_20_04_lts", self.paths["lists_dir"])
+        self.assertIn("L1_Server", bench["_meta"]["profiles"])
+
+        store.write_list(store.EXCLUSIONS, dict([
+            excl(os_key="ubuntu_linux_20_04_lts", scope="os", rule="1.1.1.1"),
+            excl(os_key="ubuntu_linux_20_04_lts", scope="host", scope_value="web-02", rule="1.1.1.2"),
+        ]), self.paths["lists_dir"])
+        out = self.fleet("apply")
+        self.assertIn("[skip] group os-windows_server_2022 does not exist", out)
+        self.assertNotIn("os-windows_server_2022", self.fake.groups)
+        pid = "cis_ubuntu_linux_20_04_lts_tailored_l1_server"
+        base = self.policy_rules("ciscat-ubuntu_linux_20_04_lts-base", pid)
+        self.assertNotIn(r"1\.1\.1\.1", base)
+        host = [g for g in self.fake.agents["002"]["group"] if g.startswith("ciscat-")][0]
+        self.assertEqual(base - self.policy_rules(host, pid), {r"1\.1\.1\.2"})
+        gdir = os.path.join(self.paths["shared_dir"], "os-ubuntu_linux_20_04_lts")
+        with open(os.path.join(gdir, "ciscat-manifest.csv")) as f:
+            manifest = f.read()
+        self.assertIn("ubuntu_linux_20_04_lts-custom-xccdf.xml", manifest)
+        with open(os.path.join(gdir, "refresh.conf")) as f:
+            self.assertIn('PROFILE_LIST="l1_server|TAILORED L1 - Server (os-ubuntu_linux_20_04_lts)"',
+                          f.read())
+        # Windows agents read their profile and result name from the OS group
+        with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
+                               "ciscat-params.txt")) as f:
+            self.assertEqual(f.read(), "Profile=xccdf_org.cisecurity.benchmarks_profile_TAILORED_"
+                                       "Level_1_-_Member_Server\nFlatName=x.flat\n")
+
+        out = self.fleet("trigger")
+        cmds = [c for c, _ in self.fake.ar]
+        self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 1, out)  # 001 and 002 in one wave
+        self.assertEqual(cmds.count("!ciscat-assessment0"), 1, out)     # 004

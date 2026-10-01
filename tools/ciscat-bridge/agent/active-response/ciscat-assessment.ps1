@@ -44,6 +44,21 @@ function Fail($msg) {
 
 Log "=== start (running as $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)) ==="
 
+# Per-OS settings published by the manager in the OS group (ciscat-params.txt: Key=Value lines).
+# They apply unless the parameter was given on the command line.
+$paramsFile = Join-Path $SharedDir "ciscat-params.txt"
+if (Test-Path $paramsFile) {
+    foreach ($line in Get-Content -Path $paramsFile -ErrorAction SilentlyContinue) {
+        if ($line -match '^\s*(Profile|FlatName)\s*=\s*(.+?)\s*$') {
+            $name = $Matches[1]
+            if (-not $PSBoundParameters.ContainsKey($name)) {
+                Set-Variable -Name $name -Value $Matches[2]
+                Log "from ciscat-params.txt: $name=$($Matches[2])"
+            }
+        }
+    }
+}
+
 # --- Precondition checks (verify before acting) ---
 $assessor = Join-Path $Ciscat "Assessor-CLI.bat"
 $benchDir = Join-Path $Ciscat "benchmarks"
