@@ -118,6 +118,7 @@ import {
 import { InventoryFIM } from '../../overview/fim';
 import { FimManagement } from '../../overview/fim/manager';
 import { SCAInventory, SCADashboard } from '../../overview/sca';
+import { CiscatManagement } from '../../overview/sca/ciscat';
 import { ReportingService } from '../../../react-services';
 import { WAZUH_MODULES } from '../../../../common/wazuh-modules';
 
@@ -317,6 +318,13 @@ export const ModulesDefaults = {
         DataSource: ConfigurationAssessmentDataSource,
         categoriesSampleData: [],
       }),
+      {
+        // CIS-CAT Pro bridge: exclusions, schedules and status on the manager
+        id: 'ciscat',
+        name: 'CIS-CAT',
+        buttons: [],
+        component: CiscatManagement,
+      },
     ],
     buttons: ['settings'],
     availableFor: ['manager', 'agent'],

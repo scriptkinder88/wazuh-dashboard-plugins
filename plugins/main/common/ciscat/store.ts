@@ -1,0 +1,385 @@
+/*
+ * CIS-CAT bridge records: validation and keys shared by the dashboard and the master.
+ *
+ * Mirror of tools/ciscat-bridge/bin/ciscat_store.py; the contract is in
+ * tools/ciscat-bridge/CONTRACT.md and both sides are checked against
+ * contract-vectors.json. On Wazuh 4.x the records live in CDB list files, where values must be
+ * compact JSON (sorted keys) encoded as unpadded base64url; on Wazuh 5.0 they live in the
+ * dashboard store in the indexer, as plain JSON (see public/.../ciscat/lib/lists-api.ts).
+ */
+/* eslint-disable camelcase */ // record fields are the snake_case wire format
+
+export const CISCAT_LISTS = {
+  exclusions: 'ciscat-exclusions',
+  schedule: 'ciscat-schedule',
+  requests: 'ciscat-requests',
+  status: 'ciscat-status',
+  oskeys: 'ciscat-oskeys',
+  targets: 'ciscat-targets',
+};
+export const CISCAT_BENCH_PREFIX = 'ciscat-bench-';
+export const CISCAT_SCHEMA_VERSION = 1;
+
+export const SCOPES = ['os', 'global', 'host', 'app_group'] as const;
+export const LEVELS = ['L1', 'L2', 'NG', 'ALL'] as const;
+export const JOB_TYPES = ['once', 'monthly', 'weekly'] as const;
+
+export type Scope = (typeof SCOPES)[number];
+export type Level = (typeof LEVELS)[number];
+export type JobType = (typeof JOB_TYPES)[number];
+
+export interface Exclusion {
+  v: number;
+  os_key: string;
+  scope: Scope;
+  scope_value: string;
+  level: Level;
+  role: string;
+  rule: string;
+  reason: string;
+  ticket: string;
+  owner: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface Job {
+  v: number;
+  type: JobType;
+  at?: string;
+  time?: string;
+  day?: number;
+  weekday?: number;
+  targets: string[];
+  wave_size: number;
+  wave_pause_s: number;
+  enabled: boolean;
+  label: string;
+  created_by: string;
+  created_at: string;
+}
+
+export type ListRecord = Record<string, unknown>;
+export type ListRecords = Record<string, ListRecord>;
+
+export class StoreError extends Error {}
+
+const KEY_RE = /^[A-Za-z0-9._-]{1,128}$/;
+export const OS_KEY_RE = /^[a-z0-9_]{1,64}$/;
+const RULE_RE = /^[0-9]+(?:\.[0-9]+){0,9}$/;
+const ROLE_RE = /^[A-Za-z0-9_ -]{0,64}$/;
+export const NAME_RE = /^[A-Za-z0-9._-]{1,255}$/;
+const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+const AT_RE =
+  /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([01][0-9]|2[0-3]):([0-5][0-9])$/;
+const B64URL_RE = /^[A-Za-z0-9_-]*$/;
+
+// --- encoding -----------------------------------------------------------------
+
+const sortKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(sortKeys);
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as ListRecord;
+    return Object.keys(obj)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = sortKeys(obj[key]);
+        return acc;
+      }, {} as ListRecord);
+  }
+  return value;
+};
+
+const bytesToBinary = (bytes: Uint8Array) => {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return out;
+};
+
+export const encodeRecord = (obj: object): string => {
+  const bytes = new TextEncoder().encode(JSON.stringify(sortKeys(obj)));
+  return btoa(bytesToBinary(bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+};
+
+export const decodeRecord = (value: string): ListRecord => {
+  if (!B64URL_RE.test(value || '')) {
+    throw new StoreError('value is not base64url');
+  }
+  const b64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  const obj = JSON.parse(
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+  );
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new StoreError('value is not a JSON object');
+  }
+  return obj;
+};
+
+export const parseList = (
+  text: string,
+): { records: ListRecords; errors: string[] } => {
+  const records: ListRecords = {};
+  const errors: string[] = [];
+  (text || '').split(/\r?\n/).forEach((line, index) => {
+    if (!line.trim()) {
+      return;
+    }
+    const sep = line.indexOf(':');
+    const key = sep < 0 ? '' : line.slice(0, sep);
+    if (!KEY_RE.test(key)) {
+      errors.push(`line ${index + 1}: invalid key`);
+      return;
+    }
+    try {
+      records[key] = decodeRecord(line.slice(sep + 1).trim());
+    } catch (error) {
+      errors.push(`line ${index + 1}: ${(error as Error).message}`);
+    }
+  });
+  return { records, errors };
+};
+
+export const renderList = (records: ListRecords): string => {
+  const keys = Object.keys(records).sort();
+  for (const key of keys) {
+    if (!KEY_RE.test(key)) {
+      throw new StoreError(`invalid key: ${key}`);
+    }
+  }
+  return keys.map(key => `${key}:${encodeRecord(records[key])}\n`).join('');
+};
+
+export const benchListName = (osKey: string) => {
+  if (!OS_KEY_RE.test(osKey || '')) {
+    throw new StoreError(`invalid os_key: ${osKey}`);
+  }
+  return CISCAT_BENCH_PREFIX + osKey;
+};
+
+// --- validation (same rules as ciscat_store.py) -------------------------------
+
+const text = (
+  rec: ListRecord,
+  field: string,
+  limit: number,
+  required = false,
+  fallback = '',
+): string => {
+  let value = rec[field];
+  if (value === undefined || value === null) {
+    value = fallback;
+  }
+  if (typeof value !== 'string') {
+    throw new StoreError(`${field}: text expected`);
+  }
+  // str.split() + join in Python: collapse any whitespace run
+  value = value.split(/\s+/).filter(Boolean).join(' ');
+  if (value.length > limit) {
+    throw new StoreError(`${field}: longer than ${limit} characters`);
+  }
+  if (required && !value) {
+    throw new StoreError(`${field}: required`);
+  }
+  return value;
+};
+
+const integer = (
+  rec: ListRecord,
+  field: string,
+  low: number,
+  high: number,
+  fallback?: number,
+): number => {
+  const value = rec[field] === undefined ? fallback : rec[field];
+  if (!Number.isInteger(value) || Number(value) < low || Number(value) > high) {
+    throw new StoreError(`${field}: integer ${low}..${high} expected`);
+  }
+  return Number(value);
+};
+
+export const validateExclusion = (rec: ListRecord): Exclusion => {
+  if (!rec || typeof rec !== 'object') {
+    throw new StoreError('record must be an object');
+  }
+  const osKey = text(rec, 'os_key', 64, true);
+  if (!OS_KEY_RE.test(osKey)) {
+    throw new StoreError('os_key: invalid');
+  }
+  const scope = text(rec, 'scope', 16, true).toLowerCase() as Scope;
+  if (!SCOPES.includes(scope)) {
+    throw new StoreError(`scope: one of ${SCOPES.join(', ')}`);
+  }
+  let scopeValue = text(rec, 'scope_value', 255);
+  if (scope === 'os') {
+    scopeValue = osKey;
+  } else if (scope === 'global') {
+    scopeValue = 'all';
+  } else if (!NAME_RE.test(scopeValue)) {
+    throw new StoreError('scope_value: agent or group name expected');
+  }
+  const level = (text(rec, 'level', 3, false, 'ALL').toUpperCase() ||
+    'ALL') as Level;
+  if (!LEVELS.includes(level)) {
+    throw new StoreError(`level: one of ${LEVELS.join(', ')}`);
+  }
+  const role = text(rec, 'role', 64);
+  if (!ROLE_RE.test(role)) {
+    throw new StoreError('role: invalid');
+  }
+  const rule = text(rec, 'rule', 64, true);
+  if (!RULE_RE.test(rule)) {
+    throw new StoreError(
+      'rule: CIS recommendation number expected (e.g. 1.1.1)',
+    );
+  }
+  return {
+    v: CISCAT_SCHEMA_VERSION,
+    os_key: osKey,
+    scope,
+    scope_value: scopeValue,
+    level,
+    role,
+    rule,
+    reason: text(rec, 'reason', 500) || 'n/a',
+    ticket: text(rec, 'ticket', 128) || 'n/a',
+    owner: text(rec, 'owner', 128) || 'n/a',
+    updated_by: text(rec, 'updated_by', 128),
+    updated_at: text(rec, 'updated_at', 40),
+  };
+};
+
+const sha1Hex = async (value: string): Promise<string> => {
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-1',
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+export const exclusionKey = async (rec: Exclusion): Promise<string> => {
+  const ident = [
+    rec.os_key,
+    rec.scope,
+    rec.scope_value.toLowerCase(),
+    rec.level,
+    rec.role.toLowerCase(),
+    rec.rule,
+  ].join('|');
+  return 'e' + (await sha1Hex(ident)).slice(0, 16);
+};
+
+const validDate = (at: string) => {
+  const m = AT_RE.exec(at);
+  if (!m) {
+    return false;
+  }
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
+
+export const validateJob = (rec: ListRecord): Job => {
+  if (!rec || typeof rec !== 'object') {
+    throw new StoreError('record must be an object');
+  }
+  const type = text(rec, 'type', 16, true) as JobType;
+  if (!JOB_TYPES.includes(type)) {
+    throw new StoreError(`type: one of ${JOB_TYPES.join(', ')}`);
+  }
+  const out: Partial<Job> = { v: CISCAT_SCHEMA_VERSION, type };
+  if (type === 'once') {
+    out.at = text(rec, 'at', 16, true);
+    if (!validDate(out.at)) {
+      throw new StoreError('at: YYYY-MM-DDTHH:MM expected (master local time)');
+    }
+  } else {
+    out.time = text(rec, 'time', 5, true);
+    if (!TIME_RE.test(out.time)) {
+      throw new StoreError('time: HH:MM expected');
+    }
+    if (type === 'monthly') {
+      const day = Number(rec.day);
+      if (
+        !Number.isInteger(rec.day) ||
+        !((day >= 1 && day <= 31) || (day >= -28 && day <= -1))
+      ) {
+        throw new StoreError(
+          'day: 1..31, or -1..-28 counted from the end of the month',
+        );
+      }
+      out.day = day;
+    } else {
+      out.weekday = integer(rec, 'weekday', 0, 6);
+    }
+  }
+  const targets = (
+    rec.targets === undefined ? ['*'] : rec.targets
+  ) as unknown[];
+  if (!Array.isArray(targets) || !targets.length || targets.length > 64) {
+    throw new StoreError('targets: non-empty list expected');
+  }
+  for (const t of targets) {
+    if (t !== '*' && !(typeof t === 'string' && OS_KEY_RE.test(t))) {
+      throw new StoreError('targets: os keys or * expected');
+    }
+  }
+  out.targets = Array.from(new Set(targets as string[])).sort();
+  out.wave_size = integer(rec, 'wave_size', 1, 100000, 50);
+  out.wave_pause_s = integer(rec, 'wave_pause_s', 0, 86400, 300);
+  const enabled = rec.enabled === undefined ? true : rec.enabled;
+  if (typeof enabled !== 'boolean') {
+    throw new StoreError('enabled: true/false expected');
+  }
+  out.enabled = enabled;
+  out.label = text(rec, 'label', 80);
+  out.created_by = text(rec, 'created_by', 128);
+  out.created_at = text(rec, 'created_at', 40);
+  return out as Job;
+};
+
+export interface Target {
+  v: number;
+  group: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+/** Wazuh group an OS (benchmark) applies to, chosen in the dashboard; keyed by os key. */
+export const validateTarget = (rec: ListRecord): Target => {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
+    throw new StoreError('record must be an object');
+  }
+  const group = text(rec, 'group', 255, true);
+  if (!NAME_RE.test(group)) {
+    throw new StoreError('group: Wazuh group name expected');
+  }
+  return {
+    v: CISCAT_SCHEMA_VERSION,
+    group,
+    updated_by: text(rec, 'updated_by', 128),
+    updated_at: text(rec, 'updated_at', 40),
+  };
+};
+
+const randomHex = (bytes: number) =>
+  Array.from(globalThis.crypto.getRandomValues(new Uint8Array(bytes)))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+export const newJobKey = () => 'j' + randomHex(6);
+export const newRequestKey = (now = Date.now()) => `r${now}${randomHex(2)}`;

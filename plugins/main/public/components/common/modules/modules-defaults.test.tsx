@@ -28,4 +28,15 @@ describe('ModulesDefaults SCA reporting', () => {
     expect(fimBlock).toContain("id: 'manage'");
     expect(fimBlock).toContain('component: FimManagement');
   });
+
+  it('adds the CIS-CAT management tab to Configuration Assessment', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, 'modules-defaults.tsx'),
+      'utf8',
+    );
+    const scaBlock = source.match(/\n {2}sca:\s*\{[\s\S]*?\n {2}\},/)?.[0];
+
+    expect(scaBlock).toContain("id: 'ciscat'");
+    expect(scaBlock).toContain('component: CiscatManagement');
+  });
 });
