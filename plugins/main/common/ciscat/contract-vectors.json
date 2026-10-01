@@ -147,6 +147,18 @@
       "wave_size": 0
     }
   ],
+  "invalid_targets": [
+    {
+      "group": ""
+    },
+    {
+      "group": "two words"
+    },
+    {
+      "group": 5
+    },
+    {}
+  ],
   "jobs": [
     {
       "input": {
@@ -208,6 +220,33 @@
         "wave_pause_s": 300,
         "wave_size": 50,
         "weekday": 0
+      }
+    }
+  ],
+  "targets": [
+    {
+      "input": {
+        "group": "linux-prod",
+        "updated_at": "2026-10-01T12:00:00Z",
+        "updated_by": " alice "
+      },
+      "normalized": {
+        "group": "linux-prod",
+        "updated_at": "2026-10-01T12:00:00Z",
+        "updated_by": "alice",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "extra": 1,
+        "group": "os-rhel9_v2.0.0"
+      },
+      "normalized": {
+        "group": "os-rhel9_v2.0.0",
+        "updated_at": "",
+        "updated_by": "",
+        "v": 1
       }
     }
   ]
