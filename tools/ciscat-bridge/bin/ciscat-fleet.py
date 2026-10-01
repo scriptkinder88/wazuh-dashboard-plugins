@@ -28,7 +28,7 @@ sys.path.insert(0, BIN_DIR)
 import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 
-VERSION = "2.2.3"
+VERSION = "2.2.4"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
