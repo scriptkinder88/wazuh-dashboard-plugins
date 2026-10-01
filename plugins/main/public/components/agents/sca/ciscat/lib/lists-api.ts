@@ -24,11 +24,13 @@ export interface LoadedList {
   exists: boolean;
 }
 
-/** Names of the ciscat-* list files present on the manager. */
-export const existingLists = async (): Promise<Set<string>> => {
+/** Names of the list files matching `search` (ciscat-* by default). */
+export const existingLists = async (
+  search = 'ciscat-',
+): Promise<Set<string>> => {
   // /lists/files returns names only; /lists would return every list's items
   const response = await WzRequest.apiReq('GET', '/lists/files', {
-    params: { search: 'ciscat-', limit: 500 },
+    params: { search, limit: 500 },
   });
   const items = response?.data?.data?.affected_items || [];
   return new Set(
