@@ -28,7 +28,7 @@ sys.path.insert(0, BIN_DIR)
 import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
@@ -323,7 +323,8 @@ def build(os_key, cfg, exc_csv, host, app_groups, out_dir):
     out = run_checked([sys.executable, os.path.join(BIN_DIR, "csv_to_custom_xccdf.py"),
                        "--csv", exc_csv, "--benchmark", bench, "--host", host,
                        "--os-key", os_key, "--role", cfg["role"],
-                       "--app-groups", ",".join(app_groups), "--out", custom])
+                       "--app-groups", ",".join(app_groups), "--out", custom] +
+                      [a for p in cfg.get("base_profiles", []) for a in ("--base-profile", p)])
     audit = [l.strip() for l in out.splitlines() if l.strip().startswith("[L")]
     pkey, level = cfg["profiles"][0]
     pol = os.path.join(out_dir, cfg["policy_id"])

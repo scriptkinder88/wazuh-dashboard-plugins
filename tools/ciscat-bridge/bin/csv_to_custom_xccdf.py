@@ -20,6 +20,11 @@ The CSV level tag (L1/L2/NG) is expanded to tokens valid PER FAMILY; a tag inval
 family (e.g. NG on Linux) -> explicit error.
 
 Option X: exclusions only (selected="false"). idrefs unchanged (OVAL still matches).
+
+BASE PROFILES (--base-profile, repeatable): for benchmarks without "Level_1_-_<role>" profiles
+(STIG SEVERITY_CAT_I/II/III, Level_1, Level_1_L1, ...). One tailored profile, the union of the
+base profiles, with the usual id TAILORED_Level_1_-_<role>; exclusions of level L1 or ALL apply,
+whatever their role.
 """
 
 import argparse
@@ -147,7 +152,73 @@ def family_from_benchmark(data):
     return {"levels": levels, "roles": roles, "default_role": default}
 
 
-def build_custom_xccdf(csv_path, benchmark_path, host, os_key, role, app_groups, out_path):
+PROFILE_PREFIX = "xccdf_org.cisecurity.benchmarks_profile_"
+SELECT_RE = r'<xccdf:select\s+idref="([^"]*)"\s+selected="(true|false)"'
+
+
+def union_profile(blocks):
+    """Profile block selecting every control selected in at least one of the blocks (the first
+    block is the template: its title, description and values are kept)."""
+    block = blocks[0]
+    selected = []
+    for b in blocks:
+        for idref, sel in re.findall(SELECT_RE, b):
+            if sel == "true" and idref not in selected:
+                selected.append(idref)
+    present = {idref for idref, _ in re.findall(SELECT_RE, block)}
+    for idref in selected:
+        block = re.sub(r'(idref="' + re.escape(idref) + r'"\s+selected=")false(")',
+                       lambda mm: mm.group(1) + "true" + mm.group(2), block)
+    extra = "".join('\n    <xccdf:select idref="{0}" selected="true"/>'.format(i)
+                    for i in selected if i not in present)
+    if extra:
+        end = block.rindex("</xccdf:Profile>")
+        block = block[:end].rstrip() + extra + "\n  " + block[end:]
+    return block, selected
+
+
+def build_from_base_profiles(csv_path, benchmark_path, host, os_key, role, app_groups, out_path,
+                             base_profiles):
+    with open(benchmark_path, encoding="utf-8") as f:
+        data = f.read()
+    profile_blocks = list(re.finditer(r'<xccdf:Profile\b.*?</xccdf:Profile>', data, re.DOTALL))
+    by_id = {re.search(r'id="([^"]*)"', m.group(0)).group(1): m.group(0) for m in profile_blocks}
+    missing = [p for p in base_profiles if PROFILE_PREFIX + p not in by_id]
+    if missing:
+        sys.exit(f"[ERROR] profile(s) {missing} not found in {benchmark_path}")
+    role_norm = role or "Default"
+    block, idrefs = union_profile([by_id[PROFILE_PREFIX + p] for p in base_profiles])
+
+    tailoring, rejected = load_and_clean(csv_path)
+    audit, excluded = [], set()
+    for e in tailoring:
+        # no role filter: a single profile, and the dashboard names these profiles' roles after
+        # the benchmark's columns (e.g. L1 for Level_1_L1)
+        if not applies_to_host(e, host, app_groups, os_key) or not level_matches(e["level"], "L1"):
+            continue
+        for mi in resolve_rule(e["rule"], idrefs):
+            excluded.add(mi); audit.append(("L1", mi, e))
+
+    tail_pid = PROFILE_ID_TEMPLATE.format(level="TAILORED_Level_1", role=role_norm)
+    block = re.sub(r'(<xccdf:Profile\b[^>]*\bid=")[^"]*(")',
+                   lambda mm: mm.group(1) + tail_pid + mm.group(2), block, count=1)
+    block = re.sub(r'(<xccdf:title[^>]*>)(.*?)(</xccdf:title>)',
+                   lambda mm: mm.group(1) + f"TAILORED L1 - {role_norm.replace('_', ' ')} ({host})" + mm.group(3),
+                   block, count=1, flags=re.DOTALL)
+    for idref in excluded:
+        block = re.sub(r'(idref="' + re.escape(idref) + r'"\s+selected=")true(")',
+                       lambda mm: mm.group(1) + "false" + mm.group(2), block)
+    insert_pos = profile_blocks[-1].end()
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(data[:insert_pos] + "\n" + block + data[insert_pos:])
+    return [("L1", tail_pid, len(excluded))], audit, rejected, "+".join(base_profiles), role_norm
+
+
+def build_custom_xccdf(csv_path, benchmark_path, host, os_key, role, app_groups, out_path,
+                       base_profiles=None):
+    if base_profiles:
+        return build_from_base_profiles(csv_path, benchmark_path, host, os_key, role, app_groups,
+                                        out_path, base_profiles)
     family = family_of(os_key)
     if family in FAMILIES:
         fam = FAMILIES[family]
@@ -258,11 +329,14 @@ def main():
     ap.add_argument("--os-key", required=True)
     ap.add_argument("--role", default="", help="role token or alias; empty = family default")
     ap.add_argument("--app-groups", default="")
+    ap.add_argument("--base-profile", action="append", default=[],
+                    help="profile id without its prefix (e.g. SEVERITY_CAT_I); repeat for a union")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     app_groups = [g.strip() for g in args.app_groups.split(",") if g.strip()]
     summary, audit, rejected, family, role_norm = build_custom_xccdf(
-        args.csv, args.benchmark, args.host, args.os_key, args.role, app_groups, args.out)
+        args.csv, args.benchmark, args.host, args.os_key, args.role, app_groups, args.out,
+        args.base_profile)
     print(f"Custom XCCDF generated: {args.out}")
     print(f"Host: {args.host} | OS key: {args.os_key} | family: {family} | role: {role_norm} | app_groups: {app_groups}")
     if rejected:
