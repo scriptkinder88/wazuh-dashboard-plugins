@@ -32,8 +32,9 @@ Database Engine role. Benchmarks without `Level 1 - <role>` profiles are handled
 - `Level_1` or `Level_1_L1` (Apache, Tomcat, Windows 11): that profile, role `Default`;
 - `Level_1-_<Role>` (MongoDB): that profile.
 
-`sync` lists the others as skipped (network devices, cloud services, browsers): they have no Wazuh
-agent to run on.
+`sync` lists as skipped the benchmarks of platforms without a Wazuh agent (network devices,
+managed Kubernetes, cloud and SaaS services, ESXi), macOS (not handled by the bridge) and those
+without a Level 1 or STIG profile. GPO benchmarks (Firefox ESR, VS Code) are Windows ones.
 
 ## How it works
 
