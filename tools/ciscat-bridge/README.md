@@ -89,6 +89,96 @@ On a host that is both master and dashboard, one run does both.
 API credentials come from `api_pass_file` in `/opt/ciscat/etc/ciscat-orchestrator.conf` (mode
 600). They are never passed on the command line.
 
+## Wazuh 5.0
+
+The bridge detects Wazuh 5.0 by `/var/wazuh-manager` (`CISCAT_PLATFORM=4|5` overrides it,
+`bin/ciscat_platform.py`). Agents, exclusions, combos, waves and schedules work as on 4.x; what
+changes is where the data lives and how a run reaches the agents.
+
+|                           | Wazuh 4.x                                         | Wazuh 5.0                                                                                          |
+| ------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Manager                   | `/var/ossec`, files owned by `wazuh`              | `/var/wazuh-manager`, files owned by `wazuh-manager`                                               |
+| Dashboard data            | CDB lists in `etc/lists/ciscat-*`                 | one document per list in the hidden index `wz-dashboard-store-ciscat` (CONTRACT.md)                |
+| Runs                      | `PUT /active-response`                            | trigger documents in `wazuh-findings-v5-ciscat`, turned into Active Responses by Alerting monitors |
+| Report                    | `GET /sca/{agent}`                                | the `wazuh-states-sca*` index                                                                      |
+| SCA policy                | `title`, `cis_csc_v8` and `cis_family` compliance | `name`, no compliance block (`xccdf_to_sca_policy.py --format 5`)                                  |
+| Missing CIS-CAT Pro alert | `etc/rules/ciscat_rules.xml`                      | `rules/ciscat-not-found.sigma.yml`, imported by hand                                               |
+
+### Install on a 5.0 master
+
+The bridge reads and writes the indexer with its own user. Give it a user whose role can read and
+write `wz-dashboard-store-ciscat`, create documents in `wazuh-findings-v5-ciscat`, read
+`wazuh-states-sca*`, and manage Notifications channels and Alerting monitors. The first run needs
+the connection settings:
+
+```
+sh ciscat-bridge-install-<version>.sh --indexer-url https://127.0.0.1:9200 \
+   --indexer-user ciscat-bridge --indexer-password-file /root/ciscat-indexer.pass \
+   --indexer-ca /etc/wazuh-indexer/certs/root-ca.pem
+```
+
+The installer writes `/opt/ciscat/etc/indexer.json` and copies the password to
+`/opt/ciscat/etc/indexer.pass` (both mode 600); later runs reuse them. It reaches the indexer before
+it changes anything, refuses a cluster worker (`<node_type>worker</node_type>` in
+`etc/wazuh-manager.conf`), skips the XML rule and the `wazuh-analysisd -t` test, and creates, when
+missing:
+
+- the store index (hidden, one shard, the dashboard's mapping);
+- four Active Response channels (`config_type: active_response`, stateless, location `local`):
+  `ciscat-bootstrap-linux` → `ciscat-bootstrap.sh`, `ciscat-refresh-linux` → `ciscat-refresh.sh`,
+  `ciscat-bootstrap-windows` → `ciscat-bootstrap.cmd` (`--windows-bootstrap-executable` changes
+  it), `ciscat-assessment-windows` → `ciscat-assessment.cmd`;
+- one `active_response_monitor` per channel with the same name, every minute, on
+  `wazuh-findings-v5-ciscat*`, with the query `event.action:"<name>"`.
+
+Channels and monitors are matched by name and put back when they differ, so running the installer
+again changes nothing. A rollback restores the files; the index, channels and monitors stay.
+
+### Runs
+
+`ciscat-fleet.py trigger` writes, per wave, one document per agent with
+`event.action: <ar_bootstrap>`, waits `CISCAT_AR_GAP` seconds (90 by default on 5.0, because the
+monitors run every minute), then one with the assessment action. The monitor of the action
+matches the document and the manager runs the channel's executable on the agent of the document
+(`wazuh.agent.id`). `ar_*` values of `os-library.json` written for 4.x (`!ciscat-refresh-linux0`,
+…) are read as the 5.0 action names above, another `!command` as the default action of its family;
+any other value is taken as the name of a channel and monitor set up on site.
+
+The 5.0 policy keeps the CIS number at the start of each check name; the CIS Controls v8 and CIS
+family values of the 4.x policy are not 5.0 compliance keys and are left out.
+
+### CIS-CAT Pro missing alert
+
+Import `/opt/ciscat/rules/ciscat-not-found.sigma.yml` as a custom rule through the Wazuh indexer
+content manager (Wazuh dashboard, rules of the content manager: create a custom Sigma rule from
+the file, then enable it). It matches the `CIS-CAT Pro not found on <host>` line that the agent
+scripts write to `active-responses.log`.
+
+### To verify on a real Wazuh 5.0 manager
+
+The 5.0 support is tested against fakes of the Wazuh API and of the indexer only. These points
+come from the 5.0 sources, not from a running 5.0 cluster, and must be checked before production:
+
+1. **Channel and monitor creation**: the payloads above are accepted (`active_response` channel,
+   `active_response_monitor` with a document-level trigger on `wazuh-findings-v5-ciscat*`), and
+   the monitor search by `monitor.name` finds them on the second run.
+2. **Trigger documents**: `wazuh-findings-v5-ciscat` is created as a data stream by the
+   `wazuh-findings-v5*` template and accepts the fields the bridge writes (strict mapping).
+3. **Dispatch**: the manager picks the alerts up from `wazuh-active-responses` (every 30 s) and runs
+   the executable on the agent of the document, with the 90 s gap enough between bootstrap and
+   assessment; on Windows, that `ciscat-bootstrap.cmd` is the bootstrap script the 4.x
+   `ciscat-bootstrap` command ran (it is not part of the bridge).
+4. **`ciscat-refresh.sh` without splay**: execd is the script's parent process (`wazuh-execd`),
+   which is how the script tells an Active Response from a scheduled run on 5.0.
+5. **SCA results**: `wazuh-states-sca*` has one document per agent and check with the fields
+   `wazuh.agent.id` (same id as the server API), `policy.id` and `check.result`
+   (`Passed`, `Failed`, `Not applicable`) as keyword fields, which `report` aggregates.
+6. **SCA policy**: a 5.0 agent loads the remote policy from the combo group (`name` fields, no
+   compliance block, `f:` rules only) and reports it under the same policy id.
+7. **Sigma rule**: the content manager accepts the rule and `active-responses.log` lines reach it
+   in `event.original`.
+8. **Indexer role**: the minimum permissions of the bridge user listed above.
+
 ## Commands on the master
 
 ```
@@ -97,7 +187,8 @@ ciscat-fleet.py trigger --targets rhel7,windows_server_2025 --wave-size 50 --wav
 ciscat-scheduler.py            # what cron runs every 5 minutes
 ```
 
-Logs are in `/opt/ciscat/log/`: the scheduler log, and one log per job.
+Logs are in `/opt/ciscat/log/`: the scheduler log, and one log per job. On Wazuh 5.0 `trigger` and
+`report` use the indexer configuration as well as the API credentials.
 
 ## Tests
 

@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - 4.*
+      - 5.*
     paths:
       - tools/ciscat-bridge/**
       - plugins/main/common/ciscat/**

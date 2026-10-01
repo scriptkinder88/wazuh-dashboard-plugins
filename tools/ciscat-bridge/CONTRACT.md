@@ -1,7 +1,8 @@
 # CIS-CAT bridge: dashboard ↔ master data contract
 
-The dashboard and the Wazuh master exchange CIS-CAT exclusions, schedules and status through
-Wazuh CDB list files in `/var/ossec/etc/lists/`. The dashboard uses only the Wazuh API
+On Wazuh 4.x the dashboard and the Wazuh master exchange CIS-CAT exclusions, schedules and status
+through Wazuh CDB list files in `/var/ossec/etc/lists/`. Wazuh 5.0 has no CDB lists: the same
+lists and records live in the Wazuh indexer (see [Wazuh 5.0 storage](#wazuh-50-storage)). The dashboard uses only the Wazuh API
 (`GET/PUT /lists/files/{name}`), so no extra service, port or credential is involved and Wazuh
 RBAC decides who may change them. The master reads and writes the same files on disk.
 
@@ -38,6 +39,33 @@ Each file has exactly one writer, so the two sides never overwrite each other.
 
 The exclusion key is derived from the record itself, so the same exclusion cannot appear twice.
 The master rejects a record whose key does not match it.
+
+## Wazuh 5.0 storage
+
+Each list above is one document of the hidden index `wz-dashboard-store-ciscat` (the `ciscat`
+collection of the dashboard store, `plugins/main/common/dashboard-store.ts`):
+
+```
+PUT wz-dashboard-store-ciscat/_doc/<list name>
+{"kind": "list", "key": "<list name>", "data": {"records": {"<key>": {...record...}}},
+ "updated_by": "<user or ciscat-bridge>", "updated_at": "<ISO 8601 UTC>"}
+```
+
+- The index is created by whichever side writes first: `index.hidden: true`,
+  `number_of_shards: 1`, strict mapping with `kind`, `key` and `updated_by` as `keyword`,
+  `updated_at` as `date` and `data` as an object with `enabled: false` (stored, not indexed).
+- Records are plain JSON objects, not base64; keys, records and validators are those of 4.x
+  (`v: 1`, `_meta`, `_empty`).
+- A list that has no document reads as empty.
+- The writers are the same as in [Files and writers](#files-and-writers). The master updates
+  `ciscat-status` with `if_seq_no`/`if_primary_term` and retries on a conflict (HTTP 409); the
+  dashboard writes its lists only if they did not change since it read them.
+- The master reaches the indexer with the settings in `/opt/ciscat/etc/indexer.json`
+  (`url`, `user`, `password_file`, `ca`; `$CISCAT_INDEXER_CONF` overrides the path). When that
+  file exists, the bridge uses the indexer instead of the list files.
+
+Runs on 5.0 do not go through this store: the master writes trigger documents into the data
+stream `wazuh-findings-v5-ciscat` (README.md, Wazuh 5.0).
 
 ## Records
 
