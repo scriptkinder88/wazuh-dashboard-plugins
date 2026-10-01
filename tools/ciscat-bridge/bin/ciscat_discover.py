@@ -10,7 +10,8 @@ versions of the same benchmark are two entries, e.g. rhel9_v1_0_0 and rhel9_v2_0
   profiles ("Level_1 - <Role>"), with the same Active Response commands as the configured OS of
   its family, and the group os-<key> until a group is chosen in the dashboard (ciscat-targets).
 
-Entries in os-library.json always win: set "active": false there to keep an OS out of apply and runs.
+Entries in os-library.json keep their settings: set "active": false there to keep an OS out of apply
+and runs. Choosing a group in the dashboard activates the OS again (the choice is explicit).
 """
 import os
 import re
@@ -164,10 +165,11 @@ def merge(library, bench_dir):
 
 
 def apply_targets(library, targets):
-    """Groups chosen in the dashboard (ciscat-targets) replace the library groups."""
+    """Groups chosen in the dashboard (ciscat-targets) replace the library groups and activate the OS."""
     lib = {k: dict(v) for k, v in library.items()}
     for os_key, rec in targets.items():
         if os_key in lib:
             lib[os_key]["group"] = rec["group"]
             lib[os_key]["group_source"] = "dashboard"
+            lib[os_key]["active"] = True
     return lib
