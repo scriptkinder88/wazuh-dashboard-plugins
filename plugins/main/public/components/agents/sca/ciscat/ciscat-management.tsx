@@ -34,6 +34,7 @@ export interface CiscatData {
   exclusions: LoadedList;
   schedule: LoadedList;
   requests: LoadedList;
+  targets: LoadedList;
 }
 
 type TabId = 'exclusions' | 'schedule' | 'status';
@@ -56,13 +57,14 @@ export const CiscatManagement = () => {
     setError('');
     try {
       const existing = await existingLists();
-      const [oskeys, status, exclusions, schedule, requests] =
+      const [oskeys, status, exclusions, schedule, requests, targets] =
         await Promise.all([
           readList(CISCAT_LISTS.oskeys, existing),
           readList(CISCAT_LISTS.status, existing),
           readList(CISCAT_LISTS.exclusions, existing),
           readList(CISCAT_LISTS.schedule, existing),
           readList(CISCAT_LISTS.requests, existing),
+          readList(CISCAT_LISTS.targets, existing),
         ]);
       setData({
         oskeys: oskeys.records,
@@ -70,6 +72,7 @@ export const CiscatManagement = () => {
         exclusions,
         schedule,
         requests,
+        targets,
       });
     } catch (e) {
       setError((e as Error).message || String(e));

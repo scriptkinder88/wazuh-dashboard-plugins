@@ -79,6 +79,8 @@ beforeEach(() => {
       role: 'Server',
       levels: ['L1'],
       group: 'os-rhel7',
+      title: 'Red Hat Enterprise Linux 7',
+      version: '4.0.0',
     },
   });
   files['ciscat-bench-rhel7'] = renderList({
@@ -137,6 +139,23 @@ describe('CIS-CAT management tab', () => {
     ]);
     // what was written parses back as the master will read it
     expect(parseList(files['ciscat-exclusions']).errors).toEqual([]);
+  });
+
+  it('shows the benchmark version and applies it to the chosen group', async () => {
+    render(<CiscatManagement />);
+    await screen.findByTestId('ciscat-rules');
+    expect(
+      screen.getByRole('option', { name: 'Red Hat Enterprise Linux 7 v4.0.0' }),
+    ).toBeTruthy();
+    const box = screen.getByTestId('ciscat-target-group');
+    expect(within(box).getByText('os-rhel7')).toBeTruthy();
+    fireEvent.click(within(box).getByTestId('comboBoxToggleListButton'));
+    fireEvent.click(await screen.findByRole('option', { name: 'app-sap' }));
+    fireEvent.click(screen.getByTestId('ciscat-save-apply'));
+    await waitFor(() => expect(lastWrite('ciscat-requests')).not.toEqual({}));
+    expect(lastWrite('ciscat-targets')).toEqual({
+      rhel7: expect.objectContaining({ group: 'app-sap', updated_by: 'alice' }),
+    });
   });
 
   it('refuses an exclusion without a reason', async () => {
