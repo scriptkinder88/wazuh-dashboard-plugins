@@ -247,7 +247,7 @@ export type DiffLine = { op: ' ' | '+' | '-'; text: string };
 export const diffLines = (a: string, b: string): DiffLine[] => {
   const x = a.split('\n');
   const y = b.split('\n');
-  if (x.length * y.length > 4_000_000) {
+  if (x.length * y.length > 4000000) {
     return [
       ...x.map(text => ({ op: '-' as const, text })),
       ...y.map(text => ({ op: '+' as const, text })),
