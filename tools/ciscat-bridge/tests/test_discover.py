@@ -91,9 +91,11 @@ class Discover(unittest.TestCase):
         self.assertEqual(len(notes), 1)
 
     def test_groups_chosen_in_the_dashboard(self):
-        lib = discover.apply_targets(LIBRARY, {"rhel7": {"group": "linux-prod"}, "gone": {"group": "x"}})
-        self.assertEqual((lib["rhel7"]["group"], lib["rhel7"]["group_source"]),
-                         ("linux-prod", "dashboard"))
+        library = {"rhel7": dict(LIBRARY["rhel7"], active=False)}
+        lib = discover.apply_targets(library, {"rhel7": {"group": "linux-prod"}, "gone": {"group": "x"}})
+        self.assertEqual((lib["rhel7"]["group"], lib["rhel7"]["group_source"], lib["rhel7"]["active"]),
+                         ("linux-prod", "dashboard", True))
+        self.assertFalse(library["rhel7"]["active"])
         self.assertEqual(sorted(lib), ["rhel7"])
         self.assertEqual(LIBRARY["rhel7"]["group"], "os-rhel7")
 

@@ -21,7 +21,7 @@ exclusions.
 In the CIS-CAT tab, **Applies to group** chooses the Wazuh group whose agents get the benchmark
 (by default `os-<key>`); **Save and apply** has the master publish it to that group. Apply and runs
 skip an OS until its group exists. An entry in `/opt/ciscat/etc/os-library.json` keeps its
-settings (for example `"active": false`), and one whose benchmark file is missing follows the
+settings (for example `"active": false`; choosing a group in the dashboard activates it again), and one whose benchmark file is missing follows the
 newest version of the same product in the folder. Benchmarks whose profiles are not in the
 `Level 1 - <role>` form (Windows 10/11 desktop) are listed by `sync` as skipped.
 
