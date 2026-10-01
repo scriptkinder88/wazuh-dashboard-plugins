@@ -10,6 +10,13 @@ Model:
         f:<flat_path> -> r:^<rule_escaped>:pass$
   - requirements: flatten file must exist (else policy not evaluated; avoids false 326-fail)
 
+Formats (--format):
+  - 4 (default): Wazuh 4.x policy, `title` fields, compliance cis_csc_v8 / cis_family lists.
+  - 5: Wazuh 5.0 policy: `name` instead of `title` (requirements and checks), no compliance
+    block (5.0 keeps only cmmc, fedramp, gdpr, hipaa, iso_27001, nis2, nist_800_171,
+    nist_800_53, pci_dss and tsc, and drops cis* keys with a warning), PCRE2-safe regexes.
+    The CIS number stays at the start of each check name ("1.1.1 Ensure ...").
+
 Output:
   - <out>.yml          Wazuh SCA policy
   - <out>.manual.txt   manual controls selected for this host (tracking, audit)
@@ -152,7 +159,19 @@ def yaml_sq(s):
     return "'" + s + "'"
 
 def esc_rule(num):
-    return num.replace(".", r"\.")
+    """CIS number as a literal regex, valid for PCRE2 (5.0) and OS_Regex (4.x): every character
+    that is not a letter or digit is escaped ("1.1.1" -> "1\\.1\\.1")."""
+    return re.sub(r"([^0-9A-Za-z])", r"\\\1", num)
+
+
+# compliance keys a Wazuh 5.0 SCA policy may carry; any other key is dropped by the agent
+COMPLIANCE_5 = ("cmmc", "fedramp", "gdpr", "hipaa", "iso_27001", "nis2", "nist_800_171",
+                "nist_800_53", "pci_dss", "tsc")
+
+
+def compliance_5(mapping):
+    """The allowed part of {key: [values]} (the bridge has no mapping to these frameworks)."""
+    return {k: v for k, v in mapping.items() if k in COMPLIANCE_5 and v}
 
 def main():
     ap = argparse.ArgumentParser()
@@ -162,7 +181,11 @@ def main():
     ap.add_argument("--policy-id", required=True, help="SCA policy id, e.g. cis_win2025_tailored_l1_ms")
     ap.add_argument("--policy-name", required=True)
     ap.add_argument("--out", required=True, help="output basename (without extension)")
+    ap.add_argument("--format", choices=("4", "5"), default="4",
+                    help="Wazuh version of the policy format (default 4)")
     args = ap.parse_args()
+    v5 = args.format == "5"
+    name_key = "name" if v5 else "title"
 
     xml = load(args.xccdf)
     prof = get_profile_block(xml, args.profile_id)
@@ -185,7 +208,7 @@ def main():
     L.append('  description: ' + yaml_sq('CIS-CAT tailored results bridged into Wazuh SCA (flatten-based).'))
     L.append("")
     L.append("requirements:")
-    L.append('  title: ' + yaml_sq('CIS-CAT Pro installed and assessment results present'))
+    L.append('  ' + name_key + ': ' + yaml_sq('CIS-CAT Pro installed and assessment results present'))
     L.append('  description: ' + yaml_sq('The flatten file is produced after a CIS-CAT assessment and withdrawn when CIS-CAT Pro is not found on the agent. If absent, the policy is not evaluated.'))
     L.append("  condition: all")
     L.append("  rules:")
@@ -207,7 +230,7 @@ def main():
         else:
             full_desc = f"CIS-CAT rule {num} (bridged result)."
         L.append(f"  - id: {cid}")
-        L.append(f"    title: {yaml_sq(disp[:250])}")
+        L.append(f"    {name_key}: {yaml_sq(disp[:250])}")
         L.append(f"    description: {yaml_sq(full_desc[:2000])}")
         if rationale:
             L.append(f"    rationale: {yaml_sq(rationale[:2000])}")
@@ -219,7 +242,14 @@ def main():
         comp = rule_compliance(xml, idref)
         family = num.split(".")[0]
         family_title = families.get(family)
-        if comp or family_title:
+        if v5:
+            # cis_csc_v8 and cis_family are not 5.0 compliance keys: nothing to keep
+            allowed = compliance_5({"cis_csc_v8": comp, "cis_family": [family_title]})
+            if allowed:
+                L.append("    compliance:")
+                for key in sorted(allowed):
+                    L.append("      " + key + ": [" + ", ".join(yaml_sq(c) for c in allowed[key]) + "]")
+        elif comp or family_title:
             # Compliance values must be YAML lists: the Wazuh 4.x agent drops a plain string.
             L.append("    compliance:")
             if comp:
@@ -242,6 +272,7 @@ def main():
     print(f"[+] manual excluded: {len(in_manual)}  -> {[n for n,_ in in_manual]}")
     print(f"[+] checks in policy: {len(in_policy)}  (id range 5001..{cid})")
     print(f"[+] family titles  : {len(families)}")
+    print(f"[+] format         : Wazuh {args.format}")
     print(f"[+] wrote {args.out}.yml and {args.out}.manual.txt")
 
 if __name__ == "__main__":

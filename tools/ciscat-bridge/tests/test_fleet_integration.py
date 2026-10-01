@@ -68,10 +68,13 @@ class FleetIntegration(unittest.TestCase):
             "004": {"name": "win-01", "status": "active", "group": ["os-windows_server_2025"]},
         })
         self.env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_PATHS_JSON=json.dumps(p),
-                        CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
+                        CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0",
+                        CISCAT_PLATFORM="4",
+                        CISCAT_INDEXER_CONF=os.path.join(self.root, "no-indexer.json"))
 
     def tearDown(self):
         self.fake.server.shutdown()
+        self.fake.server.server_close()
 
     def fleet(self, *args):
         r = subprocess.run([sys.executable, os.path.join(BIN, "ciscat-fleet.py")] + list(args),
@@ -140,10 +143,6 @@ class FleetIntegration(unittest.TestCase):
         self.assertNotIn("!ciscat-assessment0", cmds)
         status, _ = store.read_list(store.STATUS, self.paths["lists_dir"])
         self.assertEqual((status["job-j1"]["sent"], status["job-j1"]["skipped"]), (2, ["003"]))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipUnless(BENCH_DIR and os.path.isfile(os.path.join(BENCH_DIR, LINUX))
@@ -230,3 +229,77 @@ class FleetDiscovery(FleetIntegration):
         self.assertEqual((self.combos("001"), self.combos("002")), ([], []))
         self.assertTrue(os.path.isfile(os.path.join(self.paths["shared_dir"], "linux-prod",
                                                     u + "-custom-xccdf.xml")))
+
+
+@unittest.skipUnless(BENCH_DIR and os.path.isfile(os.path.join(BENCH_DIR, LINUX))
+                     and os.path.isfile(os.path.join(BENCH_DIR, WIN)),
+                     "CISCAT_TEST_BENCHMARKS not set")
+class FleetIntegrationV5(FleetIntegration):
+    """The same flow on Wazuh 5.0: lists in the indexer store, 5.0 policies, trigger documents."""
+
+    def setUp(self):
+        super().setUp()
+        from fake_indexer import FakeIndexer
+        from test_indexer_store import write_conf
+        self.ix = FakeIndexer()
+        conf = write_conf(self.root, self.ix.serve())
+        self.env.update(CISCAT_PLATFORM="5", CISCAT_INDEXER_CONF=conf)
+        old = os.environ.get("CISCAT_INDEXER_CONF")
+        os.environ["CISCAT_INDEXER_CONF"] = conf  # the store calls of the test itself
+        store._INDEXERS.clear()
+
+        def restore():
+            if old is None:
+                os.environ.pop("CISCAT_INDEXER_CONF", None)
+            else:
+                os.environ["CISCAT_INDEXER_CONF"] = old
+            store._INDEXERS.clear()
+            self.ix.stop()
+        self.addCleanup(restore)
+
+    def test_sync_apply_combos_and_trigger(self):
+        lists = self.paths["lists_dir"]
+        self.fleet("sync")
+        self.assertEqual(os.listdir(lists), [])  # nothing in list files on 5.0
+        bench, errors = store.read_list("ciscat-bench-rhel7")
+        self.assertEqual(errors, [])
+        self.assertIn("L1_Server", bench["1.1.1.1"]["p"])
+        doc = self.ix.doc("wz-dashboard-store-ciscat", "ciscat-oskeys")
+        self.assertEqual((doc["kind"], doc["key"]), ("list", "ciscat-oskeys"))
+        self.assertTrue(doc["data"]["records"]["windows_server_2025"]["available"])
+
+        recs = dict([excl(os_key="rhel7", scope="os", rule="1.1.1.1"),
+                     excl(os_key="rhel7", scope="host", scope_value="web-02", rule="1.1.1.3")])
+        store.write_list(store.EXCLUSIONS, recs)
+        self.fleet("apply", "--request", "r1")
+        a = self.fake.agents
+        combo = {aid: [g for g in a[aid]["group"] if g.startswith("ciscat-")] for aid in a}
+        self.assertEqual(combo["001"], ["ciscat-rhel7-base"])
+        self.assertNotEqual(combo["002"], combo["001"])
+        pid = "cis_rhel7_tailored_l1_server"
+        base = self.policy_rules("ciscat-rhel7-base", pid)
+        self.assertNotIn(r"1\.1\.1\.1", base)
+        self.assertEqual(base - self.policy_rules(combo["002"][0], pid), {r"1\.1\.1\.3"})
+        with open(os.path.join(self.paths["shared_dir"], "ciscat-rhel7-base", pid + ".yml")) as f:
+            policy = f.read()
+        self.assertIn("\n    name: '1.1.1.2 ", policy)
+        self.assertNotIn("title:", policy)
+        self.assertNotIn("compliance:", policy)
+        status = store.read_list(store.STATUS)[0]
+        self.assertEqual((status["apply"]["state"], status["apply"]["request"]), ("ok", "r1"))
+
+        self.fleet("trigger", "--targets", "rhel7,windows_server_2025", "--wave-size", "1",
+                   "--job", "j1")
+        self.assertEqual(self.fake.ar, [])
+        got = [(d["event"]["action"], d["wazuh"]["agent"]["id"])
+               for d in self.ix.streams["wazuh-findings-v5-ciscat"]]
+        self.assertEqual(got, [("ciscat-bootstrap-linux", "001"), ("ciscat-refresh-linux", "001"),
+                               ("ciscat-bootstrap-linux", "002"), ("ciscat-refresh-linux", "002"),
+                               ("ciscat-bootstrap-windows", "004"),
+                               ("ciscat-assessment-windows", "004")])
+        status = store.read_list(store.STATUS)[0]
+        self.assertEqual((status["job-j1"]["sent"], status["job-j1"]["skipped"]), (3, ["003"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

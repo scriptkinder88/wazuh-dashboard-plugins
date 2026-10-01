@@ -11,9 +11,12 @@ versions of the same benchmark are two entries, e.g. rhel9_v1_0_0 and rhel9_v2_0
   its family, and the group os-<key> until a group is chosen in the dashboard (ciscat-targets).
 
 Entries in os-library.json always win: set "active": false there to keep an OS out of apply and runs.
+On Wazuh 5.0 the default Active Response values are action names (ciscat_platform.DEFAULT_AR).
 """
 import os
 import re
+
+import ciscat_platform
 
 BENCH_RE = re.compile(r"^CIS_(?P<product>.+?)_Benchmark_v(?P<version>[0-9][0-9A-Za-z.]*)-xccdf\.xml$")
 PROFILE_RE = re.compile(
@@ -24,10 +27,7 @@ OS_KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 # preferred roles, first match wins; otherwise the first Level 1 role of the benchmark
 ROLE_PREFERENCE = ("Server", "Member_Server", "Database_Engine")
 
-DEFAULT_AR = {
-    "linux": {"ar_bootstrap": "!ciscat-bootstrap-linux0", "ar_refresh": "!ciscat-refresh-linux0"},
-    "windows": {"ar_bootstrap": "!ciscat-bootstrap0", "ar_assessment": "!ciscat-assessment0"},
-}
+DEFAULT_AR = ciscat_platform.DEFAULT_AR[4]
 WINDOWS_RESULTS = "C:\\Program Files (x86)\\ciscat\\results\\"
 LINUX_RESULTS = "/var/lib/wazuh-ciscat/reports-cache/{0}/results.txt"
 
@@ -117,7 +117,7 @@ def _new_entry(os_key, product, version, filename, role, family, ar):
     return entry
 
 
-def merge(library, bench_dir):
+def merge(library, bench_dir, platform=4):
     """(library with the benchmarks present, [notes]) - the input is not modified."""
     present = present_benchmarks(bench_dir)
     lib = {k: dict(v) for k, v in library.items()}
@@ -157,7 +157,8 @@ def merge(library, bench_dir):
         role = next((r for r in ROLE_PREFERENCE if r in roles), roles[0])
         template = next((c for c in lib.values() if c.get("family") == family and
                          not c.get("discovered")), {})
-        ar = {k: template[k] for k in DEFAULT_AR[family] if k in template} or DEFAULT_AR[family]
+        defaults = ciscat_platform.DEFAULT_AR[platform][family]
+        ar = {k: template[k] for k in defaults if k in template} or defaults
         lib[key] = _new_entry(key, product, version, filename, role, family, ar)
         notes.append("{0}: new OS from {1} (role {2})".format(key, filename, role))
     return lib, notes

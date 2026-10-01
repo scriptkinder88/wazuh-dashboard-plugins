@@ -5,8 +5,9 @@ REM Active Response on Windows cannot run .ps1 directly: it runs .cmd/.exe from
 REM active-response\bin\. This launcher is what AR invokes; it calls the real
 REM PowerShell assessment script.
 REM
-REM AR passes the alert JSON on STDIN; we do not need it for a manual/scheduled
-REM assessment trigger, so we ignore it and just launch the script.
+REM AR passes a JSON line on STDIN ("command" is "add" on Wazuh 4.x, "enable"
+REM on 5.0); we do not need it for a manual/scheduled assessment trigger, so we
+REM ignore it and just launch the script.
 REM
 REM Logs go to active-response\active-responses.log (written by the .ps1).
 

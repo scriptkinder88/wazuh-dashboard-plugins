@@ -1,8 +1,14 @@
-"""Shared store for the CIS-CAT bridge: records kept in Wazuh CDB list files.
+"""Shared store for the CIS-CAT bridge: records kept in Wazuh CDB list files (Wazuh 4.x) or in
+the dashboard store of the Wazuh indexer (Wazuh 5.0, which has no CDB lists).
 
-The dashboard reads and writes these files through the Wazuh API (/lists/files), the master
+4.x: the dashboard reads and writes these files through the Wazuh API (/lists/files), the master
 reads and writes them on disk. Wazuh 4.x only accepts list values without ':' and '"'
 (validate_cdb_list), so every value is compact JSON encoded as unpadded base64url.
+
+5.0: when the indexer config exists (/opt/ciscat/etc/indexer.json, or $CISCAT_INDEXER_CONF),
+each list is one document of the hidden index wz-dashboard-store-ciscat (id = list name, records
+as plain JSON, see ciscat_indexer.py); read_list, write_list and update_records use it and the
+lists_dir arguments are ignored.
 
 Each file has one writer:
   dashboard  ciscat-exclusions, ciscat-schedule, ciscat-requests
@@ -16,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime
 
@@ -103,8 +110,64 @@ def bench_list_name(os_key):
     return BENCH_PREFIX + os_key
 
 
+# --- backend ---------------------------------------------------------------------------------
+
+_INDEXERS = {}
+
+
+def indexer():
+    """The indexer backend (Wazuh 5.0) when its config file exists, else None (CDB list files)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import ciscat_indexer
+    path = ciscat_indexer.conf_path()
+    if not os.path.isfile(path):
+        return None
+    if path not in _INDEXERS:
+        _INDEXERS[path] = ciscat_indexer.Indexer.from_config(path)
+    return _INDEXERS[path]
+
+
+def _checked_records(name, records):
+    """Records of an indexer document as parse_list returns them: ({key: record}, [errors])."""
+    valid, errors = {}, []
+    for key, rec in records.items():
+        if not KEY_RE.match(key):
+            errors.append("{0}: invalid key".format(key))
+        elif not isinstance(rec, dict):
+            errors.append("{0}: value is not a JSON object".format(key))
+        else:
+            valid[key] = rec
+    return valid, errors
+
+
+def _indexer_records(records):
+    for key, rec in records.items():
+        if not KEY_RE.match(key):
+            raise StoreError("invalid key: {!r}".format(key))
+        if not isinstance(rec, dict):
+            raise StoreError("{}: record must be an object".format(key))
+    return {k: records[k] for k in sorted(records)}
+
+
+def list_exists(name, lists_dir=LISTS_DIR):
+    path = list_path(name, lists_dir)
+    ix = indexer()
+    if ix:
+        return ix.get_list(name)[0] is not None
+    return os.path.exists(path)
+
+
 def read_list(name, lists_dir=LISTS_DIR):
     path = list_path(name, lists_dir)
+    ix = indexer()
+    if ix:
+        records, _, _, error = ix.get_list(name)
+        if records is None:
+            return {}, []
+        valid, errors = _checked_records(name, records)
+        return valid, ([error] if error else []) + errors
     if not os.path.exists(path):
         return {}, []
     with open(path, encoding="utf-8") as f:
@@ -112,8 +175,13 @@ def read_list(name, lists_dir=LISTS_DIR):
 
 
 def write_list(name, records, lists_dir=LISTS_DIR):
-    """Atomic write with the owner and mode Wazuh gives list files (wazuh:wazuh 0660)."""
+    """Atomic write with the owner and mode Wazuh gives list files (wazuh:wazuh 0660); on the
+    indexer backend, the list document (returns the list name)."""
     path = list_path(name, lists_dir)
+    ix = indexer()
+    if ix:
+        ix.put_list(name, _indexer_records(records))
+        return name
     content = render_list(records)
     fd, tmp = tempfile.mkstemp(prefix=".ciscat-", dir=lists_dir)
     try:
@@ -140,25 +208,56 @@ def update_records(name, patches, lists_dir=LISTS_DIR, lock_dir="/opt/ciscat/run
 
     Several master processes (scheduler, apply, triggers running in waves) update ciscat-status;
     the lock keeps one from losing another's write. A patch value of None removes the field.
+    On the indexer backend the write is also conditional on the document's seq_no/primary_term
+    and retried on a conflict, so a writer on another host cannot be overwritten either.
     """
     import fcntl
     os.makedirs(lock_dir, exist_ok=True)
     with open(os.path.join(lock_dir, name + ".lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        ix = indexer()
+        if ix:
+            return _update_indexer(ix, name, patches, remove)
         records, _ = read_list(name, lists_dir)
-        for key, patch in patches.items():
-            rec = dict(records.get(key, {}))
-            for field, value in patch.items():
-                if value is None:
-                    rec.pop(field, None)
-                else:
-                    rec[field] = value
-            rec["v"] = SCHEMA_VERSION
-            records[key] = rec
-        for key in remove:
-            records.pop(key, None)
+        _merge(records, patches, remove)
         write_list(name, records, lists_dir)
         return records
+
+
+CONFLICT_RETRIES = 6
+
+
+def _merge(records, patches, remove):
+    for key, patch in patches.items():
+        rec = dict(records.get(key, {}))
+        for field, value in patch.items():
+            if value is None:
+                rec.pop(field, None)
+            else:
+                rec[field] = value
+        rec["v"] = SCHEMA_VERSION
+        records[key] = rec
+    for key in remove:
+        records.pop(key, None)
+
+
+def _update_indexer(ix, name, patches, remove):
+    import ciscat_indexer
+    list_path(name)  # name check
+    for attempt in range(CONFLICT_RETRIES):
+        current, seq_no, primary_term, _ = ix.get_list(name)
+        records, _ = _checked_records(name, current or {})
+        _merge(records, patches, remove)
+        try:
+            ix.put_list(name, _indexer_records(records), seq_no, primary_term,
+                        create=current is None)
+            return records
+        except ciscat_indexer.IndexerError as exc:
+            if exc.status != 409:
+                raise
+            ciscat_indexer.wait_retry(attempt)
+    raise StoreError("{0}: changed by another writer {1} times in a row, update not saved".format(
+        name, CONFLICT_RETRIES))
 
 
 # --- record validation ------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "bin", "ciscat-refresh.sh")
 RULES = os.path.join(HERE, "..", "rules", "ciscat_rules.xml")
+SIGMA = os.path.join(HERE, "..", "rules", "ciscat-not-found.sigma.yml")
 
 
 class RefreshWithoutAssessor(unittest.TestCase):
@@ -36,6 +37,28 @@ class RefreshWithoutAssessor(unittest.TestCase):
         with open(RULES) as f:
             match = re.search(r"<match>([^<]+)</match>", f.read()).group(1)
         self.assertIn(match, log)
+        # and so does the Sigma rule of Wazuh 5.0
+        with open(SIGMA) as f:
+            sigma = f.read()
+        contains = re.search(r"event\.original\|contains: '([^']+)'", sigma).group(1)
+        self.assertIn(contains, log)
+        self.assertRegex(sigma, r"(?m)^level: medium$")
+
+    def test_does_not_read_the_active_response_json(self):
+        """5.0 execd writes {"command": "enable", ...} on stdin and may keep the pipe open."""
+        d = tempfile.mkdtemp()
+        env = dict(os.environ, CISCAT_PATH=os.path.join(d, "no-assessor"),
+                   CISCAT_DATA_DIR=os.path.join(d, "data"), CISCAT_AR_LOG=os.path.join(d, "ar.log"))
+        p = subprocess.Popen(["sh", SCRIPT], env=env, stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        p.stdin.write(b'{"version":1,"origin":{"name":"node01","module":"wazuh-execd"},'
+                      b'"command":"enable","parameters":{"extra_args":[]}}\n')
+        p.stdin.flush()  # the pipe stays open, as under execd
+        try:
+            self.assertEqual(p.wait(timeout=30), 1)
+        finally:
+            p.stdin.close()
+            p.stdout.close()
 
 
 if __name__ == "__main__":

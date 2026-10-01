@@ -8,8 +8,12 @@ Model:
     exclusions share a combo; "base" is the combo without any. The policy keeps the same id
     and file name in every combo, so reports stay one policy with fewer checks where excluded.
   - Exclusions, schedules and requests come from the dashboard through Wazuh lists
-    (etc/lists/ciscat-*, see CONTRACT.md); this script also publishes the benchmark sheets and
-    OS list the dashboard reads.
+    (etc/lists/ciscat-*, see CONTRACT.md) on Wazuh 4.x, through the dashboard store of the
+    Wazuh indexer on Wazuh 5.0; this script also publishes the benchmark sheets and OS list the
+    dashboard reads.
+  - Wazuh 5.0 (ciscat_platform.py): manager in /var/wazuh-manager, runs requested through trigger
+    documents that Alerting monitors turn into Active Responses, SCA results read from the
+    indexer, SCA policies in the 5.0 format.
 
 Actions:
   sync      publish benchmark sheets + OS list for the dashboard (ciscat-bench-*, ciscat-oskeys)
@@ -27,13 +31,17 @@ BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BIN_DIR)
 import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
+import ciscat_platform as platform  # noqa: E402
 
-VERSION = "2.2.0"
+VERSION = "3.0.0"
+PLATFORM = platform.detect()
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
 COMBO_PREFIX = "ciscat-"
-AR_GAP = int(os.environ.get("CISCAT_AR_GAP", "15"))
+# seconds between the bootstrap and the assessment of a wave; on 5.0 the monitors that turn the
+# trigger documents into Active Responses run every minute, so the gap covers one monitor run
+AR_GAP = int(os.environ.get("CISCAT_AR_GAP") or (90 if PLATFORM == 5 else 15))
 
 # Seed for os-library.json (created by the installer only when missing, then edited on site).
 DEFAULT_OS_LIBRARY = {
@@ -102,7 +110,7 @@ PATHS = {
     "exclusions_dir": "/opt/ciscat/tailoring/exclusions",
     "benchmarks_dir": "/opt/ciscat/benchmarks",
     "bin_dir": BIN_DIR,
-    "shared_dir": "/var/ossec/etc/shared",
+    "shared_dir": platform.shared_dir(PLATFORM),
     "work_dir": "/opt/ciscat/work",
     "lists_dir": store.LISTS_DIR,
     "run_dir": "/opt/ciscat/run",
@@ -124,12 +132,14 @@ def load_os_library():
         if not store.OS_KEY_RE.match(key):
             sys.exit("os-library: invalid os key {0!r}".format(key))
     # every benchmark present in the benchmarks folder is an OS too (see ciscat_discover.py)
-    lib, notes = discover.merge(lib, PATHS["benchmarks_dir"])
+    lib, notes = discover.merge(lib, PATHS["benchmarks_dir"], PLATFORM)
     # the group each OS applies to can be chosen in the dashboard
     records, _ = store.read_list(store.TARGETS, PATHS["lists_dir"])
     targets, errors = store.validate_targets(records)
     notes += ["ciscat-targets: " + e for e in errors]
-    return discover.apply_targets(lib, targets), notes
+    lib = discover.apply_targets(lib, targets)
+    # Wazuh 5.0: Active Response commands of 4.x entries become 5.0 action names
+    return {k: platform.ar_entry_for(v, PLATFORM) for k, v in lib.items()}, notes
 
 
 OS_LIBRARY, DISCOVERY_NOTES = load_os_library()
@@ -243,7 +253,8 @@ def is_combo_group(os_key, group):
 def own(path, mode=0o640):
     try:
         import pwd, grp
-        os.chown(path, pwd.getpwnam("wazuh").pw_uid, grp.getgrnam("wazuh").gr_gid)
+        user, group = platform.owner(PLATFORM)
+        os.chown(path, pwd.getpwnam(user).pw_uid, grp.getgrnam(group).gr_gid)
         os.chmod(path, mode)
     except Exception as e:
         print("    WARNING: ownership {0}: {1}".format(path, e))
@@ -262,8 +273,7 @@ def update_status(key, record):
 # ----------------------------------------------------------------- exclusions
 def load_exclusions():
     """Exclusions from the dashboard list; before the first save, from the per-OS CSVs."""
-    path = store.list_path(store.EXCLUSIONS, PATHS["lists_dir"])
-    if os.path.exists(path):
+    if store.list_exists(store.EXCLUSIONS, PATHS["lists_dir"]):
         raw, errors = store.read_list(store.EXCLUSIONS, PATHS["lists_dir"])
         valid, verrors = store.validate_exclusions(raw)
         for e in errors + verrors:
@@ -330,7 +340,8 @@ def build(os_key, cfg, exc_csv, host, app_groups, out_dir):
     out = run_checked([sys.executable, os.path.join(BIN_DIR, "xccdf_to_sca_policy.py"),
                        "--xccdf", custom, "--profile-id", profile_id(level, cfg["role"]),
                        "--flat-path", cfg["flat_path"], "--policy-id", cfg["policy_id"],
-                       "--policy-name", cfg["policy_name"], "--out", pol])
+                       "--policy-name", cfg["policy_name"], "--out", pol,
+                       "--format", str(PLATFORM)])
     checks = 0
     for line in out.splitlines():
         if "checks in policy:" in line:
@@ -595,8 +606,43 @@ def act_plan_apply(apply_, restart=False, request=None):
     return 0 if status["state"] == "ok" else 1
 
 
+def indexer_or_exit(purpose):
+    try:
+        ix = store.indexer()
+    except Exception as e:
+        sys.exit("indexer configuration: {0}".format(e))
+    if not ix:
+        sys.exit("Wazuh 5.0: {0} needs the indexer configuration {1} (run the installer with "
+                 "--indexer-url ...)".format(purpose, __import__("ciscat_indexer").conf_path()))
+    return ix
+
+
+def trigger_docs(action, agents):
+    """Wazuh 5.0 trigger documents: the monitor named after the action matches them, and the
+    manager runs the action's executable on the agent of each document (location local)."""
+    ts = datetime.now().astimezone().isoformat(timespec="milliseconds")
+    return [{"@timestamp": ts,
+             "event": {"kind": "event", "module": "ciscat", "dataset": "ciscat.run", "action": action},
+             "rule": {"name": "CIS-CAT run requested"},
+             "wazuh": {"agent": {"id": aid, "name": name},
+                       "integration": {"name": "ciscat-bridge"}}} for aid, name in agents]
+
+
+def send_wave(ix, first, second, wave):
+    """Wazuh 5.0: bootstrap, gap, then the assessment, as trigger documents. (sent, failed)."""
+    ok, bad, errors = ix.bulk_create(platform.TRIGGER_STREAM, trigger_docs(first, wave))
+    if bad:
+        print("  WARNING: {0} {1} trigger(s) not written: {2}".format(bad, first, "; ".join(errors[:3])))
+    time.sleep(AR_GAP)  # let bootstrap install the package first (monitors run every minute)
+    ok, bad, errors = ix.bulk_create(platform.TRIGGER_STREAM, trigger_docs(second, wave))
+    if bad:
+        print("  WARNING: {0} {1} trigger(s) not written: {2}".format(bad, second, "; ".join(errors[:3])))
+    return ok, bad
+
+
 def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
     started = now_iso()
+    ix = indexer_or_exit("trigger") if PLATFORM == 5 else None
     token = get_token()
     result = {"state": "running", "last_run": started, "sent": 0, "failed": 0, "skipped": [],
               "targets": targets or ["*"]}
@@ -608,9 +654,10 @@ def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
             continue
         if cfg["group"] not in groups:
             continue
-        agents = []
+        agents, names = [], {}
         for aid, name, _ in group_agents(token, cfg["group"], active_only=False, verbose=False):
             agents.append(aid)
+            names[aid] = name
         active = {a for a, _, _ in group_agents(token, cfg["group"])}
         result["skipped"] += sorted(set(agents) - active)
         ids = [a for a in agents if a in active]
@@ -622,12 +669,19 @@ def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
         for n, wave in enumerate(waves, 1):
             lst = ",".join(wave)
             try:
-                api_json("PUT", "/active-response?agents_list=" + lst, token, {"command": cfg["ar_bootstrap"]})
-                time.sleep(AR_GAP)  # let bootstrap install the package first
-                r = api_json("PUT", "/active-response?agents_list=" + lst, token, {"command": second})
-                result["sent"] += r.get("total_affected_items", 0)
-                result["failed"] += r.get("total_failed_items", 0)
-                print("  wave {0}: {1} -> affected {2}".format(n, second, r.get("total_affected_items")))
+                if ix:  # Wazuh 5.0: trigger documents instead of PUT /active-response
+                    sent, failed = send_wave(ix, cfg["ar_bootstrap"], second,
+                                             [(a, names[a]) for a in wave])
+                    result["sent"] += sent
+                    result["failed"] += failed
+                    print("  wave {0}: {1} -> {2} trigger(s) written".format(n, second, sent))
+                else:
+                    api_json("PUT", "/active-response?agents_list=" + lst, token, {"command": cfg["ar_bootstrap"]})
+                    time.sleep(AR_GAP)  # let bootstrap install the package first
+                    r = api_json("PUT", "/active-response?agents_list=" + lst, token, {"command": second})
+                    result["sent"] += r.get("total_affected_items", 0)
+                    result["failed"] += r.get("total_failed_items", 0)
+                    print("  wave {0}: {1} -> affected {2}".format(n, second, r.get("total_affected_items")))
             except Exception as e:
                 result["failed"] += len(wave)
                 print("  ERROR wave {0} of {1}: {2}".format(n, os_key, e))
@@ -638,11 +692,41 @@ def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
     result["finished_at"] = now_iso()
     if job:
         update_status("job-" + job, result)
+    if ix:
+        print("\nTrigger documents written to {0}: the Alerting monitors (every minute) start the "
+              "Active Responses.".format(platform.TRIGGER_STREAM))
     print("\nAssessments run with splay (up to 30 min) on Linux; Windows runs immediately.")
     return 0 if result["state"] == "ok" else 1
 
 
+SCA_STATES = "wazuh-states-sca*"
+
+
+def sca_counts(ix, policy_id):
+    """Wazuh 5.0: {agent id: {result: count}} of a policy from the SCA states index (one document
+    per agent and check, holding the latest result)."""
+    _, body = ix.request("POST", SCA_STATES + "/_search", {
+        "size": 0, "query": {"bool": {"filter": [{"term": {"policy.id": policy_id}}]}},
+        "aggs": {"agents": {"terms": {"field": "wazuh.agent.id", "size": 65000},
+                            "aggs": {"results": {"terms": {"field": "check.result", "size": 20}}}}}},
+        params={"ignore_unavailable": "true", "allow_no_indices": "true"})
+    out = {}
+    for b in body.get("aggregations", {}).get("agents", {}).get("buckets", []):
+        out[str(b["key"])] = {str(r["key"]).strip().lower(): r["doc_count"]
+                              for r in b.get("results", {}).get("buckets", [])}
+    return out
+
+
+def report_row_5(counts):
+    """(checks, pass, fail, invalid, score) from {result: count}."""
+    passed, failed = counts.get("passed", 0), counts.get("failed", 0)
+    total = sum(counts.values())
+    score = int(round(100.0 * passed / (passed + failed))) if passed + failed else 0
+    return total, passed, failed, total - passed - failed, score
+
+
 def act_report():
+    ix = indexer_or_exit("report") if PLATFORM == 5 else None
     token = get_token()
     print("{0:<5} {1:<28} {2:<38} {3:>6} {4:>6} {5:>6} {6:>7} {7:>6}".format(
         "id", "agent", "policy", "checks", "pass", "fail", "invalid", "score"))
@@ -651,7 +735,20 @@ def act_report():
     for os_key, cfg in OS_LIBRARY.items():
         if not cfg["active"] or cfg["group"] not in groups:
             continue
+        counts = None
+        if ix:
+            try:
+                counts = sca_counts(ix, cfg["policy_id"])
+            except Exception as e:
+                print("{0:<5} {1:<28} ERROR: {2}".format("-", cfg["policy_id"], e))
+                continue
         for aid, aname, _ in group_agents(token, cfg["group"]):
+            if ix:
+                if not counts.get(aid):
+                    print("{0:<5} {1:<28} {2:<38} {3}".format(aid, aname, cfg["policy_id"], "no results yet")); continue
+                print("{0:<5} {1:<28} {2:<38} {3:>6} {4:>6} {5:>6} {6:>7} {7:>6}".format(
+                    aid, aname[:28], cfg["policy_id"][:38], *report_row_5(counts[aid])))
+                continue
             try:
                 data = api_json("GET", "/sca/{0}?q=policy_id={1}".format(aid, cfg["policy_id"]), token)
                 items = data["affected_items"]

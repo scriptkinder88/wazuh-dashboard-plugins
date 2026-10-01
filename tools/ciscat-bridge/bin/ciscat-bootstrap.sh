@@ -15,7 +15,8 @@
 # Manifest format (one file per line, after two comment lines):
 #   name;sha256;dest
 #
-# Trigger: PUT /active-response {"command":"!ciscat-bootstrap.sh"}
+# Trigger: PUT /active-response {"command":"!ciscat-bootstrap.sh"} (Wazuh 4.x);
+#          trigger document for the ciscat-bootstrap-linux monitor (Wazuh 5.0).
 # Runs as root via the Wazuh active-response mechanism.
 # ============================================================================
 set -u
@@ -41,8 +42,8 @@ log() {
 fail() { log "ERROR: $1"; exit 1; }
 
 # NOTE on Wazuh AR: execd invokes this script and passes a JSON object on stdin
-# with an "add"/"delete" command. We do not use those parameters (this is a
-# maintenance-style AR). We deliberately do NOT read stdin: a blocking read
+# with a command ("add"/"delete" on Wazuh 4.x, "enable" on 5.0). We do not use
+# those parameters (this is a maintenance-style AR). We deliberately do NOT read stdin: a blocking read
 # (execd keeps the pipe open) delays the script and execd may terminate it
 # before it completes. Ignoring stdin lets the script run to completion.
 

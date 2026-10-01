@@ -15,6 +15,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "installer"))
 sys.path.insert(0, os.path.join(HERE, "..", "bin"))
+sys.path.insert(0, HERE)
 import build  # noqa: E402
 import ciscat_store as store  # noqa: E402
 
@@ -245,6 +246,124 @@ class Installer(unittest.TestCase):
         self.assertIn("previous plugin restored", p.stdout)
         with open(os.path.join(plugin, "package.json")) as f:
             self.assertIn("old", f.read())
+
+
+class InstallerV5(unittest.TestCase):
+    """Wazuh 5.0 master: indexer store, Active Response channels and monitors, no XML rule."""
+
+    def setUp(self):
+        from fake_indexer import FakeIndexer
+        self.out = tempfile.mkdtemp()
+        self.script = build.build(self.out)
+        self.root = r = tempfile.mkdtemp()
+        for d in ("var/wazuh-manager/etc/shared", "opt/ciscat/etc", "opt/ciscat/tailoring/exclusions",
+                  "etc/cron.d", "secrets"):
+            os.makedirs(os.path.join(r, d))
+        self.conf = os.path.join(r, "var/wazuh-manager/etc/wazuh-manager.conf")
+        with open(self.conf, "w") as f:
+            f.write("<wazuh_config><cluster><node_type>master</node_type></cluster></wazuh_config>")
+        with open(os.path.join(r, "opt/ciscat/tailoring/exclusions/rhel7.csv"), "w") as f:
+            f.write("scope,scope_value,level,role,rule\nos,rhel7,L1,Server,1.1.1.1\n")
+        with open(os.path.join(r, "opt/ciscat/etc/ciscat-orchestrator.conf"), "w") as f:
+            f.write("api_user=wazuh\napi_pass_file=/opt/ciscat/etc/.ciscat_api_pass\n")
+        with open(os.path.join(r, "opt/ciscat/etc/.ciscat_api_pass"), "w") as f:
+            f.write("secret\n")
+        self.pw = os.path.join(r, "secrets", "indexer-password")
+        with open(self.pw, "w") as f:
+            f.write("s3cret\n")
+        self.fake = FakeIndexer()
+        self.url = self.fake.serve()
+        self.addCleanup(self.fake.stop)
+        self.env = dict(os.environ, CISCAT_INSTALL_ROOT=r, CISCAT_INSTALL_SKIP_FLEET="1",
+                        CISCAT_CRONTAB_FILE=os.path.join(r, "crontab.txt"))
+        self.env.pop("CISCAT_PLATFORM", None)
+        self.env.pop("CISCAT_INDEXER_CONF", None)
+
+    def run_script(self, *args):
+        return subprocess.run(["sh", self.script] + list(args), env=self.env, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True)
+
+    def install(self, *args):
+        p = self.run_script(*args)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        return p.stdout
+
+    def path(self, rel):
+        return os.path.join(self.root, rel)
+
+    def test_install_and_idempotency(self):
+        out = self.install("--indexer-url", self.url, "--indexer-user", "ciscat",
+                           "--indexer-password-file", self.pw)
+        self.assertIn("(Wazuh 5.0)", out)
+        self.assertNotIn("s3cret", out)
+        with open(self.path("opt/ciscat/etc/indexer.json")) as f:
+            conf = json.load(f)
+        self.assertEqual(conf, {"url": self.url, "user": "ciscat",
+                                "password_file": self.path("opt/ciscat/etc/indexer.pass")})
+        for rel in ("opt/ciscat/etc/indexer.json", "opt/ciscat/etc/indexer.pass"):
+            self.assertEqual(oct(os.stat(self.path(rel)).st_mode & 0o777), "0o600", rel)
+        with open(self.path("opt/ciscat/etc/indexer.pass")) as f:
+            self.assertEqual(f.read(), "s3cret\n")
+        # store index, migrated exclusions, channels and monitors
+        self.assertIn("wz-dashboard-store-ciscat", self.fake.indices)
+        doc = self.fake.doc("wz-dashboard-store-ciscat", "ciscat-exclusions")
+        valid, errors = store.validate_exclusions(doc["data"]["records"])
+        self.assertEqual((len(valid), errors), (1, []))
+        self.assertEqual(sorted(c["name"] for c in self.fake.channels.values()),
+                         ["ciscat-assessment-windows", "ciscat-bootstrap-linux",
+                          "ciscat-bootstrap-windows", "ciscat-refresh-linux"])
+        self.assertEqual(sorted(m["name"] for m in self.fake.monitors.values()),
+                         sorted(c["name"] for c in self.fake.channels.values()))
+        self.assertEqual({c["name"]: c["active_response"]["executable"]
+                          for c in self.fake.channels.values()},
+                         {"ciscat-bootstrap-linux": "ciscat-bootstrap.sh",
+                          "ciscat-refresh-linux": "ciscat-refresh.sh",
+                          "ciscat-bootstrap-windows": "ciscat-bootstrap.cmd",
+                          "ciscat-assessment-windows": "ciscat-assessment.cmd"})
+        # no XML rule, no CDB list, no ruleset test: the Sigma rule waits for import
+        self.assertFalse(os.path.exists(self.path("var/ossec")))
+        self.assertFalse(os.path.exists(self.path("var/wazuh-manager/etc/rules")))
+        self.assertIn("/opt/ciscat/rules/ciscat-not-found.sigma.yml", out)
+        self.assertTrue(os.path.isfile(self.path("opt/ciscat/rules/ciscat-not-found.sigma.yml")))
+        self.assertIn("ciscat_platform.py", os.listdir(self.path("opt/ciscat/bin")))
+        (backup,) = glob.glob(self.path("opt/ciscat/backup/*.tgz"))
+
+        # second run, no option: everything kept, nothing written to the indexer
+        writes = len(self.fake.writes())
+        out2 = self.install()
+        self.assertIn("files updated: none", out2)
+        self.assertIn("indexer configuration kept", out2)
+        self.assertIn("list already present", out2)
+        self.assertEqual(out2.count("unchanged"), 8, out2)
+        self.assertEqual(len(self.fake.writes()), writes + 1)  # the monitor search
+        self.assertEqual((len(self.fake.channels), len(self.fake.monitors)), (4, 4))
+
+        # rollback keeps the indexer side
+        out3 = self.install("--rollback", backup)
+        self.assertIn("left as they are", out3)
+        self.assertFalse(os.path.exists(self.path("opt/ciscat/rules")))
+
+    def test_refuses_a_worker_and_a_missing_indexer_config(self):
+        p = self.run_script()
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("--indexer-url", p.stdout)
+        self.assertEqual(self.fake.calls, [])
+        with open(self.conf, "w") as f:
+            f.write("<wazuh_config><cluster><node_type>worker</node_type></cluster></wazuh_config>")
+        p = self.run_script("--indexer-url", self.url, "--indexer-user", "ciscat",
+                            "--indexer-password-file", self.pw)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("WORKER", p.stdout)
+        self.assertFalse(os.path.exists(self.path("opt/ciscat/bin/ciscat-scheduler.py")))
+
+    def test_wrong_indexer_password_stops_without_showing_it(self):
+        with open(self.pw, "w") as f:
+            f.write("not-the-password\n")
+        p = self.run_script("--indexer-url", self.url, "--indexer-user", "ciscat",
+                            "--indexer-password-file", self.pw)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("HTTP 401", p.stdout)
+        self.assertNotIn("not-the-password", p.stdout)
 
 
 if __name__ == "__main__":

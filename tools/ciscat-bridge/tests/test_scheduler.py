@@ -134,5 +134,33 @@ class Scheduler(unittest.TestCase):
         self.assertNotIn("job-jdead00000000", self.status())
 
 
+class SchedulerOnIndexer(Scheduler):
+    """Wazuh 5.0: the same ticks with the lists in the indexer store."""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, HERE)
+        from fake_indexer import FakeIndexer
+        from test_indexer_store import write_conf
+        self.ix = FakeIndexer()
+        conf = write_conf(self.d, self.ix.serve())
+        self.env["CISCAT_INDEXER_CONF"] = conf
+        old = os.environ.get("CISCAT_INDEXER_CONF")
+        os.environ["CISCAT_INDEXER_CONF"] = conf
+        store._INDEXERS.clear()
+
+        def restore():
+            if old is None:
+                os.environ.pop("CISCAT_INDEXER_CONF", None)
+            else:
+                os.environ["CISCAT_INDEXER_CONF"] = old
+            store._INDEXERS.clear()
+            self.ix.stop()
+        self.addCleanup(restore)
+
+    def tearDown(self):
+        self.assertEqual(os.listdir(self.lists), [])  # no list file written
+
+
 if __name__ == "__main__":
     unittest.main()

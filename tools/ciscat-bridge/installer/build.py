@@ -26,6 +26,8 @@ TEMPLATE = """#!/bin/sh
 #   sh {name} --apply             ... and apply the policies to the agents
 #   sh {name} --restart-manager   ... and restart wazuh-manager to load the CIS-CAT rule
 #   sh {name} --rollback /opt/ciscat/backup/ciscat-bridge-<date>.tgz
+# Wazuh 5.0 master: --indexer-url https://<indexer>:9200 --indexer-user <user>
+#                   --indexer-password-file <file> [--indexer-ca <root-ca.pem>] (first run)
 # Dashboard host: --plugin-url <https URL in the internal repository> --plugin-sha256 <hex>
 #                 [--restart-dashboard]
 set -eu
@@ -53,7 +55,9 @@ def version():
 
 def payload(ver):
     files = [(os.path.join(HERE, "ciscat_install.py"), "ciscat_install.py"),
-             (os.path.join(BRIDGE, "rules", "ciscat_rules.xml"), "rules/ciscat_rules.xml")]
+             (os.path.join(BRIDGE, "rules", "ciscat_rules.xml"), "rules/ciscat_rules.xml"),
+             (os.path.join(BRIDGE, "rules", ciscat_install.SIGMA_RULE),
+              "rules/" + ciscat_install.SIGMA_RULE)]
     files += [(os.path.join(BRIDGE, "bin", rel), "bin/" + rel) for rel in ciscat_install.MANAGED_BIN]
     files += [(os.path.join(BRIDGE, "agent", "active-response", rel), "agent/active-response/" + rel)
               for rel in ciscat_install.MANAGED_AGENT]

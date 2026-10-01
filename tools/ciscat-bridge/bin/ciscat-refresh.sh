@@ -57,11 +57,14 @@ fi
 : "${BENCHMARK_FILE:?}" ; : "${PROFILE_LIST:?}" ; : "${SPLAY_MAX_SEC:=0}"
 
 # Splay policy: an Active Response trigger is on-demand by definition, so it
-# NEVER splays (execd invokes us via the *-linux0 symlink, detectable from $0).
-# Scheduled runs (systemd timer calling ciscat-refresh.sh directly) splay per
-# SPLAY_MAX_SEC; --no-splay also skips. Same behaviour in testing and steady
-# state: trigger = immediate, schedule = splayed.
+# NEVER splays (Wazuh 4.x execd invokes us via the *-linux0 symlink, detectable
+# from $0; Wazuh 5.0 execd runs ciscat-refresh.sh itself, so the parent process
+# name tells). Scheduled runs (systemd timer calling ciscat-refresh.sh directly)
+# splay per SPLAY_MAX_SEC; --no-splay also skips. Same behaviour in testing and
+# steady state: trigger = immediate, schedule = splayed. The JSON execd writes
+# on stdin ("command": "add" on 4.x, "enable" on 5.0) is never read.
 case "$(basename "$0")" in *linux0) set -- --no-splay ;; esac
+[ "$(cat "/proc/${PPID}/comm" 2>/dev/null)" = "wazuh-execd" ] && set -- --no-splay
 if [ "${1:-}" != "--no-splay" ] && [ "$SPLAY_MAX_SEC" -gt 0 ] 2>/dev/null; then
     delay=$(( $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % SPLAY_MAX_SEC ))
     log "splay: sleeping ${delay}s before assessment"
