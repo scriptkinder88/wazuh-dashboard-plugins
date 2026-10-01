@@ -34,6 +34,14 @@ LEVEL1_FORMS = (
     re.compile(r"^Level_1_?-_(?P<role>[A-Za-z0-9_]+)$"),  # Level_1-_MongoDB
     re.compile(r"^Level_1(_L1)?$"),                         # Level_1 (Apache), Level_1_L1 (Windows 11)
 )
+# platforms without a Wazuh agent to run the Assessor on: network devices, managed Kubernetes, cloud
+# and SaaS services (CIS-CAT assesses them remotely); macOS agents are not handled by the bridge
+AGENTLESS_RE = re.compile(
+    r"^(Cisco|FortiGate|Palo_Alto|HPE_Aruba|ExtremeNetworks|Juniper|Check_Point|F5|Sophos|"
+    r"Amazon_Elastic_Kubernetes|Azure_Kubernetes|Google_Kubernetes|Oracle_Cloud|Red_Hat_OpenShift|"
+    r"Amazon_Web_Services|Microsoft_Azure|Google_Cloud|Alibaba_Cloud_Foundations|"
+    r"Microsoft_365|Microsoft_Intune|Google_Workspace|VMware_ESXi)", re.I)
+MACOS_RE = re.compile(r"^Apple_macOS", re.I)
 STIG_RE = re.compile(r"^(?:(?P<prefix>MS|DC)_)?SEVERITY_CAT_(?P<cat>I{1,3})$")
 STIG_ROLES = {None: "STIG", "MS": "Member_Server_STIG", "DC": "Domain_Controller_STIG"}
 OS_KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
@@ -71,7 +79,9 @@ def os_key_for(product):
 
 
 def family_for(product):
-    return "windows" if product.startswith("Microsoft_") or "Windows" in product else "linux"
+    windows = product.startswith("Microsoft_") or "Windows" in product or \
+        re.search(r"(^|_)(GPO|Group_Policy)(_|$)", product)
+    return "windows" if windows else "linux"
 
 
 def profile_roles(path):
@@ -188,6 +198,12 @@ def merge(library, bench_dir, platform=4):
         covered.add(cfg["benchmark"])
     for product, version, filename in present:
         if filename in covered:
+            continue
+        if AGENTLESS_RE.match(product):
+            notes.append("{0}: no Wazuh agent on this platform, skipped".format(filename))
+            continue
+        if MACOS_RE.match(product):
+            notes.append("{0}: macOS is not handled by the bridge, skipped".format(filename))
             continue
         family = family_for(product)
         key = base_key = "{0}_v{1}".format(os_key_for(product), re.sub(r"[^a-z0-9]+", "_",

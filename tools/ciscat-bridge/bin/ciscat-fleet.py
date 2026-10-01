@@ -33,7 +33,7 @@ import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 import ciscat_platform as platform  # noqa: E402
 
-VERSION = "3.0.4"
+VERSION = "3.0.5"
 PLATFORM = platform.detect()
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
