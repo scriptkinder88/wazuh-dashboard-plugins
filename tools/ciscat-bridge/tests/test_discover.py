@@ -47,6 +47,9 @@ class Discover(unittest.TestCase):
         self.assertEqual(discover.os_key_for("IBM_AIX_7.2"), "ibm_aix_7_2")
         self.assertEqual(discover.family_for("Microsoft_SQL_Server_2019"), "windows")
         self.assertEqual(discover.family_for("IBM_AIX_7.2"), "linux")
+        self.assertEqual(discover.family_for("Mozilla_Firefox_ESR_GPO"), "windows")
+        self.assertEqual(discover.family_for("Visual_Studio_Code_GPO"), "windows")
+        self.assertEqual(discover.family_for("Apache_Tomcat_10.1"), "linux")
 
     def test_every_benchmark_version_becomes_an_os(self):
         self.put("CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v3.1.1-xccdf.xml", bench(["Server"]))
@@ -135,6 +138,18 @@ class Discover(unittest.TestCase):
         self.assertIn("rhel9_stig_v1_0_0: new OS from CIS_Red_Hat_Enterprise_Linux_9_STIG_Benchmark_"
                       "v1.0.0-xccdf.xml (role STIG, profiles SEVERITY_CAT_I + SEVERITY_CAT_II + "
                       "SEVERITY_CAT_III)", notes)
+
+    def test_platforms_without_an_agent_are_skipped(self):
+        for name in ("CIS_Cisco_IOS_XE_17.x_Benchmark_v2.2.1", "CIS_Palo_Alto_Firewall_11_Benchmark_v1.1.0",
+                     "CIS_Azure_Kubernetes_Service_(AKS)_Benchmark_v2.0.0",
+                     "CIS_Microsoft_Intune_for_Windows_11_Benchmark_v5.0.0",
+                     "CIS_Apple_macOS_15.0_Sequoia_Benchmark_v2.1.0", "CIS_Kubernetes_STIG_Benchmark_v1.1.0"):
+            self.put(name + "-xccdf.xml", bench([], extra=["Level_1", "SEVERITY_CAT_I"]))
+        lib, notes = discover.merge({}, self.dir)
+        self.assertEqual(sorted(lib), ["kubernetes_stig_v1_1_0"])
+        self.assertIn("CIS_Apple_macOS_15.0_Sequoia_Benchmark_v2.1.0-xccdf.xml: macOS is not handled by "
+                      "the bridge, skipped", notes)
+        self.assertEqual(sum("no Wazuh agent on this platform" in n for n in notes), 4)
 
     def test_standard_profiles_have_no_base_profiles(self):
         self.put("CIS_Red_Hat_Enterprise_Linux_8_STIG_Benchmark_v2.0.0-xccdf.xml",
