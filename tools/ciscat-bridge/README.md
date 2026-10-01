@@ -11,6 +11,16 @@ installer:
   `C:\Program Files (x86)\ciscat` on Windows.
 - **The benchmarks** stay in `/opt/ciscat/benchmarks` on the master.
 
+Every CIS benchmark in that folder is an OS of the bridge: copy a benchmark there and, within the
+hour (or at the next `ciscat-fleet.py sync`), it appears in the dashboard. Its OS key, group
+(`os-<key>`), role and policy come from the file name and the benchmark's own profiles, for example
+`CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0-xccdf.xml` becomes `rhel9` with group `os-rhel9`.
+Apply and runs skip an OS until its `os-<key>` group exists: create the group and add the agents to
+it. An entry in `/opt/ciscat/etc/os-library.json` always wins (for example `"active": false`), and
+an entry whose benchmark file is missing follows the newest version of the same product in the
+folder. Benchmarks whose profiles are not in the `Level 1 - <role>` form (Windows 10/11 desktop)
+are listed by `sync` as skipped.
+
 When an agent lacks the Assessor, its run stops with `CIS-CAT Pro not found on <host>` (rule
 100950, or the first free id up to 100999, shown in Configuration Assessment > Events), and its previous results are withdrawn from
 SCA.

@@ -78,6 +78,12 @@ class Installer(unittest.TestCase):
     def path(self, rel):
         return os.path.join(self.root, rel)
 
+    def test_every_master_script_is_shipped(self):
+        import ciscat_install
+        bin_dir = os.path.join(HERE, "..", "bin")
+        scripts = {f for f in os.listdir(bin_dir) if f.endswith((".py", ".sh"))}
+        self.assertEqual(scripts - set(ciscat_install.MANAGED_BIN), set())
+
     def test_install_idempotency_and_rollback(self):
         out = self.install()
         # site OS table taken from the v1 fleet, flags kept

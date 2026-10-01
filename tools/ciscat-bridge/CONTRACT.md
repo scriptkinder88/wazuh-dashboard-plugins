@@ -94,7 +94,9 @@ removes old processed requests. Two actions exist:
 - `<rule>`: `t` (title), `p` (profile columns that select the rule), `m` (manual: `true` for
   rules without an automated check).
 
-**OS entry** (`ciscat-oskeys`): `group`, `policy_id`, `benchmark`, `version`, `active`.
+**OS entry** (`ciscat-oskeys`): `group`, `policy_id`, `benchmark`, `version`, `active`, `available`
+(the benchmark file is on the master), `role`, `levels` and `discovered` (the OS comes from a benchmark
+found in the benchmarks folder, not from `os-library.json`).
 
 ## Scheduling
 
