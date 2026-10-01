@@ -9,6 +9,8 @@ versions of the same benchmark are two entries, e.g. rhel9_v1_0_0 and rhel9_v2_0
 - every other benchmark file gets an entry, derived from the file name and the benchmark's own
   profiles ("Level_1 - <Role>"), with the same Active Response commands as the configured OS of
   its family, and the group os-<key> until a group is chosen in the dashboard (ciscat-targets).
+  Benchmarks without "Level_1 - <Role>" profiles (STIG SEVERITY_CAT_*, Level_1, Level_1_L1) get
+  "base_profiles": see other_profile().
 
 Entries in os-library.json keep their settings: set "active": false there to keep an OS out of apply
 and runs. Choosing a group in the dashboard activates the OS again (the choice is explicit).
@@ -23,6 +25,15 @@ BENCH_RE = re.compile(r"^CIS_(?P<product>.+?)_Benchmark_v(?P<version>[0-9][0-9A-
 PROFILE_RE = re.compile(
     r'<xccdf:Profile\b[^>]*\bid="xccdf_org\.cisecurity\.benchmarks_profile_'
     r'(Level_1|Level_2|Next_Generation_Windows_Security)_-_([A-Za-z0-9_]+)"')
+PROFILE_ID_RE = re.compile(
+    r'<xccdf:Profile\b[^>]*\bid="xccdf_org\.cisecurity\.benchmarks_profile_([A-Za-z0-9_.-]+)"')
+# other forms of the Level 1 profile, tried in this order when no "Level_1_-_<Role>" profile exists
+LEVEL1_FORMS = (
+    re.compile(r"^Level_1_?-_(?P<role>[A-Za-z0-9_]+)$"),  # Level_1-_MongoDB
+    re.compile(r"^Level_1(_L1)?$"),                         # Level_1 (Apache), Level_1_L1 (Windows 11)
+)
+STIG_RE = re.compile(r"^(?:(?P<prefix>MS|DC)_)?SEVERITY_CAT_(?P<cat>I{1,3})$")
+STIG_ROLES = {None: "STIG", "MS": "Member_Server_STIG", "DC": "Domain_Controller_STIG"}
 OS_KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 
 # preferred roles, first match wins; otherwise the first Level 1 role of the benchmark
@@ -71,6 +82,39 @@ def profile_roles(path):
     return roles
 
 
+def profile_ids(path):
+    """Ids of the benchmark's profiles without the common prefix, in document order."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        ids = PROFILE_ID_RE.findall(f.read())
+    return [p for i, p in enumerate(ids) if p not in ids[:i] and "TAILORED" not in p]
+
+
+def other_profile(ids):
+    """(role, [base profiles]) for a benchmark without "Level_1_-_<Role>" profiles, or None.
+
+    The tailored profile of the bridge is built from the base profiles (their union) and keeps the
+    usual id, TAILORED_Level_1_-_<role>:
+    - STIG benchmarks (SEVERITY_CAT_I/II/III, MS_/DC_ on Windows Server): every category together,
+      role STIG (Member_Server_STIG preferred over Domain_Controller_STIG);
+    - Level_1-_<Role>: that profile, role <Role>;
+    - Level_1 or Level_1_L1 (benchmarks without roles): that profile, role Default.
+    """
+    stig = {}
+    for p in ids:
+        m = STIG_RE.match(p)
+        if m:
+            stig.setdefault(m.group("prefix"), []).append(p)
+    for prefix in (None, "MS", "DC"):
+        if prefix in stig:
+            return STIG_ROLES[prefix], stig[prefix]
+    for form in LEVEL1_FORMS:
+        for p in ids:
+            m = form.match(p)
+            if m:
+                return (m.groupdict().get("role") or "Default"), [p]
+    return None
+
+
 def present_benchmarks(bench_dir):
     """[(product, version, filename)] of every CIS benchmark in the folder, oldest version first."""
     try:
@@ -92,7 +136,7 @@ def title_of(product, version):
     return "{0} v{1}".format(product.replace("_", " "), version)
 
 
-def _new_entry(os_key, product, version, filename, role, family, ar):
+def _new_entry(os_key, product, version, filename, role, family, ar, base_profiles=None):
     words = title_of(product, version)
     pkey = "l1_" + role.lower()
     entry = {
@@ -114,6 +158,8 @@ def _new_entry(os_key, product, version, filename, role, family, ar):
     else:
         entry.update(base="cis_{0}_tailored_{1}".format(os_key, pkey),
                      flat_path="{0}cis_{1}.ciscat-flat".format(WINDOWS_RESULTS, os_key))
+    if base_profiles:
+        entry["base_profiles"] = base_profiles
     entry.update(ar)
     return entry
 
@@ -151,17 +197,24 @@ def merge(library, bench_dir, platform=4):
         if not OS_KEY_RE.match(key):
             notes.append("{0}: no valid OS key, skipped".format(filename))
             continue
-        roles = profile_roles(os.path.join(bench_dir, filename))
-        if not roles:
-            notes.append("{0}: no 'Level 1 - <role>' profile, skipped".format(filename))
-            continue
-        role = next((r for r in ROLE_PREFERENCE if r in roles), roles[0])
+        path = os.path.join(bench_dir, filename)
+        roles = profile_roles(path)
+        base_profiles = None
+        if roles:
+            role = next((r for r in ROLE_PREFERENCE if r in roles), roles[0])
+        else:
+            other = other_profile(profile_ids(path))
+            if not other:
+                notes.append("{0}: no Level 1 or STIG profile, skipped".format(filename))
+                continue
+            role, base_profiles = other
         template = next((c for c in lib.values() if c.get("family") == family and
                          not c.get("discovered")), {})
         defaults = ciscat_platform.DEFAULT_AR[platform][family]
         ar = {k: template[k] for k in defaults if k in template} or defaults
-        lib[key] = _new_entry(key, product, version, filename, role, family, ar)
-        notes.append("{0}: new OS from {1} (role {2})".format(key, filename, role))
+        lib[key] = _new_entry(key, product, version, filename, role, family, ar, base_profiles)
+        notes.append("{0}: new OS from {1} (role {2}{3})".format(
+            key, filename, role, ", profiles " + " + ".join(base_profiles) if base_profiles else ""))
     return lib, notes
 
 

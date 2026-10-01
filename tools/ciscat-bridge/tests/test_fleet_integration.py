@@ -303,3 +303,58 @@ class FleetIntegrationV5(FleetIntegration):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FleetStig(FleetIntegration):
+    """A STIG benchmark (SEVERITY_CAT_I/II profiles, no "Level_1_-_<Role>") is assessed as a whole."""
+
+    KEY = "ubuntu_linux_20_04_lts_stig_v9_0_0"
+    STIG = "CIS_Ubuntu_Linux_20.04_LTS_STIG_Benchmark_v9.0.0-xccdf.xml"
+
+    def setUp(self):
+        super().setUp()
+        with open(os.path.join(BENCH_DIR, LINUX), encoding="utf-8") as f:
+            data = f.read()
+        for old, new in (("Level_1_-_Server", "SEVERITY_CAT_I"), ("Level_2_-_Server", "SEVERITY_CAT_II"),
+                         ("Level_1_-_Workstation", "WS_1"), ("Level_2_-_Workstation", "WS_2")):
+            data = data.replace("benchmarks_profile_" + old + '"', "benchmarks_profile_" + new + '"')
+        with open(os.path.join(self.paths["benchmarks_dir"], self.STIG), "w", encoding="utf-8") as f:
+            f.write(data)
+        lib_file = os.path.join(self.env["CISCAT_ETC_DIR"], "os-library.json")
+        with open(lib_file) as f:
+            lib = json.load(f)
+        with open(lib_file, "w") as f:
+            json.dump({"windows_server_2025": lib["windows_server_2025"]}, f)
+        os.unlink(os.path.join(self.paths["benchmarks_dir"], LINUX))
+        self.fake.agents["001"]["group"] = ["os-" + self.KEY]
+        self.fake.groups = {g for a in self.fake.agents.values() for g in a["group"]} | {"default"}
+        for g in self.fake.groups:
+            os.makedirs(os.path.join(self.paths["shared_dir"], g), exist_ok=True)
+
+    def test_sync_apply_combos_and_trigger(self):
+        import benchmark_to_sheet as sheet
+        import xccdf_to_sca_policy as gen
+        k = self.KEY
+        out = self.fleet("sync")
+        self.assertIn("{0}: new OS from {1} (role STIG, profiles SEVERITY_CAT_I + SEVERITY_CAT_II)"
+                      .format(k, self.STIG), out)
+        oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
+        self.assertEqual((oskeys[k]["role"], oskeys[k]["levels"]), ("STIG", ["L1"]))
+
+        path = os.path.join(self.paths["benchmarks_dir"], self.STIG)
+        _, _, _, _, profiles, _, _ = sheet.extract(path)
+        with open(path, encoding="utf-8") as f:
+            manual = gen.manual_rule_numbers(f.read())
+        cat1 = profiles["SEVERITY_CAT_I"] - manual
+        cat2_only = profiles["SEVERITY_CAT_II"] - profiles["SEVERITY_CAT_I"] - manual
+        self.assertTrue(cat1 and cat2_only)
+        excluded = sorted(cat1)[0]
+        store.write_list(store.EXCLUSIONS, dict([excl(os_key=k, scope="os", rule=excluded)]),
+                         self.paths["lists_dir"])
+        self.fleet("apply")
+        rules = {r.replace("\\", "") for r in self.policy_rules(
+            "ciscat-{0}-base".format(k), "cis_{0}_tailored_l1_stig".format(k))}
+        self.assertEqual(rules, (cat1 | cat2_only) - {excluded})
+        with open(os.path.join(self.paths["shared_dir"], "os-" + k, "refresh.conf")) as f:
+            self.assertIn('PROFILE_LIST="l1_stig|TAILORED L1 - STIG (os-{0})"'.format(k), f.read())
+
