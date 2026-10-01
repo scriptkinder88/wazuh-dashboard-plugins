@@ -1,12 +1,14 @@
 """Benchmarks present on the manager -> OS library entries.
 
 Every CIS benchmark dropped into the benchmarks folder (CIS_<Product>_Benchmark_v<version>-xccdf.xml)
-becomes an OS of the bridge without editing os-library.json:
+becomes an OS of the bridge without editing os-library.json, one per product AND version (two
+versions of the same benchmark are two entries, e.g. rhel9_v1_0_0 and rhel9_v2_0_0):
 
 - an entry of os-library.json whose benchmark file is missing follows the newest version of the
   same product found in the folder;
-- a product with no entry gets one, derived from the file name and the benchmark's own profiles
-  ("Level_1 - <Role>"), with the same Active Response commands as the configured OS of its family.
+- every other benchmark file gets an entry, derived from the file name and the benchmark's own
+  profiles ("Level_1 - <Role>"), with the same Active Response commands as the configured OS of
+  its family, and the group os-<key> until a group is chosen in the dashboard (ciscat-targets).
 
 Entries in os-library.json always win: set "active": false there to keep an OS out of apply and runs.
 """
@@ -69,28 +71,33 @@ def profile_roles(path):
 
 
 def present_benchmarks(bench_dir):
-    """{product: (version, filename)} with the newest version of each product."""
-    out = {}
+    """[(product, version, filename)] of every CIS benchmark in the folder, oldest version first."""
     try:
         names = sorted(os.listdir(bench_dir))
     except OSError:
-        return out
-    for name in names:
-        parsed = parse_name(name)
-        if not parsed:
-            continue
-        product, version = parsed
-        if product not in out or version_key(version) > version_key(out[product][0]):
-            out[product] = (version, name)
-    return out
+        return []
+    found = [parse_name(n) + (n,) for n in names if parse_name(n)]
+    return sorted(found, key=lambda f: (f[0], version_key(f[1])))
 
 
-def _new_entry(os_key, product, filename, role, family, ar):
-    words = product.replace("_", " ")
+def newest(present, product):
+    """File name of the newest version of a product, or None."""
+    files = [f for p, _, f in present if p == product]
+    return files[-1] if files else None
+
+
+def title_of(product, version):
+    """Red_Hat_Enterprise_Linux_9, 2.0.0 -> 'Red Hat Enterprise Linux 9 v2.0.0'."""
+    return "{0} v{1}".format(product.replace("_", " "), version)
+
+
+def _new_entry(os_key, product, version, filename, role, family, ar):
+    words = title_of(product, version)
     pkey = "l1_" + role.lower()
     entry = {
         "active": True,
         "discovered": True,
+        "title": words,
         "family": family,
         "group": "os-" + os_key,
         "benchmark": filename,
@@ -120,22 +127,25 @@ def merge(library, bench_dir):
         parsed = parse_name(cfg.get("benchmark", ""))
         if not parsed:
             continue
-        product = parsed[0]
-        covered.add(product)
-        if product in present and not os.path.isfile(os.path.join(bench_dir, cfg["benchmark"])):
-            filename = present[product][1]
-            notes.append("{0}: {1} missing, using {2}".format(os_key, cfg["benchmark"], filename))
-            cfg["benchmark"] = filename
+        product, version = parsed
+        latest = newest(present, product)
+        if latest and not os.path.isfile(os.path.join(bench_dir, cfg["benchmark"])):
+            notes.append("{0}: {1} missing, using {2}".format(os_key, cfg["benchmark"], latest))
+            cfg["benchmark"] = latest
+            version = parse_name(latest)[1]
             if cfg.get("family") == "linux":
-                cfg["companion_prefix"] = filename[:-len("-xccdf.xml")]
-    for product, (_, filename) in sorted(present.items()):
-        if product in covered:
+                cfg["companion_prefix"] = latest[:-len("-xccdf.xml")]
+        cfg.setdefault("title", title_of(product, version))
+        covered.add(cfg["benchmark"])
+    for product, version, filename in present:
+        if filename in covered:
             continue
         family = family_for(product)
-        key = base_key = os_key_for(product)
+        key = base_key = "{0}_v{1}".format(os_key_for(product), re.sub(r"[^a-z0-9]+", "_",
+                                                                      version.lower()))[:64]
         n = 2
         while key in lib:
-            key = "{0}_{1}".format(base_key, n)
+            key = "{0}_{1}".format(base_key[:60], n)
             n += 1
         if not OS_KEY_RE.match(key):
             notes.append("{0}: no valid OS key, skipped".format(filename))
@@ -148,6 +158,16 @@ def merge(library, bench_dir):
         template = next((c for c in lib.values() if c.get("family") == family and
                          not c.get("discovered")), {})
         ar = {k: template[k] for k in DEFAULT_AR[family] if k in template} or DEFAULT_AR[family]
-        lib[key] = _new_entry(key, product, filename, role, family, ar)
+        lib[key] = _new_entry(key, product, version, filename, role, family, ar)
         notes.append("{0}: new OS from {1} (role {2})".format(key, filename, role))
     return lib, notes
+
+
+def apply_targets(library, targets):
+    """Groups chosen in the dashboard (ciscat-targets) replace the library groups."""
+    lib = {k: dict(v) for k, v in library.items()}
+    for os_key, rec in targets.items():
+        if os_key in lib:
+            lib[os_key]["group"] = rec["group"]
+            lib[os_key]["group_source"] = "dashboard"
+    return lib

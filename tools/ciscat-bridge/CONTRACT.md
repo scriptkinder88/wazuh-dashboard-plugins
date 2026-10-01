@@ -33,6 +33,7 @@ Each file has exactly one writer, so the two sides never overwrite each other.
 | `ciscat-requests`       | dashboard | `r` + epoch ms + 4 hex                                                                       | request        |
 | `ciscat-status`         | master    | see below                                                                                    | status         |
 | `ciscat-oskeys`         | master    | os key                                                                                       | OS entry       |
+| `ciscat-targets`        | dashboard | os key                                                                                       | target group   |
 | `ciscat-bench-<os_key>` | master    | rule number, plus `_meta`                                                                    | benchmark rule |
 
 The exclusion key is derived from the record itself, so the same exclusion cannot appear twice.
@@ -96,7 +97,11 @@ removes old processed requests. Two actions exist:
 
 **OS entry** (`ciscat-oskeys`): `group`, `policy_id`, `benchmark`, `version`, `active`, `available`
 (the benchmark file is on the master), `role`, `levels` and `discovered` (the OS comes from a benchmark
-found in the benchmarks folder, not from `os-library.json`).
+found in the benchmarks folder, not from `os-library.json`), `title` (benchmark name and version) and
+`group_source` (`dashboard` when the group was chosen in `ciscat-targets`).
+
+**Target group** (`ciscat-targets`, key = os key): `group` (the Wazuh group whose agents get the
+benchmark), `updated_by`, `updated_at`. It replaces the group of the OS library at the next apply.
 
 ## Scheduling
 

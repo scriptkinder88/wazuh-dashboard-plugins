@@ -40,6 +40,7 @@ import {
   benchListName,
   newRequestKey,
   validateExclusion,
+  validateTarget,
 } from '../../../../../common/ciscat/store';
 import { getToasts } from '../../../../kibana-services';
 import {
@@ -84,6 +85,27 @@ const validExclusions = (records: CiscatData['exclusions']['records']) =>
     }
     return acc;
   }, {} as KeyedExclusions);
+
+/** Group each OS applies to: chosen here (ciscat-targets) or the master's default. */
+const savedTargets = (data: CiscatData): Record<string, string> =>
+  Object.fromEntries(
+    Object.keys(data.oskeys).map(k => {
+      const rec = data.targets.records[k];
+      return [
+        k,
+        String((rec && rec.group) || data.oskeys[k].group || `os-${k}`),
+      ];
+    }),
+  );
+
+/** Benchmark name and version, e.g. "Red Hat Enterprise Linux 9 v2.0.0". */
+const osTitle = (data: CiscatData, key: string) => {
+  const os = data.oskeys[key];
+  const title = String(os.title || key);
+  return os.version && !title.includes(`v${os.version}`)
+    ? `${title} v${os.version}`
+    : title;
+};
 
 const toast = (title: string, color: 'success' | 'danger', text?: string) =>
   color === 'success'
@@ -270,9 +292,20 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
   const [page, setPage] = useState({ index: 0, size: 50 });
   const [flyoutRules, setFlyoutRules] = useState<string[]>();
   const [saving, setSaving] = useState(false);
+  // Wazuh group each benchmark applies to (ciscat-targets), as edited here
+  const [targets, setTargets] = useState<Record<string, string>>(() =>
+    savedTargets(data),
+  );
+  const [groups, setGroups] = useState<string[]>([]);
+  useEffect(() => {
+    fetchGroupNames()
+      .then(setGroups)
+      .catch(() => setGroups([]));
+  }, []);
 
   useEffect(() => {
     setDraft(validExclusions(data.exclusions.records));
+    setTargets(savedTargets(data));
     setDirty(false);
   }, [data.exclusions]);
 
@@ -325,6 +358,23 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
     setSaving(true);
     try {
       await writeList(CISCAT_LISTS.exclusions, draft, data.exclusions.raw);
+      const saved = savedTargets(data);
+      if (Object.keys(targets).some(k => targets[k] !== saved[k])) {
+        const records = { ...data.targets.records };
+        delete records._empty;
+        Object.entries(targets).forEach(([k, group]) => {
+          if (group !== saved[k]) {
+            records[k] = {
+              ...validateTarget({
+                group,
+                updated_by: user,
+                updated_at: new Date().toISOString(),
+              }),
+            };
+          }
+        });
+        await writeList(CISCAT_LISTS.targets, records, data.targets.raw);
+      }
       if (apply) {
         await addRequest(
           newRequestKey(),
@@ -465,7 +515,9 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             <EuiSelect
               options={osKeys.map(k => ({
                 value: k,
-                text: `${k}${data.oskeys[k].active ? '' : ' (inactive)'}`,
+                text: `${osTitle(data, k)}${
+                  data.oskeys[k].active ? '' : ' (inactive)'
+                }`,
               }))}
               value={osKey}
               onChange={e => {
@@ -473,6 +525,28 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
                 setPage({ ...page, index: 0 });
               }}
               data-test-subj='ciscat-os'
+            />
+          </EuiFormRow>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false} style={{ minWidth: 220 }}>
+          <EuiFormRow
+            label='Applies to group'
+            helpText='Agents of this group get the benchmark at the next apply'
+          >
+            <EuiComboBox
+              singleSelection={{ asPlainText: true }}
+              isClearable={false}
+              options={groups.map(g => ({ label: g }))}
+              selectedOptions={
+                targets[osKey] ? [{ label: targets[osKey] }] : []
+              }
+              onChange={sel => {
+                if (sel[0]) {
+                  setTargets({ ...targets, [osKey]: sel[0].label });
+                  setDirty(true);
+                }
+              }}
+              data-test-subj='ciscat-target-group'
             />
           </EuiFormRow>
         </EuiFlexItem>

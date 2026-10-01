@@ -152,6 +152,8 @@ if __name__ == "__main__":
 class FleetDiscovery(FleetIntegration):
     """Benchmarks present on the manager become OSes without editing os-library.json."""
 
+    UBUNTU = "ubuntu_linux_20_04_lts_v2_0_1"
+
     def setUp(self):
         super().setUp()
         # the library only knows Windows; a second Windows benchmark has no group yet
@@ -162,43 +164,50 @@ class FleetDiscovery(FleetIntegration):
             lib = json.load(f)
         with open(lib_file, "w") as f:
             json.dump({"windows_server_2025": lib["windows_server_2025"]}, f)
-        self.fake.agents["001"]["group"] = ["os-ubuntu_linux_20_04_lts"]
-        self.fake.agents["002"]["group"] = ["os-ubuntu_linux_20_04_lts", "app-sap"]
-        self.fake.agents["003"]["group"] = []
+        group = "os-" + self.UBUNTU
+        self.fake.agents["001"]["group"] = [group]
+        self.fake.agents["002"]["group"] = [group, "app-sap"]
+        self.fake.agents["003"]["group"] = ["linux-prod"]
         self.fake.groups = {g for a in self.fake.agents.values() for g in a["group"]} | {"default"}
         for g in self.fake.groups:
             os.makedirs(os.path.join(self.paths["shared_dir"], g), exist_ok=True)
+        self.fake.agents["003"]["status"] = "active"
+
+    def combos(self, aid):
+        return [g for g in self.fake.agents[aid]["group"] if g.startswith("ciscat-")]
 
     def test_sync_apply_combos_and_trigger(self):
+        u = self.UBUNTU
         out = self.fleet("sync")
-        self.assertIn("ubuntu_linux_20_04_lts: new OS from " + LINUX, out)
+        self.assertIn(u + ": new OS from " + LINUX, out)
         oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
-        ubuntu = oskeys["ubuntu_linux_20_04_lts"]
-        self.assertEqual((ubuntu["available"], ubuntu["active"], ubuntu["discovered"], ubuntu["role"]),
-                         (True, True, True, "Server"))
-        self.assertTrue(oskeys["windows_server_2022"]["available"])
-        bench, _ = store.read_list("ciscat-bench-ubuntu_linux_20_04_lts", self.paths["lists_dir"])
+        ubuntu = oskeys[u]
+        self.assertEqual((ubuntu["available"], ubuntu["active"], ubuntu["discovered"], ubuntu["role"],
+                          ubuntu["title"], ubuntu["group"], ubuntu["group_source"]),
+                         (True, True, True, "Server", "Ubuntu Linux 20.04 LTS v2.0.1", "os-" + u, "library"))
+        self.assertTrue(oskeys["windows_server_2022_v9_9_9"]["available"])
+        bench, _ = store.read_list("ciscat-bench-" + u, self.paths["lists_dir"])
         self.assertIn("L1_Server", bench["_meta"]["profiles"])
 
         store.write_list(store.EXCLUSIONS, dict([
-            excl(os_key="ubuntu_linux_20_04_lts", scope="os", rule="1.1.1.1"),
-            excl(os_key="ubuntu_linux_20_04_lts", scope="host", scope_value="web-02", rule="1.1.1.2"),
+            excl(os_key=u, scope="os", rule="1.1.1.1"),
+            excl(os_key=u, scope="host", scope_value="web-02", rule="1.1.1.2"),
         ]), self.paths["lists_dir"])
         out = self.fleet("apply")
-        self.assertIn("[skip] group os-windows_server_2022 does not exist", out)
-        self.assertNotIn("os-windows_server_2022", self.fake.groups)
-        pid = "cis_ubuntu_linux_20_04_lts_tailored_l1_server"
-        base = self.policy_rules("ciscat-ubuntu_linux_20_04_lts-base", pid)
+        self.assertIn("[skip] group os-windows_server_2022_v9_9_9 does not exist", out)
+        self.assertNotIn("os-windows_server_2022_v9_9_9", self.fake.groups)
+        pid = "cis_{0}_tailored_l1_server".format(u)
+        base = self.policy_rules("ciscat-{0}-base".format(u), pid)
         self.assertNotIn(r"1\.1\.1\.1", base)
-        host = [g for g in self.fake.agents["002"]["group"] if g.startswith("ciscat-")][0]
-        self.assertEqual(base - self.policy_rules(host, pid), {r"1\.1\.1\.2"})
-        gdir = os.path.join(self.paths["shared_dir"], "os-ubuntu_linux_20_04_lts")
+        self.assertEqual(base - self.policy_rules(self.combos("002")[0], pid), {r"1\.1\.1\.2"})
+        gdir = os.path.join(self.paths["shared_dir"], "os-" + u)
         with open(os.path.join(gdir, "ciscat-manifest.csv")) as f:
-            manifest = f.read()
-        self.assertIn("ubuntu_linux_20_04_lts-custom-xccdf.xml", manifest)
+            self.assertIn(u + "-custom-xccdf.xml", f.read())
         with open(os.path.join(gdir, "refresh.conf")) as f:
-            self.assertIn('PROFILE_LIST="l1_server|TAILORED L1 - Server (os-ubuntu_linux_20_04_lts)"',
-                          f.read())
+            self.assertIn('PROFILE_LIST="l1_server|TAILORED L1 - Server (os-{0})"'.format(u), f.read())
+        # the combo groups load the policy, since nothing else does for a discovered OS
+        with open(os.path.join(self.paths["shared_dir"], "ciscat-{0}-base".format(u), "agent.conf")) as f:
+            self.assertIn("<policy>etc/shared/{0}.yml</policy>".format(pid), f.read())
         # Windows agents read their profile and result name from the OS group
         with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
                                "ciscat-params.txt")) as f:
@@ -209,3 +218,15 @@ class FleetDiscovery(FleetIntegration):
         cmds = [c for c, _ in self.fake.ar]
         self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 1, out)  # 001 and 002 in one wave
         self.assertEqual(cmds.count("!ciscat-assessment0"), 1, out)     # 004
+
+        # the dashboard moves this benchmark to another group: its agents take over the combos
+        store.write_list(store.TARGETS, {u: {"v": 1, "group": "linux-prod", "updated_by": "alice"}},
+                         self.paths["lists_dir"])
+        out = self.fleet("sync")
+        oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
+        self.assertEqual((oskeys[u]["group"], oskeys[u]["group_source"]), ("linux-prod", "dashboard"))
+        self.fleet("apply")
+        self.assertEqual(self.combos("003"), ["ciscat-{0}-base".format(u)])
+        self.assertEqual((self.combos("001"), self.combos("002")), ([], []))
+        self.assertTrue(os.path.isfile(os.path.join(self.paths["shared_dir"], "linux-prod",
+                                                    u + "-custom-xccdf.xml")))

@@ -13,6 +13,7 @@ import {
   renderList,
   validateExclusion,
   validateJob,
+  validateTarget,
 } from './store';
 
 // Wazuh 4.14 framework/wazuh/core/cdb_list.py validate_cdb_list
@@ -50,6 +51,17 @@ describe('CIS-CAT store contract (shared vectors with ciscat_store.py)', () => {
     }
     for (const rec of vectors.invalid_jobs) {
       expect(() => validateJob(rec)).toThrow(StoreError);
+    }
+    for (const rec of vectors.invalid_targets) {
+      expect(() => validateTarget(rec as Record<string, unknown>)).toThrow(
+        StoreError,
+      );
+    }
+  });
+
+  it('normalizes target groups like the master', () => {
+    for (const v of vectors.targets) {
+      expect(validateTarget(v.input)).toEqual(v.normalized);
     }
   });
 });
