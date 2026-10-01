@@ -104,7 +104,42 @@ class Discover(unittest.TestCase):
                  bench([], extra=["Level_1_L1_-_CorporateEnterprise_Environment_general_use"]))
         lib, notes = discover.merge({}, self.dir)
         self.assertEqual(lib, {})
-        self.assertIn("no 'Level 1 - <role>' profile", notes[0])
+        self.assertIn("no Level 1 or STIG profile", notes[0])
+
+    def test_stig_and_role_less_benchmarks(self):
+        put = lambda name, ids: self.put(name, bench([], extra=ids))
+        put("CIS_Red_Hat_Enterprise_Linux_9_STIG_Benchmark_v1.0.0-xccdf.xml",
+            ["SEVERITY_CAT_I", "SEVERITY_CAT_II", "SEVERITY_CAT_III"])
+        put("CIS_Microsoft_Windows_Server_2022_STIG_Benchmark_v3.0.0-xccdf.xml",
+            ["DC_SEVERITY_CAT_I", "DC_SEVERITY_CAT_II", "MS_SEVERITY_CAT_I", "MS_SEVERITY_CAT_II",
+             "MS_SEVERITY_CAT_III"])
+        put("CIS_Microsoft_Windows_11_Enterprise_Benchmark_v5.1.0-xccdf.xml",
+            ["BitLocker_BL", "Level_1_L1", "Level_1_L1__BitLocker_BL", "Level_2_L2"])
+        put("CIS_Apache_Tomcat_10.1_Benchmark_v1.2.0-xccdf.xml", ["Level_1", "Level_2"])
+        put("CIS_MongoDB_8_Benchmark_v2.0.0-xccdf.xml", ["Level_1-_MongoDB", "Level_2_-_MongoDB"])
+        lib, notes = discover.merge({}, self.dir)
+        got = {k: (v["role"], v["base_profiles"], v["profiles"]) for k, v in lib.items()}
+        self.assertEqual(got, {
+            "rhel9_stig_v1_0_0": ("STIG", ["SEVERITY_CAT_I", "SEVERITY_CAT_II", "SEVERITY_CAT_III"],
+                                  [["l1_stig", "L1"]]),
+            "windows_server_2022_stig_v3_0_0": (
+                "Member_Server_STIG", ["MS_SEVERITY_CAT_I", "MS_SEVERITY_CAT_II", "MS_SEVERITY_CAT_III"],
+                [["l1_member_server_stig", "L1"]]),
+            "windows_11_enterprise_v5_1_0": ("Default", ["Level_1_L1"], [["l1_default", "L1"]]),
+            "apache_tomcat_10_1_v1_2_0": ("Default", ["Level_1"], [["l1_default", "L1"]]),
+            "mongodb_8_v2_0_0": ("MongoDB", ["Level_1-_MongoDB"], [["l1_mongodb", "L1"]]),
+        })
+        self.assertEqual(lib["windows_11_enterprise_v5_1_0"]["family"], "windows")
+        self.assertIn("rhel9_stig_v1_0_0: new OS from CIS_Red_Hat_Enterprise_Linux_9_STIG_Benchmark_"
+                      "v1.0.0-xccdf.xml (role STIG, profiles SEVERITY_CAT_I + SEVERITY_CAT_II + "
+                      "SEVERITY_CAT_III)", notes)
+
+    def test_standard_profiles_have_no_base_profiles(self):
+        self.put("CIS_Red_Hat_Enterprise_Linux_8_STIG_Benchmark_v2.0.0-xccdf.xml",
+                 bench(["Server", "Workstation"], extra=["STIG"]))
+        lib, _ = discover.merge({}, self.dir)
+        self.assertEqual(lib["rhel8_stig_v2_0_0"]["role"], "Server")
+        self.assertNotIn("base_profiles", lib["rhel8_stig_v2_0_0"])
 
     def test_missing_folder(self):
         lib, notes = discover.merge(LIBRARY, os.path.join(self.dir, "none"))
