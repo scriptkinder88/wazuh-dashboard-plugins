@@ -44,6 +44,8 @@ class FleetIntegration(unittest.TestCase):
         self.paths = p
         for f in (LINUX, WIN):
             os.symlink(os.path.join(BENCH_DIR, f), os.path.join(p["benchmarks_dir"], f))
+        with open(os.path.join(p["benchmarks_dir"], WIN[:-10] + "-oval.xml"), "w") as f:
+            f.write("<oval_definitions/>")
         etc = os.path.join(self.root, "etc")
         os.makedirs(etc)
         lib = {
@@ -213,6 +215,10 @@ class FleetDiscovery(FleetIntegration):
                                "ciscat-params.txt")) as f:
             self.assertEqual(f.read(), "Profile=xccdf_org.cisecurity.benchmarks_profile_TAILORED_"
                                        "Level_1_-_Member_Server\nFlatName=x.flat\n")
+        # the OVAL the XCCDF checks reference goes with it, under its original name
+        with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
+                               "ciscat-manifest.csv")) as f:
+            self.assertIn(WIN[:-10] + "-oval.xml;", f.read())
 
         out = self.fleet("trigger")
         cmds = [c for c, _ in self.fake.ar]
