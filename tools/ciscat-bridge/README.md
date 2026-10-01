@@ -46,6 +46,12 @@ master: cron */5 ciscat-scheduler.py ──▶ ciscat-fleet.py apply / trigger
 agent: Active Response → Assessor → flatten file → SCA policy → results in Wazuh
 ```
 
+- **Benchmark files:** the `os-<os>` group carries the custom XCCDF and, under their original
+  names, the benchmark's OVAL and CPE files (`-oval.xml`, `-cpe-oval.xml`,
+  `-cpe-dictionary.xml`): the XCCDF checks reference them by file name. The agent copies them
+  into the Assessor's `benchmarks` folder (`/opt/ciscat/Assessor/benchmarks`, or
+  `C:\Program Files (x86)\ciscat\benchmarks`) before the assessment, so an agent does not need
+  the benchmark in its own CIS-CAT bundle.
 - **Exclusions:** the scope is `os`, `global`, `host` (agent name) or `app_group` (Wazuh group).
   Every exclusion records a reason, a ticket, an owner, who made it and when.
 - **Schedules:** a job runs once, monthly (day N, or N days before the month end) or weekly, in
