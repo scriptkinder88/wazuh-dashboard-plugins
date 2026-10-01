@@ -116,6 +116,7 @@ import {
   RegulatoryComplianceTSC,
 } from '../../overview/regulatory-compliance';
 import { InventoryFIM } from '../../overview/fim';
+import { FimManagement } from '../../overview/fim/manager';
 import { SCAInventory, SCADashboard } from '../../overview/sca';
 import { ReportingService } from '../../../react-services';
 import { WAZUH_MODULES } from '../../../../common/wazuh-modules';
@@ -203,6 +204,13 @@ export const ModulesDefaults = {
         name: 'Inventory',
         buttons: [ButtonExploreAgent],
         component: InventoryFIM,
+      },
+      {
+        // FIM rules of groups and single servers, edited in agent.conf
+        id: 'manage',
+        name: 'Manage',
+        buttons: [],
+        component: FimManagement,
       },
       renderFindingsDiscoverTab({
         moduleId: 'fim',
