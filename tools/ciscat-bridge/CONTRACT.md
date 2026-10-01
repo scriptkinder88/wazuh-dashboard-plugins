@@ -101,7 +101,8 @@ found in the benchmarks folder, not from `os-library.json`), `title` (benchmark 
 `group_source` (`dashboard` when the group was chosen in `ciscat-targets`).
 
 **Target group** (`ciscat-targets`, key = os key): `group` (the Wazuh group whose agents get the
-benchmark), `updated_by`, `updated_at`. It replaces the group of the OS library at the next apply.
+benchmark), `updated_by`, `updated_at`. It replaces the group of the OS library at the next apply
+and activates the OS (even one set `"active": false` in `os-library.json`).
 
 ## Scheduling
 
