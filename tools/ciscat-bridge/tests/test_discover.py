@@ -38,6 +38,8 @@ class Discover(unittest.TestCase):
     def test_names_and_keys(self):
         self.assertEqual(discover.parse_name("CIS_Ubuntu_Linux_22.04_LTS_Benchmark_v2.0.0-xccdf.xml"),
                          ("Ubuntu_Linux_22.04_LTS", "2.0.0"))
+        self.assertEqual(discover.parse_name("CIS_Microsoft_Windows_Server_2025_Stand-alone_v2.0.0-xccdf.xml"),
+                         ("Microsoft_Windows_Server_2025_Stand-alone", "2.0.0"))
         self.assertIsNone(discover.parse_name("rhel7-custom-xccdf.xml"))
         self.assertIsNone(discover.parse_name("CIS_Foo_Benchmark_v1.0.0-oval.xml"))
         self.assertEqual(discover.os_key_for("Red_Hat_Enterprise_Linux_9"), "rhel9")
