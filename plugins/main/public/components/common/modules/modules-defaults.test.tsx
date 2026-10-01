@@ -30,4 +30,15 @@ describe('ModulesDefaults SCA reporting', () => {
     expect(scaBlock).toContain("id: 'ciscat'");
     expect(scaBlock).toContain('component: CiscatManagement');
   });
+
+  it('adds the FIM rules management tab to Integrity monitoring', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, 'modules-defaults.tsx'),
+      'utf8',
+    );
+    const fimBlock = source.match(/\n {2}fim:\s*\{[\s\S]*?\n {2}\},/)?.[0];
+
+    expect(fimBlock).toContain("id: 'manage'");
+    expect(fimBlock).toContain('component: FimManagement');
+  });
 });
