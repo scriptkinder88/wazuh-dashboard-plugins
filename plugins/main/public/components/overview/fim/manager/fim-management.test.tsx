@@ -95,9 +95,46 @@ jest.mock('../../../../react-services', () => ({
   WzRequest: { apiReq: (...args: any[]) => mockApiReq(...args) },
 }));
 
+// FIM inventory (wazuh-states-fim-files) of the path test
+const mockInventory: Record<string, string[]> = {
+  '001': ['/etc/nginx/nginx.conf', '/etc/nginx/mime.types'],
+};
+const mockSearches: any[] = [];
+
 jest.mock('../../../../kibana-services', () => ({
   getToasts: () => ({ addSuccess: jest.fn(), addDanger: jest.fn() }),
   getHttp: () => ({ get: jest.fn() }),
+  getDataPlugin: () => ({
+    indexPatterns: { get: (id: string) => Promise.resolve({ id }) },
+    search: {
+      searchSource: {
+        create: () => {
+          const fields: Record<string, any> = {};
+          const source = {
+            setParent: () => source,
+            setField: (k: string, v: any) => {
+              fields[k] = v;
+              return source;
+            },
+            fetch: () => {
+              mockSearches.push(fields);
+              const [agent, prefix] = fields.query.query.bool.filter;
+              const files = (
+                mockInventory[agent.term['wazuh.agent.id']] || []
+              ).filter(f => f.startsWith(prefix.prefix['file.path']));
+              return Promise.resolve({
+                hits: { total: { value: files.length } },
+                aggregations: {
+                  last: { value_as_string: '2026-10-02T10:00:00Z' },
+                },
+              });
+            },
+          };
+          return Promise.resolve(source);
+        },
+      },
+    },
+  }),
 }));
 
 jest.mock('../../../../services/dashboard-store', () => ({
@@ -208,6 +245,36 @@ describe('FIM rules management tab', () => {
       }),
     );
     expect(agentGroups['009']).toContain('fim-host-009');
+  });
+
+  it('points out a wildcard exclusion, fixes it and tests the path', async () => {
+    render(<FimManagement />);
+    fireEvent.click(await screen.findByTestId('fim-rule-add'));
+    fireEvent.change(screen.getByTestId('fim-rule-kind'), {
+      target: { value: 'ignore' },
+    });
+    fireEvent.change(screen.getByTestId('fim-rule-path'), {
+      target: { value: '/etc/nginx/*' },
+    });
+    const hints = screen.getByTestId('fim-rule-hints');
+    expect(hints.textContent).toMatch(/literal characters/);
+    fireEvent.click(within(hints).getByText('Exclude the folder /etc/nginx'));
+    expect(
+      (screen.getByTestId('fim-rule-path') as HTMLInputElement).value,
+    ).toBe('/etc/nginx');
+    expect(screen.queryByTestId('fim-rule-hints')).toBeNull();
+
+    await pick('fim-rule-groups', 'web');
+    expect(screen.getByTestId('fim-rule-overlaps').textContent).toContain(
+      'This exclusion stops the monitoring of /etc/nginx (Monitor rule in web).',
+    );
+
+    fireEvent.click(screen.getByTestId('fim-path-test-run'));
+    const test = await screen.findByTestId('fim-path-test');
+    expect(test.textContent).toContain('web-01 (001): 2 entries');
+    expect(test.textContent).toContain('last change');
+    expect(mockSearches[0].index).toEqual({ id: 'wazuh-states-fim-files*' });
+    expect(calls.some(c => c.includes('/syscheck'))).toBe(false);
   });
 
   it('removes a rule and keeps the previous version', async () => {

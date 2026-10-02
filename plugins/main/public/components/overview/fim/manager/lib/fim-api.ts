@@ -14,6 +14,8 @@ import {
   clearAgentReportedConfigurationCache,
   getAgentReportedConfiguration,
 } from '../../../../../controllers/management/components/management/configuration/utils/agent-config-service';
+import { getDataPlugin } from '../../../../../kibana-services';
+import { WAZUH_FIM_FILES_PATTERN } from '../../../../../../common/constants';
 import { editAgentConf } from './agent-conf';
 import { AgentInfo, GroupConf, GroupStep, toGroupConf } from './plan';
 
@@ -147,6 +149,68 @@ export const fetchActiveSyscheck = async (
     reportedAt: report ? report.modifiedAt || '' : undefined,
   };
 };
+
+// --- path test (FIM inventory) ----------------------------------------------------
+
+export interface PathTestResult {
+  agent: AgentInfo;
+  /** Entries of the FIM inventory under the path, undefined on error. */
+  files?: number;
+  /** Most recent change of those entries (Wazuh 5.0 keeps no scan time). */
+  lastChange?: string;
+  error?: string;
+}
+
+interface InventoryResponse {
+  hits?: { total?: number | { value?: number } };
+  aggregations?: { last?: { value_as_string?: string } };
+}
+
+/**
+ * How many entries of each agent's FIM inventory (wazuh-states-fim-files) are
+ * under a path, and when the last of them changed: whether the path exists and
+ * is monitored there.
+ */
+export const testPathOnAgents = (
+  prefix: string,
+  agents: AgentInfo[],
+): Promise<PathTestResult[]> =>
+  Promise.all(
+    agents.map(async agent => {
+      try {
+        const indexPattern = await getDataPlugin().indexPatterns.get(
+          WAZUH_FIM_FILES_PATTERN,
+        );
+        const searchSource = await getDataPlugin().search.searchSource.create();
+        const response: InventoryResponse = await searchSource
+          .setParent(undefined)
+          .setField('index', indexPattern)
+          .setField('size', 0)
+          .setField('trackTotalHits', true)
+          .setField('query', {
+            language: 'lucene',
+            query: {
+              bool: {
+                filter: [
+                  { term: { 'wazuh.agent.id': agent.id } },
+                  { prefix: { 'file.path': prefix } },
+                ],
+              },
+            },
+          })
+          .setField('aggs', { last: { max: { field: 'state.modified_at' } } })
+          .fetch();
+        const total = response?.hits?.total;
+        return {
+          agent,
+          files: Number(typeof total === 'number' ? total : total?.value || 0),
+          lastChange: response?.aggregations?.last?.value_as_string || '',
+        };
+      } catch (error) {
+        return { agent, error: (error as Error).message || String(error) };
+      }
+    }),
+  );
 
 // --- history -------------------------------------------------------------------
 
