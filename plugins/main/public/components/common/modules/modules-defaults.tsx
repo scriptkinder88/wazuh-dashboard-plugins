@@ -11,6 +11,7 @@
  */
 import React from 'react';
 import { MainSca } from '../../agents/sca';
+import { CiscatManagement } from '../../agents/sca/ciscat';
 import { MainMitre } from './main-mitre';
 import { ModuleMitreAttackIntelligence } from '../../overview/mitre/intelligence';
 import { ComplianceTable } from '../../overview/compliance-table';
@@ -247,6 +248,13 @@ export const ModulesDefaults = {
         DataSource: ConfigurationAssessmentDataSource,
         categoriesSampleData: [],
       }),
+      {
+        // CIS-CAT Pro bridge: exclusions, schedules and status on the manager
+        id: 'ciscat',
+        name: 'CIS-CAT',
+        buttons: [],
+        component: CiscatManagement,
+      },
     ],
     buttons: ['settings'],
     availableFor: ['manager', 'agent'],

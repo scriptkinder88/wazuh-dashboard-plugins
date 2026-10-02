@@ -1,0 +1,253 @@
+{
+  "exclusions": [
+    {
+      "encoded": "eyJsZXZlbCI6IkwxIiwib3Nfa2V5IjoicmhlbDciLCJvd25lciI6Im4vYSIsInJlYXNvbiI6Ik5lZWRlZDogXCJjcmFtZnNcIiB8IHNlZSBLQjoxLCDDqCIsInJvbGUiOiJTZXJ2ZXIiLCJydWxlIjoiMS4xLjEuMSIsInNjb3BlIjoib3MiLCJzY29wZV92YWx1ZSI6InJoZWw3IiwidGlja2V0IjoiQ0hHLTEiLCJ1cGRhdGVkX2F0IjoiIiwidXBkYXRlZF9ieSI6IiIsInYiOjF9",
+      "input": {
+        "level": "L1",
+        "os_key": "rhel7",
+        "reason": "Needed: \"cramfs\" | see KB:1, è",
+        "role": "Server",
+        "rule": "1.1.1.1",
+        "scope": "os",
+        "scope_value": "",
+        "ticket": "CHG-1"
+      },
+      "key": "e729bc582aa2dde2c",
+      "normalized": {
+        "level": "L1",
+        "os_key": "rhel7",
+        "owner": "n/a",
+        "reason": "Needed: \"cramfs\" | see KB:1, è",
+        "role": "Server",
+        "rule": "1.1.1.1",
+        "scope": "os",
+        "scope_value": "rhel7",
+        "ticket": "CHG-1",
+        "updated_at": "",
+        "updated_by": "",
+        "v": 1
+      }
+    },
+    {
+      "encoded": "eyJsZXZlbCI6IkFMTCIsIm9zX2tleSI6IndpbmRvd3Nfc2VydmVyXzIwMjUiLCJvd25lciI6Im4vYSIsInJlYXNvbiI6Im4vYSIsInJvbGUiOiIiLCJydWxlIjoiMTguMTAuNCIsInNjb3BlIjoiaG9zdCIsInNjb3BlX3ZhbHVlIjoiV2ViLTAxIiwidGlja2V0Ijoibi9hIiwidXBkYXRlZF9hdCI6IiIsInVwZGF0ZWRfYnkiOiIiLCJ2IjoxfQ",
+      "input": {
+        "level": "all",
+        "os_key": "windows_server_2025",
+        "reason": "",
+        "role": "",
+        "rule": "18.10.4",
+        "scope": "HOST",
+        "scope_value": "Web-01"
+      },
+      "key": "ede0f6dffe0ece83d",
+      "normalized": {
+        "level": "ALL",
+        "os_key": "windows_server_2025",
+        "owner": "n/a",
+        "reason": "n/a",
+        "role": "",
+        "rule": "18.10.4",
+        "scope": "host",
+        "scope_value": "Web-01",
+        "ticket": "n/a",
+        "updated_at": "",
+        "updated_by": "",
+        "v": 1
+      }
+    },
+    {
+      "encoded": "eyJsZXZlbCI6IkwyIiwib3Nfa2V5IjoicmhlbDciLCJvd25lciI6Im9wcyB0ZWFtIiwicmVhc29uIjoibi9hIiwicm9sZSI6IldvcmtzdGF0aW9uIiwicnVsZSI6IjUuMi4xIiwic2NvcGUiOiJhcHBfZ3JvdXAiLCJzY29wZV92YWx1ZSI6ImFwcC1zYXAiLCJ0aWNrZXQiOiJuL2EiLCJ1cGRhdGVkX2F0IjoiIiwidXBkYXRlZF9ieSI6IiIsInYiOjF9",
+      "input": {
+        "level": "L2",
+        "os_key": "rhel7",
+        "owner": "  ops   team ",
+        "role": "Workstation",
+        "rule": "5.2.1",
+        "scope": "app_group",
+        "scope_value": "app-sap"
+      },
+      "key": "eb356c6eaf26cac0b",
+      "normalized": {
+        "level": "L2",
+        "os_key": "rhel7",
+        "owner": "ops team",
+        "reason": "n/a",
+        "role": "Workstation",
+        "rule": "5.2.1",
+        "scope": "app_group",
+        "scope_value": "app-sap",
+        "ticket": "n/a",
+        "updated_at": "",
+        "updated_by": "",
+        "v": 1
+      }
+    }
+  ],
+  "invalid_exclusions": [
+    {
+      "os_key": "rhel7",
+      "rule": "1.1",
+      "scope": "group",
+      "scope_value": "x"
+    },
+    {
+      "os_key": "rhel7",
+      "rule": "1.1",
+      "scope": "host",
+      "scope_value": "a b"
+    },
+    {
+      "os_key": "rhel7",
+      "rule": "1.x",
+      "scope": "os"
+    },
+    {
+      "os_key": "RHEL7",
+      "rule": "1.1",
+      "scope": "os"
+    },
+    {
+      "level": "L3",
+      "os_key": "rhel7",
+      "rule": "1.1",
+      "scope": "os"
+    }
+  ],
+  "invalid_jobs": [
+    {
+      "type": "cron"
+    },
+    {
+      "at": "2026-02-30T10:00",
+      "type": "once"
+    },
+    {
+      "day": 0,
+      "time": "01:00",
+      "type": "monthly"
+    },
+    {
+      "day": -29,
+      "time": "01:00",
+      "type": "monthly"
+    },
+    {
+      "time": "01:00",
+      "type": "weekly",
+      "weekday": 7
+    },
+    {
+      "time": "24:00",
+      "type": "weekly",
+      "weekday": 1
+    },
+    {
+      "at": "2026-10-31T22:00",
+      "type": "once",
+      "wave_size": 0
+    }
+  ],
+  "invalid_targets": [
+    {
+      "group": ""
+    },
+    {
+      "group": "two words"
+    },
+    {
+      "group": 5
+    },
+    {}
+  ],
+  "jobs": [
+    {
+      "input": {
+        "at": "2026-10-31T22:00",
+        "targets": ["rhel7"],
+        "type": "once"
+      },
+      "normalized": {
+        "at": "2026-10-31T22:00",
+        "created_at": "",
+        "created_by": "",
+        "enabled": true,
+        "label": "",
+        "targets": ["rhel7"],
+        "type": "once",
+        "v": 1,
+        "wave_pause_s": 300,
+        "wave_size": 50
+      }
+    },
+    {
+      "input": {
+        "day": -3,
+        "time": "23:30",
+        "type": "monthly",
+        "wave_size": 20
+      },
+      "normalized": {
+        "created_at": "",
+        "created_by": "",
+        "day": -3,
+        "enabled": true,
+        "label": "",
+        "targets": ["*"],
+        "time": "23:30",
+        "type": "monthly",
+        "v": 1,
+        "wave_pause_s": 300,
+        "wave_size": 20
+      }
+    },
+    {
+      "input": {
+        "label": "Monday night",
+        "targets": ["*"],
+        "time": "01:15",
+        "type": "weekly",
+        "weekday": 0
+      },
+      "normalized": {
+        "created_at": "",
+        "created_by": "",
+        "enabled": true,
+        "label": "Monday night",
+        "targets": ["*"],
+        "time": "01:15",
+        "type": "weekly",
+        "v": 1,
+        "wave_pause_s": 300,
+        "wave_size": 50,
+        "weekday": 0
+      }
+    }
+  ],
+  "targets": [
+    {
+      "input": {
+        "group": "linux-prod",
+        "updated_at": "2026-10-01T12:00:00Z",
+        "updated_by": " alice "
+      },
+      "normalized": {
+        "group": "linux-prod",
+        "updated_at": "2026-10-01T12:00:00Z",
+        "updated_by": "alice",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "extra": 1,
+        "group": "os-rhel9_v2.0.0"
+      },
+      "normalized": {
+        "group": "os-rhel9_v2.0.0",
+        "updated_at": "",
+        "updated_by": "",
+        "v": 1
+      }
+    }
+  ]
+}
