@@ -6,7 +6,9 @@ Replaces ciscat-orchestrator.sh. On each tick it:
   2. applies pending dashboard requests ("apply": regenerate and publish the policies);
   3. starts the schedule jobs that are due, each as a separate `ciscat-fleet.py trigger`, so a
      run in waves does not block later ticks;
-  4. records next runs, missed runs and its heartbeat in ciscat-status.
+  4. records next runs, missed runs and its heartbeat in ciscat-status;
+  5. once a day, has the fleet record how many agents of each OS group were assessed
+     (ciscat-history, the coverage trend of the dashboard).
 Data contract: CONTRACT.md. Nothing here takes a command from the lists: a list can only choose
 among fixed actions and validated parameters.
 """
@@ -82,6 +84,14 @@ def tick(now):
         if fleet("sync") == 0:
             synced = now.strftime(FMT)
 
+    # 1b. daily coverage snapshot (the first tick of each day)
+    today = now.strftime("%Y-%m-%d")
+    history = None
+    if status.get("scheduler", {}).get("last_history") != today:
+        log("history: coverage of {0}".format(today))
+        if fleet("history", "--day", today) == 0:
+            history = today
+
     # 2. requests (several pending applies run once)
     raw, errors = store.read_list(store.REQUESTS, LISTS_DIR)
     requests, verrors = store.validate_records(raw, store.validate_request)
@@ -143,6 +153,8 @@ def tick(now):
              "tz": time.strftime("%Z"), "utc_offset": time.strftime("%z")}
     if synced:
         sched["last_sync"] = synced
+    if history:
+        sched["last_history"] = history
     patches["scheduler"] = sched
     store.update_records(store.STATUS, patches, LISTS_DIR, RUN_DIR, remove=remove)
 

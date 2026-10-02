@@ -15,6 +15,7 @@ class FakeWazuh:
         self.calls = []
         self.ar = []
         self.reject_auth = False
+        self.sca = {}  # {agent id: {policy id: end_scan}}
         for g in self.groups:
             os.makedirs(os.path.join(shared_dir, g), exist_ok=True)
 
@@ -47,6 +48,12 @@ class FakeWazuh:
             if method == "DELETE" and g in grp:
                 grp.remove(g)
             return {}, False
+        if method == "GET" and path.startswith("/sca/"):
+            aid = path.split("/")[2]
+            policy = query.get("q", "").split("=", 1)[-1]
+            scans = self.sca.get(aid, {})
+            items = [{"policy_id": policy, "end_scan": scans[policy]}] if policy in scans else []
+            return {"affected_items": items, "total_affected_items": len(items)}, False
         if method == "PUT" and path == "/active-response":
             ids = query["agents_list"].split(",")
             self.ar.append((body["command"], ids))
