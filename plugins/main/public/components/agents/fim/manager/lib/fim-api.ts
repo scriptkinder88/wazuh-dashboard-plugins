@@ -135,6 +135,51 @@ export const fetchActiveSyscheck = async (
     {}) as ActiveSyscheck;
 };
 
+// --- path test (FIM inventory) ----------------------------------------------------
+
+export interface PathTestResult {
+  agent: AgentInfo;
+  /** Entries of the FIM inventory under the path, undefined on error. */
+  files?: number;
+  lastScan?: string;
+  error?: string;
+}
+
+/** Characters with a meaning in the q filter of the Wazuh API. */
+const escapeQuery = (value: string) => value.replace(/([,;()\\])/g, '\\$1');
+
+/**
+ * How many entries of each agent's FIM inventory are under a path, and when the
+ * agent last finished a scan: whether the path exists and is monitored there.
+ */
+export const testPathOnAgents = (
+  prefix: string,
+  agents: AgentInfo[],
+): Promise<PathTestResult[]> =>
+  Promise.all(
+    agents.map(async agent => {
+      try {
+        const [inventory, scan] = await Promise.all([
+          WzRequest.apiReq('GET', `/syscheck/${agent.id}`, {
+            params: {
+              q: `file~${escapeQuery(prefix)}`,
+              limit: 1,
+              select: 'file',
+            },
+          }),
+          WzRequest.apiReq('GET', `/syscheck/${agent.id}/last_scan`, {}),
+        ]);
+        const total = (
+          inventory as { data?: { data?: { total_affected_items?: number } } }
+        )?.data?.data?.total_affected_items;
+        const last = items<{ end?: string }>(scan)[0];
+        return { agent, files: Number(total || 0), lastScan: last?.end || '' };
+      } catch (error) {
+        return { agent, error: (error as Error).message || String(error) };
+      }
+    }),
+  );
+
 // --- history -------------------------------------------------------------------
 
 export interface HistoryEntry {

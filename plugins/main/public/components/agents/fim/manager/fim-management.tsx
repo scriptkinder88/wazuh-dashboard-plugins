@@ -231,6 +231,7 @@ export const FimManagement = () => {
           preset={editing.preset}
           groups={groupNames}
           agents={data.agents}
+          rules={rows}
           user={user}
           onClose={() => setEditing(undefined)}
           onSubmit={change =>

@@ -24,6 +24,27 @@ Everything else in the file is kept byte for byte: other modules, syscheck setti
   reason, ticket, owner, author and date. Rules that were already in the groups are shown as
   imported.
 
+## Checks while writing a rule
+
+The form points out rules the manager accepts but that do not do what they seem to, with a fix
+in one click where there is one:
+
+- **Wildcards in exclusions:** `*` and `?` work in Monitor rules (expanded at each scheduled
+  scan), but Ignore and No diff compare the path literally. An sregex has no wildcard either: it
+  only knows `^` (start), `$` (end) and `|` (or), so `/opt/app/tls/*` becomes the folder
+  `/opt/app/tls`, and `*.log` the sregex `.log$`.
+- **`folder/*` in a Monitor rule:** the folder itself is better, since new files are detected at
+  once and real time and who-data watch the folder.
+- **Path format:** absolute paths, Windows paths in Windows rules and Linux paths in Linux rules,
+  registry keys starting with `HKEY_`.
+- **Report changes on keys and certificates:** the changed content would be saved on the manager.
+- **Overlaps** with the rules of the chosen groups: a path already monitored by a parent folder
+  (the most specific path's options win), a Monitor rule disabled by an Ignore rule, or the same
+  path twice.
+
+**Test the path** shows, for up to 5 agents of the chosen groups and servers, how many entries of
+their FIM inventory are under the path and when their last scan ended.
+
 ## Applying a change
 
 1. **Preview:** every change shows each group's `agent.conf` diff, the agents that will reload the

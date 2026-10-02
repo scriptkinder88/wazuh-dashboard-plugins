@@ -3,7 +3,7 @@
  * platform, for which groups and servers, and why.
  */
 /* eslint-disable camelcase */ // attribute names are the agent.conf ones
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   EuiButton,
   EuiButtonEmpty,
@@ -18,9 +18,11 @@ import {
   EuiFlyoutHeader,
   EuiForm,
   EuiFormRow,
+  EuiLoadingSpinner,
   EuiSelect,
   EuiSpacer,
   EuiSwitch,
+  EuiText,
   EuiTitle,
 } from '@elastic/eui';
 import {
@@ -33,6 +35,96 @@ import {
   validateRule,
 } from './lib/agent-conf';
 import { AgentInfo, RuleChange, RuleRow } from './lib/plan';
+import {
+  Hint,
+  HintFix,
+  inventoryPrefix,
+  isExclusion,
+  overlapHints,
+  pathHints,
+  rulePaths,
+} from './lib/path-checks';
+import { PathTestResult, testPathOnAgents } from './lib/fim-api';
+
+/** Agents the path test runs on: the chosen servers, then agents of the groups. */
+const TEST_AGENTS = 5;
+
+const HintList = ({
+  hints,
+  onFix,
+  testSubj,
+}: {
+  hints: Hint[];
+  onFix: (fix: HintFix) => void;
+  testSubj: string;
+}) =>
+  hints.length ? (
+    <EuiCallOut
+      size='s'
+      color='warning'
+      iconType='alert'
+      title={
+        hints.length === 1
+          ? 'Check this rule'
+          : `Check this rule (${hints.length})`
+      }
+      data-test-subj={testSubj}
+    >
+      {hints.map(h => (
+        <div key={h.message} style={{ marginBottom: 4 }}>
+          <EuiText size='xs'>
+            <p>{h.message}</p>
+          </EuiText>
+          {(h.fixes || []).map(f => (
+            <EuiButtonEmpty
+              key={f.label}
+              size='xs'
+              flush='left'
+              onClick={() => onFix(f)}
+              data-test-subj='fim-rule-fix'
+            >
+              {f.label}
+            </EuiButtonEmpty>
+          ))}
+        </div>
+      ))}
+    </EuiCallOut>
+  ) : null;
+
+const testOutcome = (r: PathTestResult) => {
+  if (r.error) {
+    return `cannot read the inventory (${r.error})`;
+  }
+  return r.files
+    ? `${r.files} entries`
+    : 'none (the path does not exist there or is not monitored yet)';
+};
+
+const PathTest = ({
+  results,
+  prefix,
+}: {
+  results: PathTestResult[];
+  prefix: string;
+}) => (
+  <EuiText size='xs' data-test-subj='fim-path-test'>
+    <p>
+      FIM inventory entries under <code>{prefix}</code>:
+    </p>
+    <ul>
+      {results.map(r => (
+        <li key={r.agent.id}>
+          {r.agent.name} ({r.agent.id}
+          {r.agent.status !== 'active' ? `, ${r.agent.status}` : ''}):{' '}
+          {testOutcome(r)}
+          {r.lastScan
+            ? ` · last scan ${new Date(r.lastScan).toLocaleString()}`
+            : ''}
+        </li>
+      ))}
+    </ul>
+  </EuiText>
+);
 
 type Platform = 'any' | 'Linux' | 'Windows' | 'keep';
 type Mode = 'scheduled' | 'realtime' | 'whodata';
@@ -156,6 +248,7 @@ export const RuleFlyout = ({
   preset,
   groups,
   agents,
+  rules = [],
   user,
   onClose,
   onSubmit,
@@ -166,6 +259,8 @@ export const RuleFlyout = ({
   preset?: RuleRow;
   groups: string[];
   agents: AgentInfo[];
+  /** Rules already in the groups, to point out overlaps. */
+  rules?: RuleRow[];
   user: string;
   onClose: () => void;
   onSubmit: (change: RuleChange) => void;
@@ -205,6 +300,67 @@ export const RuleFlyout = ({
       ? []
       : ['choose at least one group or server']),
   ];
+
+  const hints = pathHints({
+    kind: form.kind,
+    path: form.path,
+    sregex: form.sregex,
+    reportChanges: form.reportChanges,
+    platform: form.platform === 'keep' ? '' : form.platform,
+  });
+  const overlaps = overlapHints(
+    {
+      kind: rule.kind,
+      path: rule.path,
+      filter: rule.filter,
+      sregex: form.sregex,
+    },
+    form.groups,
+    form.hostIds,
+    rules,
+    row?.key,
+  );
+  const applyFix = (fix: HintFix) => update(fix.patch);
+
+  // path test: the chosen servers first, then agents of the chosen groups, active first
+  const testAgents = useMemo(() => {
+    const byId = new Map(agents.map(a => [a.id, a]));
+    const hosts = form.hostIds
+      .map(id => byId.get(id))
+      .filter(Boolean) as AgentInfo[];
+    const members = agents
+      .filter(
+        a =>
+          !form.hostIds.includes(a.id) &&
+          a.groups.some(g => form.groups.includes(g)),
+      )
+      .sort(
+        (a, b) => Number(b.status === 'active') - Number(a.status === 'active'),
+      );
+    return [...hosts, ...members].slice(0, TEST_AGENTS);
+  }, [agents, form.groups, form.hostIds]);
+  const testPrefix = inventoryPrefix(rulePaths(form.kind, form.path)[0] || '');
+  const canTest =
+    !!testPrefix &&
+    testAgents.length > 0 &&
+    !form.kind.includes('registry') &&
+    !(isExclusion(form.kind) && form.sregex);
+  const [test, setTest] = useState<{
+    prefix: string;
+    results?: PathTestResult[];
+  }>();
+  useEffect(() => setTest(undefined), [testPrefix, testAgents]);
+  const plural = testAgents.length === 1 ? '' : 's';
+  const testLabel = testAgents.length
+    ? `Test the path on ${testAgents.length} agent${plural} of the targets`
+    : 'Test the path (choose groups or servers first)';
+  const runTest = async () => {
+    setTest({ prefix: testPrefix });
+    setTest({
+      prefix: testPrefix,
+      results: await testPathOnAgents(testPrefix, testAgents),
+    });
+  };
 
   const agentOptions = agents.map(a => ({
     label: `${a.name} (${a.id})`,
@@ -269,6 +425,8 @@ export const RuleFlyout = ({
               data-test-subj='fim-rule-path'
             />
           </EuiFormRow>
+          <HintList hints={hints} onFix={applyFix} testSubj='fim-rule-hints' />
+          {hints.length > 0 && <EuiSpacer size='s' />}
           <EuiFormRow
             label='Platform'
             helpText='Agents whose operating system the rule applies to.'
@@ -389,6 +547,26 @@ export const RuleFlyout = ({
               data-test-subj='fim-rule-hosts'
             />
           </EuiFormRow>
+          <HintList
+            hints={overlaps}
+            onFix={applyFix}
+            testSubj='fim-rule-overlaps'
+          />
+          <EuiSpacer size='s' />
+          <EuiButtonEmpty
+            size='xs'
+            iconType='search'
+            flush='left'
+            isDisabled={!canTest}
+            onClick={runTest}
+            data-test-subj='fim-path-test-run'
+          >
+            {testLabel}
+          </EuiButtonEmpty>
+          {test && !test.results && <EuiLoadingSpinner size='m' />}
+          {test?.results && (
+            <PathTest results={test.results} prefix={test.prefix} />
+          )}
           <EuiSpacer size='m' />
           <EuiTitle size='xxs'>
             <h4>Audit</h4>
