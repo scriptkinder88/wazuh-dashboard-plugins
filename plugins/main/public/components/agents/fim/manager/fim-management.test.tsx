@@ -80,6 +80,18 @@ const handle = (method: string, path: string, body: any) => {
       })),
     });
   }
+  if (method === 'GET' && (m = path.match(/^\/syscheck\/(\d+)$/))) {
+    const files =
+      m[1] === '001' ? ['/etc/nginx/nginx.conf', '/etc/nginx/mime.types'] : [];
+    const prefix = String(body.params.q).replace(/^file~/, '');
+    return ok({
+      affected_items: [],
+      total_affected_items: files.filter(f => f.startsWith(prefix)).length,
+    });
+  }
+  if (method === 'GET' && (m = path.match(/^\/syscheck\/(\d+)\/last_scan$/))) {
+    return ok({ affected_items: [{ end: '2026-10-02T10:00:00Z' }] });
+  }
   if (method === 'GET' && path.endsWith('/config/syscheck/syscheck')) {
     return ok({ syscheck: activeSyscheck });
   }
@@ -203,6 +215,34 @@ describe('FIM rules management tab', () => {
       }),
     );
     expect(agentGroups['009']).toContain('fim-host-009');
+  });
+
+  it('points out a wildcard exclusion, fixes it and tests the path', async () => {
+    render(<FimManagement />);
+    fireEvent.click(await screen.findByTestId('fim-rule-add'));
+    fireEvent.change(screen.getByTestId('fim-rule-kind'), {
+      target: { value: 'ignore' },
+    });
+    fireEvent.change(screen.getByTestId('fim-rule-path'), {
+      target: { value: '/etc/nginx/*' },
+    });
+    const hints = screen.getByTestId('fim-rule-hints');
+    expect(hints.textContent).toMatch(/literal characters/);
+    fireEvent.click(within(hints).getByText('Exclude the folder /etc/nginx'));
+    expect(
+      (screen.getByTestId('fim-rule-path') as HTMLInputElement).value,
+    ).toBe('/etc/nginx');
+    expect(screen.queryByTestId('fim-rule-hints')).toBeNull();
+
+    await pick('fim-rule-groups', 'web');
+    expect(screen.getByTestId('fim-rule-overlaps').textContent).toContain(
+      'This exclusion stops the monitoring of /etc/nginx (Monitor rule in web).',
+    );
+
+    fireEvent.click(screen.getByTestId('fim-path-test-run'));
+    const test = await screen.findByTestId('fim-path-test');
+    expect(test.textContent).toContain('web-01 (001): 2 entries');
+    expect(calls).toContain('GET /syscheck/001');
   });
 
   it('removes a rule and keeps the previous version', async () => {
