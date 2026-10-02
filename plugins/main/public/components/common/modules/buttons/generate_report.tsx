@@ -17,7 +17,10 @@ import { ReportingService } from '../../../../react-services';
 import $ from 'jquery';
 import { WzButton } from '../../../common/buttons';
 import { connect } from 'react-redux';
-import { ScaReportAgentSelector } from './sca-report-agent-selector';
+import {
+  ScaReportAgentSelector,
+  ScaReportOptions,
+} from './sca-report-agent-selector';
 
 const mapStateToProps = state => ({
   dataSourceSearchContext: state.reportingReducers.dataSourceSearchContext,
@@ -37,11 +40,14 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
     const totalResults = dataSourceSearchContext?.totalResults;
 
     const action = useAsyncAction(
-      async (scaAgentIds: string[] = []) => {
+      async (
+        scaAgentIds: string[] = [],
+        scaOptions: ScaReportOptions = { details: false },
+      ) => {
         const reportingService = new ReportingService();
 
         if (isScaReport) {
-          await reportingService.startScaReport(scaAgentIds);
+          await reportingService.startScaReport(scaAgentIds, scaOptions);
           return;
         }
 
@@ -101,8 +107,8 @@ export const ButtonModuleGenerateReport = connect(mapStateToProps)(
           <ScaReportAgentSelector
             initialAgentId={agent?.id}
             onCancel={() => setIsScaSelectorOpen(false)}
-            onGenerate={async agentIds => {
-              await action.run(agentIds);
+            onGenerate={async (agentIds, options) => {
+              await action.run(agentIds, options);
               setIsScaSelectorOpen(false);
             }}
           />
