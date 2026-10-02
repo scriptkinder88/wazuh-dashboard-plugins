@@ -39,12 +39,14 @@ class Scheduler(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         return r.stdout
 
-    def calls(self):
+    def calls(self, history=False):
+        """Fleet calls, without the daily history snapshot unless asked."""
         try:
             with open(self.calls_file) as f:
-                return [json.loads(line) for line in f]
+                calls = [json.loads(line) for line in f]
         except FileNotFoundError:
             return []
+        return [c for c in calls if history or c[0] != "history"]
 
     def wait_calls(self, n):
         """Triggers are detached processes: wait for their calls to land."""
@@ -58,6 +60,14 @@ class Scheduler(unittest.TestCase):
 
     def status(self):
         return store.read_list(store.STATUS, self.lists)[0]
+
+    def test_history_is_recorded_once_a_day(self):
+        self.tick("2026-10-01T10:00:00")
+        self.tick("2026-10-01T23:55:00")
+        self.tick("2026-10-02T00:00:00")
+        self.assertEqual([c for c in self.calls(history=True) if c[0] == "history"],
+                         [["history", "--day", "2026-10-01"], ["history", "--day", "2026-10-02"]])
+        self.assertEqual(self.status()["scheduler"]["last_history"], "2026-10-02")
 
     def test_sync_is_hourly(self):
         self.tick("2026-10-01T10:00:00")

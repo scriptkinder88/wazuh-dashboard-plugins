@@ -35,6 +35,7 @@ Each file has exactly one writer, so the two sides never overwrite each other.
 | `ciscat-oskeys`         | master    | os key                                                                                       | OS entry       |
 | `ciscat-targets`        | dashboard | os key                                                                                       | target group   |
 | `ciscat-bench-<os_key>` | master    | rule number, plus `_meta`                                                                    | benchmark rule |
+| `ciscat-history`        | master    | day, `YYYY-MM-DD` in the master time zone                                                    | coverage       |
 
 The exclusion key is derived from the record itself, so the same exclusion cannot appear twice.
 The master rejects a record whose key does not match it.
@@ -88,6 +89,12 @@ removes old processed requests. Two actions exist:
 | `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded) |
 | `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed`                                                      |
 | `requests`      | `processed`: request keys already handled                                                                                   |
+
+**Coverage** (`ciscat-history`, written by the master once a day, the last 400 days):
+`stale_days` (35) and `os`, `{os_key: {group, expected, assessed, disconnected}}` for each active OS
+whose group exists. `expected` counts the agents of the group, `assessed` those with a scan of the
+OS policy in the last `stale_days` days, and `disconnected` the agents not assessed that are not
+connected.
 
 **Benchmark** (`ciscat-bench-<os_key>`, written by the master from the XCCDF)
 
