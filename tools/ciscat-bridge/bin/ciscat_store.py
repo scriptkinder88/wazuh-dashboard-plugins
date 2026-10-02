@@ -33,6 +33,7 @@ REQUESTS = "ciscat-requests"
 STATUS = "ciscat-status"
 OSKEYS = "ciscat-oskeys"
 TARGETS = "ciscat-targets"
+HISTORY = "ciscat-history"
 BENCH_PREFIX = "ciscat-bench-"
 SCHEMA_VERSION = 1
 

@@ -20,9 +20,10 @@ Actions:
   plan      dry-run of apply
   apply     regenerate custom XCCDF + policies, publish groups, assign agents to combos
   trigger   bootstrap + assessment on the agents of the target OSes, in waves
+  history   coverage of the day per OS (ciscat-history), run daily by the scheduler
   report    SCA scores per agent
 """
-import argparse, csv, hashlib, io, json, os, shutil, ssl, subprocess, sys, time
+import argparse, csv, hashlib, io, json, os, re, shutil, ssl, subprocess, sys, time
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -33,7 +34,7 @@ import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 import ciscat_platform as platform  # noqa: E402
 
-VERSION = "3.0.5"
+VERSION = "3.0.6"
 PLATFORM = platform.detect()
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
@@ -773,6 +774,82 @@ def act_report():
                 print("{0:<5} {1:<28} ERROR: {2}".format(aid, aname, e))
 
 
+# ----------------------------------------------------------------- coverage history
+HISTORY_DAYS = 400
+STALE_DAYS = 35  # an agent without a scan of its CIS-CAT policy for longer is not assessed
+
+
+def parse_scan_time(value):
+    try:
+        t = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.astimezone()
+
+
+def group_members(token, group):
+    """[(id, status)] of every agent of a group, connected or not."""
+    out, offset = [], 0
+    while True:
+        data = api_json("GET", "/groups/{0}/agents?limit=500&offset={1}&select=id,status".format(
+            urllib.parse.quote(group), offset), token)
+        items = data.get("affected_items", [])
+        out += [(a["id"], a.get("status")) for a in items if a["id"] != "000"]
+        offset += len(items)
+        if not items or offset >= data.get("total_affected_items", 0):
+            return out
+
+
+def act_history(day=None):
+    """Coverage of the day (ciscat-history): per OS, the agents of its group, those assessed, and
+    the disconnected ones among the others.
+
+    4.x: assessed = a scan of the OS policy in the last STALE_DAYS days (end_scan of the SCA API).
+    Wazuh 5.0 keeps no scan time (state.modified_at is when a result was written), so there an
+    agent is assessed when the SCA states index holds results of the OS policy for it, and the
+    record has stale_days 0."""
+    ix = indexer_or_exit("history") if PLATFORM == 5 else None
+    token = get_token()
+    now = datetime.now().astimezone()
+    day = day or now.strftime("%Y-%m-%d")
+    stale_days = 0 if ix else STALE_DAYS
+    groups = existing_groups(token)
+    per_os = {}
+    for os_key, cfg in OS_LIBRARY.items():
+        if not cfg["active"] or cfg["group"] not in groups:
+            continue
+        with_results = set(sca_counts(ix, cfg["policy_id"])) if ix else None
+        rec = {"group": cfg["group"], "expected": 0, "assessed": 0, "disconnected": 0}
+        for aid, status in group_members(token, cfg["group"]):
+            rec["expected"] += 1
+            if ix:
+                assessed = aid in with_results
+            else:
+                try:
+                    items = api_json("GET", "/sca/{0}?q=policy_id={1}&select=end_scan".format(
+                        aid, cfg["policy_id"]), token).get("affected_items", [])
+                except Exception as e:  # an agent that never reported SCA is not assessed
+                    print("  [{0}] agent {1}: {2}".format(os_key, aid, e))
+                    items = []
+                end = parse_scan_time(items[0].get("end_scan")) if items else None
+                assessed = bool(end and (now - end).days < STALE_DAYS)
+            if assessed:
+                rec["assessed"] += 1
+            elif status != "active":
+                rec["disconnected"] += 1
+        per_os[os_key] = rec
+        print("[{0}] {1}: {2}/{3} assessed{4}, {5} not assessed and disconnected".format(
+            os_key, cfg["group"], rec["assessed"], rec["expected"],
+            " in the last {0} days".format(stale_days) if stale_days else " (with results)",
+            rec["disconnected"]))
+    old, _ = store.read_list(store.HISTORY, PATHS["lists_dir"])
+    keep = sorted(k for k in old if k != day)[-(HISTORY_DAYS - 1):]
+    store.update_records(store.HISTORY, {day: {"stale_days": stale_days, "os": per_os}},
+                         PATHS["lists_dir"], PATHS["run_dir"],
+                         remove=[k for k in old if k not in keep and k != day])
+    print("coverage of {0} recorded for {1} OS(es)".format(day, len(per_os)))
+
+
 def load_api_credentials(args):
     """API credentials without putting the password on the command line (visible in ps).
     Order: --password, $WAZUH_API_PASSWORD, --password-file, api_pass_file/api_user in
@@ -809,7 +886,8 @@ def load_api_credentials(args):
 
 def main():
     ap = argparse.ArgumentParser(description="CIS-CAT / Wazuh SCA fleet orchestrator")
-    ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "report", "version"])
+    ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "history", "report",
+                                       "version"])
     ap.add_argument("--password", help="Wazuh API password (visible in ps: prefer the file)")
     ap.add_argument("--password-file", help="file with the API password (default: api_pass_file "
                     "in " + ORCH_CONF + ")")
@@ -820,6 +898,7 @@ def main():
     ap.add_argument("--wave-pause", type=int, default=0, help="trigger: seconds between waves")
     ap.add_argument("--job", help="trigger: schedule job key, for ciscat-status")
     ap.add_argument("--request", help="apply: request key, for ciscat-status")
+    ap.add_argument("--day", help="history: day of the snapshot (YYYY-MM-DD, default today)")
     args = ap.parse_args()
     if args.action == "version":
         print(VERSION); return 0
@@ -835,6 +914,10 @@ def main():
             sys.exit("--wave-size must be >= 1 and --wave-pause >= 0")
         targets = [t.strip() for t in args.targets.split(",") if t.strip()]
         return act_trigger(targets, args.wave_size, args.wave_pause, args.job)
+    if args.action == "history":
+        if args.day and not re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", args.day):
+            sys.exit("--day must be YYYY-MM-DD")
+        return act_history(args.day)
     return act_report()
 
 

@@ -58,6 +58,10 @@ agent: Active Response → Assessor → flatten file → SCA policy → results 
 - **Schedules:** a job runs once, monthly (day N, or N days before the month end) or weekly, in
   waves of N agents with a pause between waves. "Run now" starts a run right away. Times are in
   the manager's time zone. A run missed by more than 6 hours is reported, not run late.
+- **Coverage trend:** once a day the scheduler records, per OS, how many agents of its group have a
+  scan of the CIS-CAT policy from the last 35 days (`ciscat-history`). The tab shows it as a line
+  chart above the tabs. On Wazuh 5.0, which keeps no scan time, it counts the agents that have
+  results of the CIS-CAT policy.
 - **Status:** the tab shows the scheduler heartbeat, the last apply per OS, recent runs, and the
   disconnected agents that were skipped.
 

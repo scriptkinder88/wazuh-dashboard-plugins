@@ -16,6 +16,7 @@ export const CISCAT_LISTS = {
   status: 'ciscat-status',
   oskeys: 'ciscat-oskeys',
   targets: 'ciscat-targets',
+  history: 'ciscat-history',
 };
 export const CISCAT_BENCH_PREFIX = 'ciscat-bench-';
 export const CISCAT_SCHEMA_VERSION = 1;

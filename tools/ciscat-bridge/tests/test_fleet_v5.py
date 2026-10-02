@@ -68,11 +68,11 @@ class FleetV5(unittest.TestCase):
     def triggers(self):
         return self.ix.streams.get("wazuh-findings-v5-ciscat", [])
 
-    def status(self):
+    def status(self, name=store.STATUS):
         os.environ["CISCAT_INDEXER_CONF"] = self.conf
         try:
             store._INDEXERS.clear()
-            return store.read_list(store.STATUS)[0]
+            return store.read_list(name)[0]
         finally:
             os.environ.pop("CISCAT_INDEXER_CONF")
             store._INDEXERS.clear()
@@ -138,6 +138,19 @@ class FleetV5(unittest.TestCase):
         self.assertEqual(rows["001"][1:], ["web-01", pid, "6", "3", "1", "2", "75"])
         self.assertEqual(rows["002"][3:], ["2", "0", "2", "0", "0"])
         self.assertIn("no results yet", " ".join(rows["004"]))
+        self.assertNotIn("/sca/", " ".join(c[1] for c in self.api.calls))
+
+    def test_history_counts_the_agents_with_results(self):
+        pid = "cis_rhel7_tailored_l1_server"
+        self.ix.sca_states = [("001", pid, "Passed"), ("002", "other", "Failed")]
+        out = self.fleet("history", "--day", "2026-10-02")
+        self.assertIn("[rhel7] os-rhel7: 1/3 assessed (with results), 1 not assessed and "
+                      "disconnected", out)
+        self.assertEqual(self.status(store.HISTORY)["2026-10-02"], {
+            "v": 1, "stale_days": 0, "os": {
+                "rhel7": {"group": "os-rhel7", "expected": 3, "assessed": 1, "disconnected": 1},
+                "windows_server_2025": {"group": "os-windows_server_2025", "expected": 1,
+                                        "assessed": 0, "disconnected": 0}}})
         self.assertNotIn("/sca/", " ".join(c[1] for c in self.api.calls))
 
 
