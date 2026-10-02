@@ -133,6 +133,8 @@ describe('EditAgentsGroupsModal component', () => {
   };
 
   test('should create a new group and add the agents to it', async () => {
+    (createGroupService as jest.Mock).mockClear();
+    (addAgentsToGroupService as jest.Mock).mockClear();
     (useGetGroups as jest.Mock).mockReturnValue({
       isLoading: false,
       groups: ['default'],
