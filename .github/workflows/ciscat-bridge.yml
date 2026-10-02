@@ -1,0 +1,41 @@
+# CIS-CAT bridge master tooling (tools/ciscat-bridge): Python unit and
+# integration tests, and a build of the self-contained installer.
+# The fleet integration test needs licensed CIS benchmarks and is skipped here.
+name: CIS-CAT bridge
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - 4.*
+      - 5.*
+    paths:
+      - tools/ciscat-bridge/**
+      - plugins/main/common/ciscat/**
+      - .github/workflows/ciscat-bridge.yml
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Bridge tests and installer build
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        # RHEL 9 master ships 3.9
+        python: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit and integration tests
+        run: python -m unittest discover -s tools/ciscat-bridge/tests -v
+      - name: Build the installer
+        run: |
+          python tools/ciscat-bridge/installer/build.py
+          sh -n tools/ciscat-bridge/dist/ciscat-bridge-install-*.sh
+          cat tools/ciscat-bridge/dist/*.sha256

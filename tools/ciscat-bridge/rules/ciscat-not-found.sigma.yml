@@ -1,0 +1,25 @@
+# CIS-CAT bridge (tools/ciscat-bridge), Wazuh 5.0: the counterpart of ciscat_rules.xml (4.x).
+# ciscat-refresh.sh (Linux) and ciscat-assessment.ps1 (Windows) log this line to the agent's
+# active-responses.log when CIS-CAT Pro is not installed, then withdraw the previous results.
+# Import it as a custom rule through the Wazuh indexer content manager (see README.md).
+title: CIS-CAT Pro not found on a Wazuh agent
+id: 6ed6d92c-9f03-5136-bdb1-8591253d59b2
+status: experimental
+description: >-
+  CIS-CAT Pro is not installed on the agent: the CIS-CAT assessment stopped and the previous
+  results were withdrawn from SCA.
+author: CIS-CAT bridge
+date: 2026-10-01
+tags:
+  - sca
+  - ciscat
+logsource:
+  product: wazuh
+  service: active-responses
+detection:
+  selection:
+    event.original|contains: 'CIS-CAT Pro not found on'
+  condition: selection
+falsepositives:
+  - An agent of a CIS-CAT OS group that is not meant to run CIS-CAT Pro.
+level: medium
