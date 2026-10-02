@@ -24,6 +24,20 @@ configure({ testIdAttribute: 'data-test-subj' });
 const files: Record<string, string> = {};
 const writes: Array<[string, ListRecords]> = [];
 
+jest.mock(
+  '@osd/ui-shared-deps/theme',
+  () => ({
+    euiThemeVars: {
+      euiColorPrimary: '#006BB4',
+      euiColorLightShade: '#D3DAE6',
+      euiColorDarkShade: '#69707D',
+      euiColorEmptyShade: '#FFF',
+      euiTextSubduedColor: '#6a717d',
+    },
+  }),
+  { virtual: true },
+);
+
 jest.mock('../../../../kibana-services', () => ({
   getToasts: () => ({ addSuccess: jest.fn(), addDanger: jest.fn() }),
   getHttp: () => ({ get: jest.fn() }),
@@ -206,6 +220,57 @@ describe('CIS-CAT management tab', () => {
         wave_pause_s: 300,
       }),
     ]);
+  });
+
+  it('shows the coverage trend per benchmark', async () => {
+    files['ciscat-history'] = renderList({
+      '2026-09-30': {
+        v: 1,
+        os: {
+          rhel7: { expected: 4, assessed: 1, disconnected: 2 },
+          win: { expected: 2, assessed: 2, disconnected: 0 },
+        },
+      },
+      '2026-10-01': {
+        v: 1,
+        os: {
+          rhel7: { expected: 4, assessed: 2, disconnected: 1 },
+          win: { expected: 2, assessed: 2, disconnected: 0 },
+        },
+      },
+    });
+    render(<CiscatManagement />);
+    const latest = await screen.findByTestId('ciscat-coverage-latest');
+    expect(latest.textContent).toContain('66.7% (4 of 6 agents)');
+    expect(latest.textContent).toContain('1 not assessed and disconnected');
+
+    fireEvent.change(screen.getByTestId('ciscat-coverage-os'), {
+      target: { value: 'rhel7' },
+    });
+    expect(screen.getByTestId('ciscat-coverage-latest').textContent).toContain(
+      '50% (2 of 4 agents)',
+    );
+    expect(
+      within(screen.getByTestId('ciscat-coverage-os')).getByText(
+        'Red Hat Enterprise Linux 7',
+      ),
+    ).toBeTruthy();
+
+    // the tooltip follows the pointer
+    const hover = screen.getByTestId('ciscat-coverage-hover');
+    hover.getBoundingClientRect = () =>
+      ({ left: 0, width: 100, top: 0, height: 100 } as DOMRect);
+    fireEvent.mouseMove(hover, { clientX: 100 });
+    expect(screen.getByTestId('ciscat-coverage-tooltip').textContent).toContain(
+      '50% (2 of 4 agents)',
+    );
+    fireEvent.mouseLeave(hover);
+    expect(screen.queryByTestId('ciscat-coverage-tooltip')).toBeNull();
+  });
+
+  it('explains an empty coverage trend', async () => {
+    render(<CiscatManagement />);
+    expect(await screen.findByTestId('ciscat-coverage-empty')).toBeTruthy();
   });
 
   it('shows the scheduler state', async () => {
