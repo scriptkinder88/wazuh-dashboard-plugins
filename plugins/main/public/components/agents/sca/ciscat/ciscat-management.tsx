@@ -27,6 +27,7 @@ import {
 import { ExclusionsPanel } from './exclusions-panel';
 import { SchedulePanel } from './schedule-panel';
 import { StatusPanel } from './status-panel';
+import { CoveragePanel } from './coverage-panel';
 
 export interface CiscatData {
   oskeys: ListRecords;
@@ -35,6 +36,7 @@ export interface CiscatData {
   schedule: LoadedList;
   requests: LoadedList;
   targets: LoadedList;
+  history: ListRecords;
 }
 
 type TabId = 'exclusions' | 'schedule' | 'status';
@@ -57,7 +59,7 @@ export const CiscatManagement = () => {
     setError('');
     try {
       const existing = await existingLists();
-      const [oskeys, status, exclusions, schedule, requests, targets] =
+      const [oskeys, status, exclusions, schedule, requests, targets, history] =
         await Promise.all([
           readList(CISCAT_LISTS.oskeys, existing),
           readList(CISCAT_LISTS.status, existing),
@@ -65,6 +67,7 @@ export const CiscatManagement = () => {
           readList(CISCAT_LISTS.schedule, existing),
           readList(CISCAT_LISTS.requests, existing),
           readList(CISCAT_LISTS.targets, existing),
+          readList(CISCAT_LISTS.history, existing),
         ]);
       setData({
         oskeys: oskeys.records,
@@ -73,6 +76,7 @@ export const CiscatManagement = () => {
         schedule,
         requests,
         targets,
+        history: history.records,
       });
     } catch (e) {
       setError((e as Error).message || String(e));
@@ -113,7 +117,13 @@ export const CiscatManagement = () => {
           </EuiButtonEmpty>
         </EuiFlexItem>
       </EuiFlexGroup>
-      <EuiSpacer size='s' />
+      <EuiSpacer size='m' />
+      {data && !noBridge && (
+        <>
+          <CoveragePanel data={data} />
+          <EuiSpacer size='m' />
+        </>
+      )}
       <EuiTabs size='s'>
         {TABS.map(t => (
           <EuiTab
