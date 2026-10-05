@@ -1,0 +1,12 @@
+<!-- Managed by Terraform (group ${group}): changes made elsewhere are overwritten. -->
+<agent_config%{ if os != null } os="${os}"%{ endif }>
+  <syscheck>
+%{ for k, v in options ~}
+    <${k}>${v}</${k}>
+%{ endfor ~}
+%{ for r in rules ~}
+    <!-- wz-fim ${r.meta} -->
+    <${r.kind}%{ for k, v in r.attrs } ${k}="${v}"%{ endfor }>${r.path}</${r.kind}>
+%{ endfor ~}
+  </syscheck>
+</agent_config>
