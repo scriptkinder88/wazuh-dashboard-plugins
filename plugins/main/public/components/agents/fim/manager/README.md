@@ -43,7 +43,7 @@ in one click where there is one:
   path twice.
 
 - **Groups managed by Terraform:** groups whose `agent.conf` starts with `<!-- Managed by
-  Terraform` are written by the Terraform module of the CIS-CAT bridge
+Terraform` are written by the Terraform module of the CIS-CAT bridge
   (`tools/ciscat-bridge/terraform`); the form warns that a change made here is overwritten at the
   next `terraform apply`.
 
