@@ -141,7 +141,7 @@ export class ReportingService {
     return store.getState().reportingReducers?.dataSourceSearchContext;
   }
 
-  async startScaReport(agentIds) {
+  async startScaReport(agentIds, options = {}) {
     try {
       const agents = [
         ...new Set(
@@ -200,6 +200,7 @@ export class ReportingService {
         agents,
         browserTimezone,
         indexPatternTitle: indexPattern?.title,
+        scaOptions: { details: options?.details === true },
         apiId: JSON.parse(AppState.getCurrentAPI()).id,
       };
 

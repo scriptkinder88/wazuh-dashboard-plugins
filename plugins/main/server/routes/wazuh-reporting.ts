@@ -92,6 +92,11 @@ export function WazuhReportingRoutes(router: IRouter) {
             ]),
           ),
           indexPatternTitle: schema.maybe(schema.string()),
+          scaOptions: schema.maybe(
+            schema.object({
+              details: schema.maybe(schema.boolean()),
+            }),
+          ),
           apiId: schema.string(),
         }),
         params: schema.object({
