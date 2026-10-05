@@ -21,6 +21,8 @@ Actions:
   apply     regenerate custom XCCDF + policies, publish groups, assign agents to combos
   trigger   bootstrap + assessment on the agents of the target OSes, in waves
   history   coverage of the day per OS (ciscat-history), run daily by the scheduler
+  baseline  groups owned by infrastructure code (Terraform): create them, write their agent.conf,
+            add the listed agents (--file baseline.json)
   report    SCA scores per agent
 """
 import argparse, csv, hashlib, io, json, os, re, shutil, ssl, subprocess, sys, time
@@ -34,7 +36,7 @@ import ciscat_store as store  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 import ciscat_platform as platform  # noqa: E402
 
-VERSION = "3.0.6"
+VERSION = "3.0.7"
 PLATFORM = platform.detect()
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
@@ -172,7 +174,7 @@ def sha256(path):
     return h.hexdigest()
 
 
-def api_call(method, endpoint, token=None, body=None):
+def api_call(method, endpoint, token=None, body=None, raw=None):
     ctx = ssl._create_unverified_context()  # local manager API, self-signed certificate
     req = urllib.request.Request(API["url"] + endpoint, method=method)
     if token:
@@ -184,12 +186,15 @@ def api_call(method, endpoint, token=None, body=None):
     if body is not None:
         req.add_header("Content-Type", "application/json")
         req.data = json.dumps(body).encode()
+    elif raw is not None:  # an agent.conf: the API only takes it as XML
+        req.add_header("Content-Type", "application/xml")
+        req.data = raw.encode()
     with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
         return r.read().decode()
 
 
-def api_json(method, endpoint, token, body=None):
-    data = json.loads(api_call(method, endpoint, token, body))
+def api_json(method, endpoint, token, body=None, raw=None):
+    data = json.loads(api_call(method, endpoint, token, body, raw))
     if data.get("error") not in (0, None):
         raise RuntimeError("API {0} {1}: {2}".format(method, endpoint, data.get("message")))
     return data.get("data", {})
@@ -774,6 +779,69 @@ def act_report():
                 print("{0:<5} {1:<28} ERROR: {2}".format(aid, aname, e))
 
 
+# ----------------------------------------------------------------- baseline groups
+GROUP_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def load_baseline(path):
+    """{group: {"agent_conf": str, "agents": [names]}} from a baseline file, validated."""
+    with open(path, encoding="utf-8") as f:
+        spec = json.load(f)
+    groups = spec.get("groups") if isinstance(spec, dict) else None
+    if not isinstance(groups, dict):
+        sys.exit("baseline: {0} needs a \"groups\" object".format(path))
+    out = {}
+    for name, g in sorted(groups.items()):
+        if not GROUP_RE.match(name) or name in (".", "..", "default"):
+            sys.exit("baseline: invalid group name {0!r}".format(name))
+        conf = g.get("agent_conf") if isinstance(g, dict) else None
+        agents = g.get("agents", []) if isinstance(g, dict) else None
+        if not isinstance(conf, str) or "<agent_config" not in conf:
+            sys.exit("baseline: group {0}: agent_conf must be an agent.conf text".format(name))
+        if not isinstance(agents, list) or not all(isinstance(a, str) and a for a in agents):
+            sys.exit("baseline: group {0}: agents must be a list of agent names".format(name))
+        out[name] = {"agent_conf": conf, "agents": sorted(set(agents))}
+    return out
+
+
+def act_baseline(path):
+    """Groups owned by infrastructure code: each is created when missing, its agent.conf written
+    when it differs (the manager validates it), and the listed agents added to it. Nothing else is
+    touched: groups and agents not in the file, and agents added by other means, stay as they are.
+    Idempotent: a second run changes nothing."""
+    groups = load_baseline(path)
+    token = get_token()
+    existing = existing_groups(token)
+    agents = {a.get("name"): a for a in api_json(
+        "GET", "/agents?limit=100000&select=id,name,group&q=id!=000", token).get("affected_items", [])}
+    changes, errors = 0, 0
+    for name, g in groups.items():
+        quoted = urllib.parse.quote(name)
+        if name not in existing:
+            api_json("POST", "/groups", token, {"group_id": name})
+            print("[{0}] group created".format(name)); changes += 1
+            current = None
+        else:
+            current = api_call("GET", "/groups/{0}/files/agent.conf?raw=true".format(quoted), token)
+        if current is None or current.strip() != g["agent_conf"].strip():
+            try:
+                api_json("PUT", "/groups/{0}/configuration".format(quoted), token,
+                         raw=g["agent_conf"])
+                print("[{0}] agent.conf written".format(name)); changes += 1
+            except Exception as e:
+                print("[{0}] ERROR agent.conf refused: {1}".format(name, e)); errors += 1
+        for agent in g["agents"]:
+            a = agents.get(agent)
+            if not a:
+                print("[{0}] WARNING agent {1} not found".format(name, agent)); continue
+            if name in (a.get("group") or []):
+                continue
+            api_json("PUT", "/agents/{0}/group/{1}".format(a["id"], quoted), token)
+            print("[{0}] agent {1} ({2}) added".format(name, agent, a["id"])); changes += 1
+    print("baseline: {0} group(s), {1} change(s), {2} error(s)".format(len(groups), changes, errors))
+    return 1 if errors else 0
+
+
 # ----------------------------------------------------------------- coverage history
 HISTORY_DAYS = 400
 STALE_DAYS = 35  # an agent without a scan of its CIS-CAT policy for longer is not assessed
@@ -886,8 +954,8 @@ def load_api_credentials(args):
 
 def main():
     ap = argparse.ArgumentParser(description="CIS-CAT / Wazuh SCA fleet orchestrator")
-    ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "history", "report",
-                                       "version"])
+    ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "history", "baseline",
+                                       "report", "version"])
     ap.add_argument("--password", help="Wazuh API password (visible in ps: prefer the file)")
     ap.add_argument("--password-file", help="file with the API password (default: api_pass_file "
                     "in " + ORCH_CONF + ")")
@@ -899,6 +967,7 @@ def main():
     ap.add_argument("--job", help="trigger: schedule job key, for ciscat-status")
     ap.add_argument("--request", help="apply: request key, for ciscat-status")
     ap.add_argument("--day", help="history: day of the snapshot (YYYY-MM-DD, default today)")
+    ap.add_argument("--file", help="baseline: JSON file of the groups owned by infrastructure code")
     args = ap.parse_args()
     if args.action == "version":
         print(VERSION); return 0
@@ -914,6 +983,10 @@ def main():
             sys.exit("--wave-size must be >= 1 and --wave-pause >= 0")
         targets = [t.strip() for t in args.targets.split(",") if t.strip()]
         return act_trigger(targets, args.wave_size, args.wave_pause, args.job)
+    if args.action == "baseline":
+        if not args.file:
+            sys.exit("baseline needs --file")
+        return act_baseline(args.file)
     if args.action == "history":
         if args.day and not re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", args.day):
             sys.exit("--day must be YYYY-MM-DD")
