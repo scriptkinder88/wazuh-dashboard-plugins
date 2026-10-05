@@ -6,14 +6,14 @@ reads the secrets (for example from Vault, as in `examples/site`) and passes the
 
 ## What Terraform manages, and what it leaves to the dashboard
 
-| Managed by Terraform | Left to the dashboard |
-| --- | --- |
-| Bridge version (the installer and its SHA-256) | FIM rules of every other group |
-| Dashboard plugin version (zip and SHA-256) | CIS-CAT exclusions, target groups, schedules |
-| API and indexer credentials (root-only files) | Groups created from the agent list |
-| Licensed benchmarks in `/opt/ciscat/benchmarks` | Agents added to groups by hand |
-| Groups starting with `baseline-`: their whole `agent.conf` and the agents listed for them | |
-| First CIS-CAT exclusions (CSV seed, imported only by the first install) | |
+| Managed by Terraform                                                                      | Left to the dashboard                        |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Bridge version (the installer and its SHA-256)                                            | FIM rules of every other group               |
+| Dashboard plugin version (zip and SHA-256)                                                | CIS-CAT exclusions, target groups, schedules |
+| API and indexer credentials (root-only files)                                             | Groups created from the agent list           |
+| Licensed benchmarks in `/opt/ciscat/benchmarks`                                           | Agents added to groups by hand               |
+| Groups starting with `baseline-`: their whole `agent.conf` and the agents listed for them |                                              |
+| First CIS-CAT exclusions (CSV seed, imported only by the first install)                   |                                              |
 
 Each object has a single owner, so a `terraform apply` never undoes work done in the dashboard, and
 the dashboard never fights Terraform. In the FIM tab the form warns when a rule targets a group
@@ -69,13 +69,13 @@ installer writes the bridge's indexer configuration from them.
 ```yaml
 groups:
   baseline-linux:
-    os: Linux                 # Linux, Windows, or omit for any
-    agents: [web-01]          # optional: existing agents to add (enrollment groups are better)
-    options: { frequency: "43200" }
+    os: Linux # Linux, Windows, or omit for any
+    agents: [web-01] # optional: existing agents to add (enrollment groups are better)
+    options: { frequency: '43200' }
     fim:
-      - kind: directories     # directories, ignore, nodiff, windows_registry, registry_ignore
+      - kind: directories # directories, ignore, nodiff, windows_registry, registry_ignore
         path: /etc/ssh
-        attrs: { whodata: "yes" }
+        attrs: { whodata: 'yes' }
         reason: who changes access configuration
         ticket: CHG-1234
         owner: SOC

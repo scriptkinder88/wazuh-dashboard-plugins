@@ -6,17 +6,17 @@ groups:
   baseline-linux:
     os: Linux
     options:
-      frequency: "43200"
+      frequency: '43200'
     fim:
       - kind: directories
         path: /etc,/usr/bin,/usr/sbin,/bin,/sbin,/boot
-        attrs: { check_all: "yes" }
+        attrs: { check_all: 'yes' }
         reason: CIS - integrity of system binaries and configuration
         ticket: CHG-0000
         owner: SOC
       - kind: directories
         path: /etc/ssh,/etc/sudoers.d
-        attrs: { whodata: "yes" }
+        attrs: { whodata: 'yes' }
         reason: CIS - who changes access configuration
         owner: SOC
       - kind: ignore
@@ -29,7 +29,7 @@ groups:
     fim:
       - kind: directories
         path: "%WINDIR%\\System32\\drivers\\etc"
-        attrs: { whodata: "yes" }
+        attrs: { whodata: 'yes' }
         reason: CIS - hosts and network configuration
         owner: SOC
       - kind: windows_registry
