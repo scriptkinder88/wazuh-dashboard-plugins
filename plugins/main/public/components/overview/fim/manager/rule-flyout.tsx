@@ -40,6 +40,7 @@ import {
   HintFix,
   inventoryPrefix,
   isExclusion,
+  managedHints,
   overlapHints,
   pathHints,
   rulePaths,
@@ -249,6 +250,7 @@ export const RuleFlyout = ({
   groups,
   agents,
   rules = [],
+  managedGroups = [],
   user,
   onClose,
   onSubmit,
@@ -261,6 +263,8 @@ export const RuleFlyout = ({
   agents: AgentInfo[];
   /** Rules already in the groups, to point out overlaps. */
   rules?: RuleRow[];
+  /** Groups whose agent.conf is written by Terraform. */
+  managedGroups?: string[];
   user: string;
   onClose: () => void;
   onSubmit: (change: RuleChange) => void;
@@ -308,18 +312,21 @@ export const RuleFlyout = ({
     reportChanges: form.reportChanges,
     platform: form.platform === 'keep' ? '' : form.platform,
   });
-  const overlaps = overlapHints(
-    {
-      kind: rule.kind,
-      path: rule.path,
-      filter: rule.filter,
-      sregex: form.sregex,
-    },
-    form.groups,
-    form.hostIds,
-    rules,
-    row?.key,
-  );
+  const overlaps = [
+    ...managedHints(form.groups, managedGroups),
+    ...overlapHints(
+      {
+        kind: rule.kind,
+        path: rule.path,
+        filter: rule.filter,
+        sregex: form.sregex,
+      },
+      form.groups,
+      form.hostIds,
+      rules,
+      row?.key,
+    ),
+  ];
   const applyFix = (fix: HintFix) => update(fix.patch);
 
   // path test: the chosen servers first, then agents of the chosen groups, active first

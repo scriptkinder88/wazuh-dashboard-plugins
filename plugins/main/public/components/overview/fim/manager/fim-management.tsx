@@ -42,6 +42,7 @@ import {
 } from './lib/plan';
 import { RulesPanel } from './rules-panel';
 import { RuleFlyout } from './rule-flyout';
+import { isTerraformManaged } from './lib/path-checks';
 import { PlanModal } from './plan-modal';
 import { ActivePath, AgentsPanel } from './agents-panel';
 import { HistoryPanel } from './history-panel';
@@ -106,6 +107,14 @@ export const FimManagement = () => {
       Object.keys(data?.groups || {})
         .filter(g => !hostOfGroup(g))
         .sort(),
+    [data],
+  );
+
+  const managedGroups = useMemo(
+    () =>
+      Object.values(data?.groups || {})
+        .filter(g => isTerraformManaged(g.raw || ''))
+        .map(g => g.name),
     [data],
   );
 
@@ -232,6 +241,7 @@ export const FimManagement = () => {
           groups={groupNames}
           agents={data.agents}
           rules={rows}
+          managedGroups={managedGroups}
           user={user}
           onClose={() => setEditing(undefined)}
           onSubmit={change =>
