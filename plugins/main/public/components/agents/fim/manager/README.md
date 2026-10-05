@@ -42,6 +42,11 @@ in one click where there is one:
   (the most specific path's options win), a Monitor rule disabled by an Ignore rule, or the same
   path twice.
 
+- **Groups managed by Terraform:** groups whose `agent.conf` starts with `<!-- Managed by
+  Terraform` are written by the Terraform module of the CIS-CAT bridge
+  (`tools/ciscat-bridge/terraform`); the form warns that a change made here is overwritten at the
+  next `terraform apply`.
+
 **Test the path** shows, for up to 5 agents of the chosen groups and servers, how many entries of
 their FIM inventory are under the path and when their last scan ended.
 

@@ -322,3 +322,27 @@ export const inventoryPrefix = (path: string) => {
   const i = p.search(WILDCARD);
   return (i < 0 ? p : p.slice(0, i)).replace(/[\\/]+$/, '');
 };
+
+/** Comment the Terraform module writes at the top of the groups it owns. */
+export const TERRAFORM_MARK = '<!-- Managed by Terraform';
+
+export const isTerraformManaged = (agentConf: string) =>
+  agentConf.trimStart().startsWith(TERRAFORM_MARK);
+
+/** Hints about chosen groups whose agent.conf is written by Terraform. */
+export const managedHints = (groups: string[], managed: string[]): Hint[] => {
+  const hit = groups.filter(g => managed.includes(g));
+  if (!hit.length) {
+    return [];
+  }
+  const verb = hit.length === 1 ? 'is' : 'are';
+  return [
+    {
+      id: 'terraform',
+      message:
+        `${hit.join(', ')} ${verb} managed by Terraform: a change made here ` +
+        'is overwritten at the next terraform apply. Change the Terraform ' +
+        'baseline instead, or use another group.',
+    },
+  ];
+};
