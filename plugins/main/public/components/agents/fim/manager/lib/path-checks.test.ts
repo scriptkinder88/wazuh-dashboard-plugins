@@ -1,5 +1,7 @@
 import {
   inventoryPrefix,
+  isTerraformManaged,
+  managedHints,
   isWithin,
   overlapHints,
   pathHints,
@@ -174,5 +176,18 @@ describe('FIM path checks', () => {
     expect(isWithin('C:\\DATA\\x', 'c:\\data\\')).toBe(true);
     expect(inventoryPrefix('/home/*/.ssh')).toBe('/home');
     expect(inventoryPrefix('/opt/vault/tls/')).toBe('/opt/vault/tls');
+  });
+
+  it('points out groups written by Terraform', () => {
+    expect(
+      isTerraformManaged(
+        '<!-- Managed by Terraform (group b): x -->\n<agent_config>',
+      ),
+    ).toBe(true);
+    expect(isTerraformManaged('<agent_config>')).toBe(false);
+    expect(
+      managedHints(['web', 'baseline-linux'], ['baseline-linux'])[0].message,
+    ).toMatch(/^baseline-linux is managed by Terraform/);
+    expect(managedHints(['web'], ['baseline-linux'])).toEqual([]);
   });
 });
