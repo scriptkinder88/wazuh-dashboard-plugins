@@ -64,6 +64,13 @@ agent: Active Response → Assessor → flatten file → SCA policy → results 
 - **Status:** the tab shows the scheduler heartbeat, the last apply per OS, recent runs, and the
   disconnected agents that were skipped.
 
+## Terraform
+
+`terraform/` holds a module that installs the bridge and the dashboard plugin on existing hosts, writes
+the API (and 5.0 indexer) credentials from Vault, and owns the `baseline-*` groups: their whole
+`agent.conf` and the agents listed for them, written with `ciscat-fleet.py baseline --file`.
+Everything else stays in the dashboard. See `terraform/README.md`.
+
 ## Production: one command
 
 `python3 tools/ciscat-bridge/installer/build.py` writes `dist/ciscat-bridge-install-<version>.sh`
