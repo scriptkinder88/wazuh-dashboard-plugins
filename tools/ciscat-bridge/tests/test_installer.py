@@ -142,6 +142,41 @@ class Installer(unittest.TestCase):
         with open(self.path("etc/cron.d/ciscat-orchestrator")) as f:
             self.assertIn(OLD_CRON, f.read())
 
+    def test_failed_installation_restores_the_backup(self):
+        # /etc/cron.d is a file: the cron step fails after the scripts and the rule are in place
+        os.remove(self.path("etc/cron.d/ciscat-orchestrator"))
+        os.rmdir(self.path("etc/cron.d"))
+        open(self.path("etc/cron.d"), "w").close()
+        p = subprocess.run(["sh", self.script], env=self.env, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("the previous state was restored", p.stdout)
+        with open(self.path("opt/ciscat/bin/ciscat-fleet.py")) as f:
+            self.assertEqual(f.read(), V1_FLEET)
+        for rel in ("var/ossec/etc/rules/ciscat_rules.xml", "var/ossec/etc/lists/ciscat-exclusions",
+                    "opt/ciscat/etc/os-library.json", "opt/ciscat/bin/ciscat-scheduler.py"):
+            self.assertFalse(os.path.exists(self.path(rel)), rel)
+        with open(self.crontab) as f:
+            self.assertNotIn("disabled by ciscat-bridge", f.read())
+
+    def test_rollback_keeps_the_dashboard_lists(self):
+        lists = self.path("var/ossec/etc/lists")
+        self.install()
+        first = set(glob.glob(self.path("opt/ciscat/backup/*.tgz")))
+        store.write_list(store.SCHEDULE, {"_empty": {"v": 1}}, lists)
+        self.install()  # this backup holds both lists
+        (backup,) = set(glob.glob(self.path("opt/ciscat/backup/*.tgz"))) - first
+        self.assertFalse([f for f in os.listdir(self.path("opt/ciscat/bin")) if f.startswith(".")])
+        recs, _ = store.read_list(store.EXCLUSIONS, lists)
+        saved = dict(list(recs.items())[:1])  # saved in the dashboard after the backup
+        store.write_list(store.EXCLUSIONS, saved, lists)
+        os.remove(os.path.join(lists, store.SCHEDULE))
+        out = self.install("--rollback", backup)
+        self.assertIn("dashboard lists kept as they are now (not restored): ciscat-exclusions", out)
+        self.assertEqual(store.read_list(store.EXCLUSIONS, lists)[0], saved)
+        # a list missing now comes back from the backup
+        self.assertTrue(os.path.exists(os.path.join(lists, store.SCHEDULE)))
+
     def test_refuses_a_worker_and_a_damaged_script(self):
         with open(self.path("var/ossec/etc/ossec.conf"), "w") as f:
             f.write("<ossec_config><cluster><node_type>worker</node_type><disabled>no</disabled>"
