@@ -146,11 +146,11 @@ jest.mock('../../../../kibana-services', () => ({
   getHttp: () => ({ get: jest.fn() }),
 }));
 
-jest.mock('../../sca/ciscat/lib/lists-api', () => {
-  const store = jest.requireActual('../../../../../common/ciscat/store');
+jest.mock('../../../../services/list-files', () => {
+  const codec = jest.requireActual('../../../../../common/encoded-list');
   const read = (name: string) =>
     Promise.resolve({
-      ...store.parseList(mockLists[name] || ''),
+      ...codec.parseList(mockLists[name] || ''),
       raw: mockLists[name] || '',
       exists: name in mockLists,
     });
@@ -164,12 +164,15 @@ jest.mock('../../sca/ciscat/lib/lists-api', () => {
       ) {
         return Promise.reject(new Error('changed by someone else'));
       }
-      mockLists[name] = store.renderList(records);
+      mockLists[name] = codec.renderList(records);
       return Promise.resolve();
     },
-    fetchCurrentUserName: () => Promise.resolve('alice'),
   };
 });
+
+jest.mock('../../../../services/dashboard-user', () => ({
+  fetchCurrentUserName: () => Promise.resolve('alice'),
+}));
 
 beforeEach(() => {
   calls.length = 0;
@@ -191,7 +194,7 @@ const pick = async (box: string, option: string) => {
 };
 
 const history = () => {
-  const store = jest.requireActual('../../../../../common/ciscat/store');
+  const store = jest.requireActual('../../../../../common/encoded-list');
   return Object.values(store.parseList(mockLists['fim-history'] || '').records);
 };
 

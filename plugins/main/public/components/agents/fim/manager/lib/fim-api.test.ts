@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */ // Wazuh API field names
 import { TextDecoder, TextEncoder } from 'util';
 import { WzRequest } from '../../../../../react-services';
-import { renderList } from '../../../../../../common/ciscat/store';
+import { renderList } from '../../../../../../common/encoded-list';
 import {
   HISTORY_DEPTH,
   HISTORY_MAX_BYTES,
@@ -22,7 +22,7 @@ jest.mock('../../../../../react-services', () => ({
 }));
 
 const mockWriteList = jest.fn();
-jest.mock('../../../sca/ciscat/lib/lists-api', () => ({
+jest.mock('../../../../../services/list-files', () => ({
   existingLists: () => Promise.resolve(new Set()),
   readList: () =>
     Promise.resolve({ records: {}, errors: [], raw: '', exists: false }),

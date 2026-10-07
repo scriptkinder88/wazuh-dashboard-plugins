@@ -8,12 +8,16 @@ import {
   ListRecord,
   ListRecords,
   renderList,
-} from '../../../../../../common/ciscat/store';
+} from '../../../../../../common/encoded-list';
 import {
   existingLists,
   readList,
   writeList,
-} from '../../../sca/ciscat/lib/lists-api';
+} from '../../../../../services/list-files';
+import {
+  fetchAllAgents,
+  fetchAllGroups,
+} from '../../../../../services/wazuh-inventory';
 import { editAgentConf } from './agent-conf';
 import { AgentInfo, GroupConf, GroupStep, toGroupConf } from './plan';
 import { isWithin } from './path-checks';
@@ -74,10 +78,8 @@ export interface GroupInfo {
 }
 
 export const fetchGroups = async (): Promise<GroupInfo[]> =>
-  items<{ name: string; count?: number; configSum?: string }>(
-    await WzRequest.apiReq('GET', '/groups', {
-      params: { limit: 100000 },
-    }),
+  (
+    await fetchAllGroups<{ name: string; count?: number; configSum?: string }>()
   ).map(g => ({
     name: g.name,
     count: g.count || 0,
@@ -148,14 +150,15 @@ interface RawAgent {
 }
 
 export const fetchAgents = async (): Promise<AgentInfo[]> =>
-  items<RawAgent>(
-    await WzRequest.apiReq('GET', '/agents', {
-      params: {
-        select: 'id,name,status,os.platform,group,group_config_status',
-        q: 'id!=000',
-        limit: 100000,
-      },
-    }),
+  (
+    await fetchAllAgents<RawAgent>([
+      'id',
+      'name',
+      'status',
+      'os.platform',
+      'group',
+      'group_config_status',
+    ])
   ).map(a => ({
     id: String(a.id),
     name: String(a.name || ''),

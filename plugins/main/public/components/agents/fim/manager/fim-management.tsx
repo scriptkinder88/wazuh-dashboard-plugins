@@ -25,7 +25,7 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { getToasts } from '../../../../kibana-services';
-import { fetchCurrentUserName } from '../../sca/ciscat/lib/lists-api';
+import { fetchCurrentUserName } from '../../../../services/dashboard-user';
 import {
   HistoryEntry,
   fetchAgents,

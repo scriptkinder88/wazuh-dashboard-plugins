@@ -32,6 +32,9 @@ import {
   KIND_LABELS,
   RULE_KINDS,
   RuleKind,
+  isExclusionKind,
+  isMonitorKind,
+  isRegistryKind,
   validateRule,
 } from './lib/agent-conf';
 import { AgentInfo, RuleChange, RuleRow } from './lib/plan';
@@ -39,7 +42,6 @@ import {
   Hint,
   HintFix,
   inventoryPrefix,
-  isExclusion,
   managedHints,
   overlapHints,
   pathHints,
@@ -151,10 +153,6 @@ interface FormState {
   owner: string;
 }
 
-const isRegistry = (kind: RuleKind) => kind.includes('registry');
-const isMonitor = (kind: RuleKind) =>
-  kind === 'directories' || kind === 'windows_registry';
-
 const platformOf = (filter: BlockFilter): Platform => {
   const keys = Object.keys(filter);
   if (!keys.length) {
@@ -223,7 +221,7 @@ const buildAttrs = (form: FormState, original?: FimRule) => {
     set('realtime', form.mode === 'realtime');
     set('whodata', form.mode === 'whodata');
   }
-  if (isMonitor(form.kind)) {
+  if (isMonitorKind(form.kind)) {
     set('report_changes', form.reportChanges);
     set('recursion_level', form.recursion.trim());
     set('restrict', form.restrict.trim());
@@ -231,7 +229,7 @@ const buildAttrs = (form: FormState, original?: FimRule) => {
   } else {
     set('type', form.sregex && 'sregex');
   }
-  if (isRegistry(form.kind)) {
+  if (isRegistryKind(form.kind)) {
     set('arch', form.arch);
   }
   if (form.kind === 'directories' && original?.attrs.follow_symbolic_link) {
@@ -279,7 +277,7 @@ export const RuleFlyout = ({
   const update = (patch: Partial<FormState>) =>
     setForm(current => {
       const next = { ...current, ...patch };
-      if (patch.kind && isRegistry(patch.kind) && next.platform === 'any') {
+      if (patch.kind && isRegistryKind(patch.kind) && next.platform === 'any') {
         next.platform = 'Windows';
       }
       return next;
@@ -353,8 +351,8 @@ export const RuleFlyout = ({
   const canTest =
     !!testPrefix &&
     testAgents.length > 0 &&
-    !form.kind.includes('registry') &&
-    !(isExclusion(form.kind) && form.sregex);
+    !isRegistryKind(form.kind) &&
+    !(isExclusionKind(form.kind) && form.sregex);
   const [test, setTest] = useState<{
     prefix: string;
     results?: PathTestResult[];
@@ -420,7 +418,7 @@ export const RuleFlyout = ({
             />
           </EuiFormRow>
           <EuiFormRow
-            label={isRegistry(form.kind) ? 'Registry key' : 'Path'}
+            label={isRegistryKind(form.kind) ? 'Registry key' : 'Path'}
             helpText={
               form.sregex
                 ? 'Regular expression (sregex) matched against the full path.'
@@ -431,7 +429,7 @@ export const RuleFlyout = ({
               value={form.path}
               onChange={e => update({ path: e.target.value })}
               placeholder={
-                isRegistry(form.kind)
+                isRegistryKind(form.kind)
                   ? 'HKEY_LOCAL_MACHINE\\Software\\Vendor'
                   : '/etc/app'
               }
@@ -472,7 +470,7 @@ export const RuleFlyout = ({
               />
             </EuiFormRow>
           )}
-          {isMonitor(form.kind) && (
+          {isMonitorKind(form.kind) && (
             <>
               <EuiFormRow>
                 <EuiSwitch
@@ -511,7 +509,7 @@ export const RuleFlyout = ({
               </EuiFormRow>
             </>
           )}
-          {!isMonitor(form.kind) && (
+          {!isMonitorKind(form.kind) && (
             <EuiFormRow>
               <EuiSwitch
                 label='The path is a regular expression (sregex)'
@@ -520,7 +518,7 @@ export const RuleFlyout = ({
               />
             </EuiFormRow>
           )}
-          {isRegistry(form.kind) && (
+          {isRegistryKind(form.kind) && (
             <EuiFormRow label='Architecture'>
               <EuiSelect
                 options={[

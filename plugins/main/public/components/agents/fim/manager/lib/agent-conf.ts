@@ -22,6 +22,17 @@ export const RULE_KINDS = [
 ] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
 
+/** Rules that add a path or key to the monitored ones. */
+export const isMonitorKind = (kind: RuleKind) =>
+  kind === 'directories' || kind === 'windows_registry';
+
+/** Rules that exclude a path or key, or its content diff. */
+export const isExclusionKind = (kind: RuleKind) => !isMonitorKind(kind);
+
+/** Rules about Windows registry keys rather than file paths. */
+export const isRegistryKind = (kind: RuleKind) =>
+  kind === 'windows_registry' || kind === 'registry_ignore';
+
 export const KIND_LABELS: Record<RuleKind, string> = {
   directories: 'Monitor path',
   ignore: 'Ignore path',

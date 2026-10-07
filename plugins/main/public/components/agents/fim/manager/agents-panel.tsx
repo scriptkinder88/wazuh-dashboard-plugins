@@ -21,6 +21,7 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { AgentInfo, GroupConf, hostGroup } from './lib/plan';
+import { isMonitorKind } from './lib/agent-conf';
 import { ActiveSyscheck, fetchActiveSyscheck } from './lib/fim-api';
 import { WzButtonPermissions } from '../../../common/permissions/button';
 import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
@@ -48,7 +49,7 @@ export const activePaths = (
   const defined = new Map<string, string[]>();
   agent.groups.forEach(group => {
     (groups[group]?.rules || [])
-      .filter(r => r.kind === 'directories' || r.kind === 'windows_registry')
+      .filter(r => isMonitorKind(r.kind))
       .forEach(r =>
         r.path.split(',').forEach(p => {
           const key = `${r.kind}|${normalize(p, windows)}`;
