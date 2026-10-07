@@ -35,6 +35,8 @@ import {
   EuiTitle,
   EuiToolTip,
 } from '@elastic/eui';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { CISCAT_WRITE_PERMISSIONS } from './lib/permissions';
 import {
   CISCAT_LISTS,
   benchListName,
@@ -356,8 +358,10 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
 
   const save = async (apply: boolean) => {
     setSaving(true);
+    let exclusionsSaved = false;
     try {
       await writeList(CISCAT_LISTS.exclusions, draft, data.exclusions.raw);
+      exclusionsSaved = true;
       const saved = savedTargets(data);
       if (Object.keys(targets).some(k => targets[k] !== saved[k])) {
         const records = { ...data.targets.records };
@@ -395,7 +399,18 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
       );
       onSaved();
     } catch (e) {
-      toast('Exclusions not saved', 'danger', (e as Error).message);
+      if (exclusionsSaved) {
+        // the lists read before the save are outdated: reload them, or the
+        // next save would be refused as a concurrent change
+        toast(
+          'Exclusions saved, the rest was not',
+          'danger',
+          (e as Error).message,
+        );
+        onSaved();
+      } else {
+        toast('Exclusions not saved', 'danger', (e as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -637,7 +652,8 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
           </EuiButton>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
+            permissions={CISCAT_WRITE_PERMISSIONS}
             size='s'
             isDisabled={!dirty}
             isLoading={saving}
@@ -645,10 +661,11 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             data-test-subj='ciscat-save'
           >
             Save
-          </EuiButton>
+          </WzButtonPermissions>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
+            permissions={CISCAT_WRITE_PERMISSIONS}
             size='s'
             fill
             isLoading={saving}
@@ -656,7 +673,7 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             data-test-subj='ciscat-save-apply'
           >
             {dirty ? 'Save and apply' : 'Apply'}
-          </EuiButton>
+          </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer size='m' />

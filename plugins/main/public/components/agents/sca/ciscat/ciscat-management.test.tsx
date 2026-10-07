@@ -23,6 +23,8 @@ configure({ testIdAttribute: 'data-test-subj' });
 // In-memory manager: list files as the Wazuh API would store them.
 const files: Record<string, string> = {};
 const writes: Array<[string, ListRecords]> = [];
+/** Lists whose next write fails. */
+const mockFailingWrites = new Set<string>();
 
 jest.mock(
   '@osd/ui-shared-deps/theme',
@@ -37,6 +39,28 @@ jest.mock(
   }),
   { virtual: true },
 );
+
+// Permissions are granted; the mock exposes those each button requires.
+jest.mock('../../../common/permissions/button', () => {
+  const { createElement } = jest.requireActual('react');
+  const eui = jest.requireActual('@elastic/eui');
+  const buttons: Record<string, unknown> = {
+    default: eui.EuiButton,
+    icon: eui.EuiButtonIcon,
+    switch: eui.EuiSwitch,
+  };
+  return {
+    WzButtonPermissions: ({
+      buttonType = 'default',
+      permissions,
+      ...props
+    }: Record<string, unknown>) =>
+      createElement(buttons[buttonType as string], {
+        ...props,
+        'data-permissions': JSON.stringify(permissions),
+      }),
+  };
+});
 
 jest.mock('../../../../kibana-services', () => ({
   getToasts: () => ({ addSuccess: jest.fn(), addDanger: jest.fn() }),
@@ -54,6 +78,10 @@ jest.mock('./lib/lists-api', () => {
     });
   };
   const write = (name: string, records: ListRecords, expectedRaw?: string) => {
+    if (mockFailingWrites.has(name)) {
+      mockFailingWrites.delete(name);
+      return Promise.reject(new Error(`cannot write ${name}`));
+    }
     if (expectedRaw !== undefined && (files[name] || '') !== expectedRaw) {
       return Promise.reject(new Error('changed by someone else'));
     }
@@ -84,6 +112,7 @@ if (!globalThis.crypto?.subtle) {
 
 beforeEach(() => {
   writes.length = 0;
+  mockFailingWrites.clear();
   Object.keys(files).forEach(k => delete files[k]);
   files['ciscat-oskeys'] = renderList({
     rhel7: {
@@ -153,6 +182,44 @@ describe('CIS-CAT management tab', () => {
     ]);
     // what was written parses back as the master will read it
     expect(parseList(files['ciscat-exclusions']).errors).toEqual([]);
+  });
+
+  it('reloads after a save that failed once the exclusions were written', async () => {
+    render(<CiscatManagement />);
+    await screen.findByTestId('ciscat-rules');
+    fireEvent.click(screen.getByLabelText('Exclude 1.1.1'));
+    fireEvent.change(await screen.findByTestId('ciscat-reason'), {
+      target: { value: 'Needed by the storage team' },
+    });
+    fireEvent.click(screen.getByTestId('ciscat-add-exclusion'));
+    await screen.findByText('All agents of this OS');
+
+    mockFailingWrites.add('ciscat-requests');
+    fireEvent.click(screen.getByTestId('ciscat-save-apply'));
+    await waitFor(() => expect(lastWrite('ciscat-exclusions')).not.toEqual({}));
+    // the reloaded panel saves again without a false concurrent change
+    await waitFor(() =>
+      expect(screen.getByTestId('ciscat-save-apply').textContent).toBe('Apply'),
+    );
+    fireEvent.click(screen.getByTestId('ciscat-save-apply'));
+    await waitFor(() => expect(lastWrite('ciscat-requests')).not.toEqual({}));
+  });
+
+  it('requires lists:update for the buttons that change the lists', async () => {
+    render(<CiscatManagement />);
+    await screen.findByTestId('ciscat-rules');
+    expect(
+      JSON.parse(
+        screen.getByTestId('ciscat-save').getAttribute('data-permissions') ||
+          '[]',
+      ),
+    ).toEqual([{ action: 'lists:update', resource: 'list:file:*' }]);
+    fireEvent.click(screen.getByTestId('ciscat-tab-schedule'));
+    expect(
+      (await screen.findByTestId('ciscat-run-now')).getAttribute(
+        'data-permissions',
+      ),
+    ).toContain('lists:update');
   });
 
   it('shows the benchmark version and applies it to the chosen group', async () => {

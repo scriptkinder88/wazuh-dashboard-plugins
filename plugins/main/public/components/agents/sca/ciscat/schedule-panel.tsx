@@ -9,7 +9,6 @@ import {
   EuiBasicTable,
   EuiButton,
   EuiButtonEmpty,
-  EuiButtonIcon,
   EuiCallOut,
   EuiComboBox,
   EuiConfirmModal,
@@ -31,6 +30,8 @@ import {
   EuiText,
   EuiTitle,
 } from '@elastic/eui';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { CISCAT_WRITE_PERMISSIONS } from './lib/permissions';
 import {
   CISCAT_LISTS,
   Job,
@@ -376,7 +377,9 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       name: 'Enabled',
       width: '80px',
       render: ({ key, job }: (typeof items)[number]) => (
-        <EuiSwitch
+        <WzButtonPermissions
+          buttonType='switch'
+          permissions={CISCAT_WRITE_PERMISSIONS}
           label=''
           showLabel={false}
           checked={job.enabled}
@@ -394,12 +397,16 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       width: '72px',
       render: ({ key, job }: (typeof items)[number]) => (
         <>
-          <EuiButtonIcon
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={CISCAT_WRITE_PERMISSIONS}
             iconType='pencil'
             aria-label='Edit'
             onClick={() => setEditing({ key, job })}
           />
-          <EuiButtonIcon
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={CISCAT_WRITE_PERMISSIONS}
             iconType='trash'
             color='danger'
             aria-label='Delete'
@@ -423,17 +430,19 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
           </EuiText>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
+            permissions={CISCAT_WRITE_PERMISSIONS}
             size='s'
             iconType='play'
             onClick={() => setRunNow(true)}
             data-test-subj='ciscat-run-now'
           >
             Run now
-          </EuiButton>
+          </WzButtonPermissions>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
+            permissions={CISCAT_WRITE_PERMISSIONS}
             size='s'
             fill
             iconType='plusInCircle'
@@ -441,7 +450,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             data-test-subj='ciscat-new-schedule'
           >
             New schedule
-          </EuiButton>
+          </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer size='m' />

@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { MainSca } from '../../agents/sca';
-import { CiscatManagement } from '../../agents/sca/ciscat';
+import { CiscatManagementTab } from '../../agents/sca/ciscat';
 import { MainMitre } from './main-mitre';
 import { ModuleMitreAttackIntelligence } from '../../overview/mitre/intelligence';
 import { ComplianceTable } from '../../overview/compliance-table';
@@ -261,7 +261,7 @@ export const ModulesDefaults = {
         id: 'ciscat',
         name: 'CIS-CAT',
         buttons: [],
-        component: CiscatManagement,
+        component: CiscatManagementTab,
       },
     ],
     buttons: ['settings'],
