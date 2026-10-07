@@ -1,5 +1,5 @@
 @echo off
-REM ciscat-assessment.cmd  (AGENT side, Windows) - Phase 3 launcher
+REM ciscat-assessment.cmd  (AGENT side, Windows) - launcher
 REM
 REM Active Response on Windows cannot run .ps1 directly: it runs .cmd/.exe from
 REM active-response\bin\. This launcher is what AR invokes; it calls the real
@@ -16,7 +16,7 @@ set LOG="C:\Program Files (x86)\ossec-agent\active-response\active-responses.log
 echo %DATE% %TIME% ciscat-assessment.cmd: launcher invoked by Active Response >> %LOG%
 
 REM -ExecutionPolicy Bypass so the script runs regardless of local policy.
-REM At scale this .ps1 should be signed with the internal PKI (see RIPRESA open items).
+REM At scale this .ps1 should be signed with the internal PKI.
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File %SCRIPT%
 
 echo %DATE% %TIME% ciscat-assessment.cmd: powershell exited with code %ERRORLEVEL% >> %LOG%

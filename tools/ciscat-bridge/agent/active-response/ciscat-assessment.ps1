@@ -1,5 +1,5 @@
 <#
-  ciscat-assessment.ps1  (AGENT side, Windows) - Phase 3
+  ciscat-assessment.ps1  (AGENT side, Windows)
 
   Invoked by Active Response via the ciscat-assessment.cmd launcher (AR on Windows
   cannot run .ps1 directly). Performs the full agent-side assessment:
@@ -49,11 +49,17 @@ Log "=== start (running as $([System.Security.Principal.WindowsIdentity]::GetCur
 $paramsFile = Join-Path $SharedDir "ciscat-params.txt"
 if (Test-Path $paramsFile) {
     foreach ($line in Get-Content -Path $paramsFile -ErrorAction SilentlyContinue) {
-        if ($line -match '^\s*(Profile|FlatName)\s*=\s*(.+?)\s*$') {
+        if ($line -match '^\s*(Profile|FlatName|CustomXccdf)\s*=\s*(.+?)\s*$') {
             $name = $Matches[1]
+            $value = $Matches[2]
+            # file names only: the values are joined to the CIS-CAT folders below
+            if ($name -ne "Profile" -and $value -notmatch '^[A-Za-z0-9._-]+$') {
+                Log "ignored in ciscat-params.txt (not a file name): $name=$value"
+                continue
+            }
             if (-not $PSBoundParameters.ContainsKey($name)) {
-                Set-Variable -Name $name -Value $Matches[2]
-                Log "from ciscat-params.txt: $name=$($Matches[2])"
+                Set-Variable -Name $name -Value $value
+                Log "from ciscat-params.txt: $name=$value"
             }
         }
     }
@@ -86,18 +92,19 @@ foreach ($d in @($reportDir, $resultDir)) {
     }
 }
 
-# --- Step 1: move pushed content from shared/ to benchmarks/ ---
-# The manager pushes into shared/: custom XCCDF (always) and, for non-standard OS, the base
-# benchmark + OVAL. We move every .xml from shared/ into benchmarks/ (overwrite), which covers
-# custom + OVAL + base benchmark. We are conservative: only .xml, nothing else.
+# --- Step 1: copy pushed content from shared/ to benchmarks/ ---
+# The manager pushes into shared/ the custom XCCDF (*-custom.xml) and the benchmark's OVAL and
+# CPE files (*-oval.xml, *-cpe-oval.xml, *-cpe-dictionary.xml). Only those are copied: shared/
+# also holds the files of the agent's other groups.
 if (Test-Path $SharedDir) {
-    $xmls = Get-ChildItem -Path $SharedDir -Filter *.xml -ErrorAction SilentlyContinue
+    $xmls = Get-ChildItem -Path $SharedDir -Filter *.xml -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '(-custom|-oval|-cpe-dictionary)\.xml$' }
     if ($xmls) {
         foreach ($f in $xmls) {
             $dest = Join-Path $benchDir $f.Name
             try {
                 Copy-Item -Path $f.FullName -Destination $dest -Force
-                Log "moved to benchmarks: $($f.Name)"
+                Log "copied to benchmarks: $($f.Name)"
             } catch {
                 Fail "could not copy $($f.Name) to benchmarks: $($_.Exception.Message)"
             }
@@ -125,17 +132,27 @@ if ([string]::IsNullOrEmpty($CustomXccdf)) {
 
 # --- Step 2: run CIS-CAT with the tailored profile ---
 Log "running CIS-CAT: -b `"$CustomXccdf`" -p `"$Profile`""
+$runStart = Get-Date
+# With "Stop", Windows PowerShell 5.1 turns any line the Assessor writes to stderr into a
+# terminating error; its exit code is checked instead.
+$ErrorActionPreference = "Continue"
 try {
     & $assessor -b "$CustomXccdf" -p "$Profile" -nts -csv -rd "$reportDir" 2>&1 |
         ForEach-Object { Log "  ciscat> $_" }
+    $assessorExit = $LASTEXITCODE
 } catch {
     Fail "CIS-CAT execution failed: $($_.Exception.Message)"
+} finally {
+    $ErrorActionPreference = "Stop"
 }
+if ($assessorExit -ne 0) { Log "WARNING: CIS-CAT exited with code $assessorExit" }
 
-# --- Step 3: flatten the latest CSV report ---
+# --- Step 3: flatten the CSV report of this run ---
+# Only a report written by this run: an older one would be reported as new results.
 $latestCsv = Get-ChildItem -Path (Join-Path $reportDir "*.csv") -ErrorAction SilentlyContinue |
+             Where-Object { $_.LastWriteTime -ge $runStart } |
              Sort-Object LastWriteTime | Select-Object -Last 1
-if (-not $latestCsv) { Fail "no CSV report produced in $reportDir (assessment may have failed)" }
+if (-not $latestCsv) { Fail "no CSV report produced in $reportDir by this run (assessment failed?)" }
 Log "flattening report: $($latestCsv.Name)"
 try {
     & $flatScript -CsvPath $latestCsv.FullName -FlatName $FlatName -OutDir $resultDir 2>&1 |
