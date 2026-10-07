@@ -118,6 +118,16 @@ export const WAZUH_FIM_REGISTRY_VALUES_PATTERN =
 // SCA
 export const WAZUH_SCA_PATTERN = 'wazuh-states-sca*';
 
+// Reports
+// PDF report defaults (the 4.x `customization.*` settings do not exist on 5.0).
+export const REPORTS_LOGO_IMAGE_ASSETS_RELATIVE_PATH =
+  'images/logo_reports.png';
+export const REPORTS_PRIMARY_COLOR = '#256BD1';
+export const REPORTS_PAGE_FOOTER_TEXT = 'Copyright © Wazuh, Inc.';
+export const REPORTS_PAGE_HEADER_TEXT = 'info@wazuh.com\nhttps://wazuh.com';
+// Maximum number of servers in one SCA PDF report.
+export const REPORTS_SCA_MAX_AGENTS = 5000;
+
 // Agent statistics reported by the agent and persisted by the server
 export const WAZUH_AGENT_STATS_PATTERN = 'wazuh-agent-stats*';
 

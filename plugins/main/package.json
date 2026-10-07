@@ -71,6 +71,7 @@
     "markdown-it-link-attributes": "^4.0.1",
     "md5": "^2.3.0",
     "node-cron": "^1.1.2",
+    "pdfmake": "0.2.7",
     "react-cookie": "^4.0.3"
   },
   "devDependencies": {
