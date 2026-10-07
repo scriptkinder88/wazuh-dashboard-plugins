@@ -66,8 +66,8 @@ agent: Active Response → Assessor → flatten file → SCA policy → results 
 
 ## Terraform
 
-`terraform/` holds a module that installs the bridge and the dashboard plugin on existing hosts, writes
-the API (and 5.0 indexer) credentials from Vault, and owns the `baseline-*` groups: their whole
+`terraform/` holds a module that installs the bridge and the dashboard plugin on existing Wazuh
+4.14 hosts, writes the API credentials from Vault, and owns the `baseline-*` groups: their whole
 `agent.conf` and the agents listed for them, written with `ciscat-fleet.py baseline --file`.
 Everything else stays in the dashboard. See `terraform/README.md`.
 
@@ -146,6 +146,10 @@ assessment at a time.
   or inconsistent report no longer replaces the results; bootstrap destinations limited;
   `refresh.conf` not sourced; Windows uses only the report of the current run. Installer: restores
   the backup when it fails. Terraform: `wazuh_major = 5` refused (not supported yet).
+  Benchmarks are read by one XML parser (`ciscat_xccdf.py`, a DOCTYPE is refused): titles show
+  `&` instead of `&amp;`, policies are generated several times faster, and the custom XCCDF is
+  unchanged. `trigger` waves default to 50 agents and 300 s, as in the schedules. Run logs on
+  Linux agents are limited to the last 30.
 
 ## Tests
 

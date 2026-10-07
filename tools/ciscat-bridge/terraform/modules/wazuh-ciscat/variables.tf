@@ -78,27 +78,6 @@ variable "api_password" {
   sensitive   = true
 }
 
-variable "indexer" {
-  description = "Wazuh 5.0 only: indexer the bridge writes its data to (URL, user, PEM CA certificate)."
-  type = object({
-    url    = string
-    user   = string
-    ca_pem = optional(string)
-  })
-  default = null
-  validation {
-    condition     = var.indexer == null || (can(regex("^https://[^'\\s]+$", var.indexer.url)) && can(regex("^[A-Za-z0-9._-]{1,64}$", var.indexer.user)))
-    error_message = "indexer.url must be an https URL and indexer.user letters, digits, '.', '_' and '-'."
-  }
-}
-
-variable "indexer_password" {
-  description = "Wazuh 5.0 only: password of indexer.user."
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
 variable "benchmarks_dir" {
   description = "Local folder with the licensed CIS benchmarks (XCCDF, OVAL, CPE), copied to /opt/ciscat/benchmarks. Null: the folder on the master is left as it is."
   type        = string
