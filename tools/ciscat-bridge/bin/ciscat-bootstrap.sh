@@ -14,6 +14,10 @@
 #
 # Manifest format (one file per line, after two comment lines):
 #   name;sha256;dest
+# 'name' is a plain file name of the shared folder, and 'dest' must lie in
+# the Assessor's benchmarks folder or in /var/lib/wazuh-ciscat, or be the
+# refresh script in active-response/bin: any other line is refused, so the
+# shared folder cannot have files written elsewhere as root.
 #
 # Trigger: PUT /active-response {"command":"!ciscat-bootstrap.sh"}
 # Runs as root via the Wazuh active-response mechanism.
@@ -24,8 +28,11 @@ set -u
 # see this). Ignore SIGPIPE and write to stdout only when it is a terminal.
 trap '' PIPE
 
-AGENT_SHARED="/var/ossec/etc/shared"           # merged group files land here
-DATA_ROOT="/var/lib/wazuh-ciscat"
+# Overridable for tests only; execd runs the script with the defaults.
+AGENT_SHARED="${CISCAT_AGENT_SHARED:-/var/ossec/etc/shared}"   # merged group files land here
+DATA_ROOT="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
+ASSESSOR_BENCH="${CISCAT_PATH:-/opt/ciscat/Assessor}/benchmarks"
+REFRESH_DEST="${CISCAT_AR_BIN:-/var/ossec/active-response/bin}/ciscat-refresh.sh"
 LOG_TAG="ciscat-bootstrap"
 
 # Resolve the Wazuh root from this script's location (active-response/bin -> root)
@@ -39,6 +46,15 @@ log() {
     [ -w "$AR_LOG" ] 2>/dev/null && echo "$(date '+%Y/%m/%d %H:%M:%S') $0 ${LOG_TAG}: $1" >> "$AR_LOG" 2>/dev/null
 }
 fail() { log "ERROR: $1"; exit 1; }
+
+# dest_allowed <path>: the only places a manifest may install to.
+dest_allowed() {
+    case "$1" in
+        *..*) return 1 ;;
+        "$ASSESSOR_BENCH"/?*|"$DATA_ROOT"/?*|"$REFRESH_DEST") return 0 ;;
+    esac
+    return 1
+}
 
 # NOTE on Wazuh AR: execd invokes this script and passes a JSON object on stdin
 # with an "add"/"delete" command. We do not use those parameters (this is a
@@ -76,6 +92,18 @@ while IFS=';' read -r name expected dest; do
     esac
     [ -n "$expected" ] || continue
     [ -n "$dest" ] || { log "no dest for $name, skipping"; continue; }
+    case "$name" in
+        */*|..*)
+            log "REFUSED (not a plain file name): $name"
+            refused=$((refused + 1))
+            continue
+            ;;
+    esac
+    if ! dest_allowed "${dest%:gz}"; then
+        log "REFUSED (destination not allowed): $name -> $dest"
+        refused=$((refused + 1))
+        continue
+    fi
 
     src="${SRC_DIR}/${name}"
     if [ ! -f "$src" ]; then

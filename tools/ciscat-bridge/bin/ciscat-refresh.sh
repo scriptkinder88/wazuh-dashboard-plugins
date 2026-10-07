@@ -41,6 +41,35 @@ log() {
 }
 fail() { log "ERROR: $1"; exit 1; }
 
+# flatten_arf <ARF report> <output>: sorted "N.N.N:result" lines. Each <rule-result> must hold
+# exactly one <result>; otherwise the report is refused (status 1) rather than results being
+# paired with the wrong rules. Records are split on '<', so line breaks and attribute order
+# inside the elements do not matter.
+flatten_arf() {
+    awk 'BEGIN { RS = "<"; bad = 0; open = 0 }
+    {
+        tag = $0; sub(/[ \t\r\n>\/].*/, "", tag); sub(/^xccdf:/, "", tag)
+        if (tag == "rule-result") {
+            if (open) bad = 1
+            open = 1; results = 0; id = ""
+            if (match($0, /idref="[^"]*"/)) id = substr($0, RSTART + 7, RLENGTH - 8)
+        } else if (tag == "result" && open) {
+            results++
+            val = $0; sub(/^[^>]*>/, "", val); gsub(/[ \t\r\n]/, "", val)
+        } else if ($0 ~ /^\/(xccdf:)?rule-result[ \t\r\n]*>/) {
+            if (!open || results != 1) bad = 1
+            else if (match(id, /_rule_[0-9]+(\.[0-9]+)*_/))
+                print substr(id, RSTART + 6, RLENGTH - 7) ":" tolower(val)
+            open = 0
+        }
+    }
+    END { exit (bad || open) }' "$1" > "$2.unsorted" || { rm -f "$2.unsorted"; return 1; }
+    sort "$2.unsorted" > "$2"
+    rc=$?
+    rm -f "$2.unsorted"
+    return $rc
+}
+
 # CIS-CAT Pro itself is licensed software provisioned on each agent, never
 # distributed by the manager. Without it, stop here: withdraw the previous
 # results so SCA stops reporting them as current (the policy requires the
@@ -53,8 +82,29 @@ if [ ! -x "${CISCAT_PATH}/Assessor-CLI.sh" ]; then
 fi
 
 [ -r "$CONF" ] || fail "config not found: $CONF"
-. "$CONF"
-: "${BENCHMARK_FILE:?}" ; : "${PROFILE_LIST:?}" ; : "${SPLAY_MAX_SEC:=0}"
+# refresh.conf comes from the manager: it is read as data (KEY="value" lines, known keys only),
+# never sourced, so nothing in it runs as root here.
+BENCHMARK_FILE=""; PROFILE_LIST=""; SPLAY_MAX_SEC=0
+while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|\#*) continue ;; esac
+    key=${line%%=*}
+    val=${line#*=}
+    case "$val" in
+        \"*\") val=${val#\"}; val=${val%\"} ;;
+        *) fail "refresh.conf: value of ${key} is not quoted" ;;
+    esac
+    case "$val" in *\"*) fail "refresh.conf: quote inside the value of ${key}" ;; esac
+    case "$key" in
+        BENCHMARK_FILE) BENCHMARK_FILE=$val ;;
+        PROFILE_LIST)   PROFILE_LIST=$val ;;
+        SPLAY_MAX_SEC)  SPLAY_MAX_SEC=$val ;;
+        *) log "refresh.conf: unknown key ignored: ${key}" ;;
+    esac
+done < "$CONF"
+[ -n "$BENCHMARK_FILE" ] || fail "refresh.conf: BENCHMARK_FILE missing"
+[ -n "$PROFILE_LIST" ] || fail "refresh.conf: PROFILE_LIST missing"
+case "$BENCHMARK_FILE" in */*|..*) fail "refresh.conf: BENCHMARK_FILE must be a file name" ;; esac
+case "$SPLAY_MAX_SEC" in ''|*[!0-9]*) fail "refresh.conf: SPLAY_MAX_SEC must be a number" ;; esac
 
 # Splay policy: an Active Response trigger is on-demand by definition, so it
 # NEVER splays (execd invokes us via the *-linux0 symlink, detectable from $0).
@@ -66,6 +116,13 @@ if [ "${1:-}" != "--no-splay" ] && [ "$SPLAY_MAX_SEC" -gt 0 ] 2>/dev/null; then
     delay=$(( $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % SPLAY_MAX_SEC ))
     log "splay: sleeping ${delay}s before assessment"
     sleep "$delay"
+fi
+
+# One assessment at a time (a scheduled run and an Active Response one): both would purge the
+# Assessor's temporary and report folders under each other.
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"${DATA_DIR}/refresh.lock"
+    flock -n 9 || fail "another CIS-CAT assessment is running on $(hostname); this run is skipped"
 fi
 
 bench_path="${CISCAT_PATH}/benchmarks/${BENCHMARK_FILE}"
@@ -111,18 +168,18 @@ for entry in $PROFILE_LIST; do
     fi
 
     # Flatten: ARF rule-result idref + result -> "N.N.N:result" (lowercase).
-    # Same short-rule-id format as the Windows pilot; the SCA policy matches
+    # Same short-rule-id format as on Windows; the SCA policy matches
     # lines like ^1\.1\.1\.2:pass$
     flat_tmp="${profile_dir}/.results.txt.tmp"
-    grep -oE '<xccdf:rule-result idref="[^"]*"|<xccdf:result>[^<]*</xccdf:result>' "$report" \
-      | sed -e 's/<xccdf:rule-result idref="//' -e 's/"$//' \
-            -e 's/<xccdf:result>//' -e 's|</xccdf:result>||' \
-      | paste - - \
-      | awk '{print $1"|"$2}' \
-      | sed -E 's/^.*_rule_([0-9]+(\.[0-9]+)*)_[^|]*\|/\1:/' \
-      | tr 'A-Z' 'a-z' | sort > "$flat_tmp"
+    if ! flatten_arf "$report" "$flat_tmp"; then
+        log "ERROR: ARF report not understood (a rule-result without exactly one result): ${report}"
+        rm -f "$flat_tmp"
+        exit_code=1
+        continue
+    fi
 
-    n=$(grep -c ':' "$flat_tmp" 2>/dev/null || echo 0)
+    n=$(grep -c ':' "$flat_tmp" 2>/dev/null)
+    n=${n:-0}
     if [ "$n" -eq 0 ]; then
         log "ERROR: flatten produced 0 lines for profile: ${P_NAME}"
         rm -f "$flat_tmp"
