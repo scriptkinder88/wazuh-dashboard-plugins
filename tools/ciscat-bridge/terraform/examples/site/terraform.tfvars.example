@@ -2,8 +2,8 @@
 wazuh_major      = 4
 master_host      = "<wazuh master address>"
 ssh_user         = "root"
-installer_path   = "../../dist/ciscat-bridge-install-2.2.6.sh"
-installer_sha256 = "<first field of ciscat-bridge-install-2.2.6.sh.sha256>"
+installer_path   = "../../dist/ciscat-bridge-install-2.2.8.sh"
+installer_sha256 = "<first field of ciscat-bridge-install-2.2.8.sh.sha256>"
 plugin_path      = "<path of the plugin zip from the build>"
 plugin_sha256    = "<sha256sum of that zip>"
 vault_secret     = "wazuh/<environment>"

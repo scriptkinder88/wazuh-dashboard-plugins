@@ -1,9 +1,9 @@
 variable "wazuh_major" {
-  description = "Wazuh major version of the hosts: 4 (4.14.x) or 5 (5.0.x)."
+  description = "Wazuh major version of the hosts: 4 (4.14.x). Wazuh 5.0 is not supported yet."
   type        = number
   validation {
-    condition     = contains([4, 5], var.wazuh_major)
-    error_message = "wazuh_major must be 4 or 5."
+    condition     = var.wazuh_major == 4
+    error_message = "wazuh_major must be 4: Wazuh 5.0 is not supported yet (the bridge installer has no indexer options)."
   }
 }
 
