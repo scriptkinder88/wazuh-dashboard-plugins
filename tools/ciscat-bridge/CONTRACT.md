@@ -83,12 +83,12 @@ removes old processed requests. Two actions exist:
 
 **Status** (`ciscat-status`, written by the master)
 
-| Key             | Record                                                                                                                      |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `scheduler`     | `last_tick`, `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read                         |
-| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded) |
-| `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed`                                                      |
-| `requests`      | `processed`: request keys already handled                                                                                   |
+| Key             | Record                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `scheduler`     | `last_tick` (`last_tick_ts` in epoch seconds), `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read |
+| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded)           |
+| `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed`                                                                |
+| `requests`      | `processed`: request keys already handled and still in `ciscat-requests`                                                              |
 
 **Coverage** (`ciscat-history`, written by the master once a day, the last 400 days):
 `stale_days` (35) and `os`, `{os_key: {group, expected, assessed, disconnected}}` for each active OS
@@ -119,7 +119,8 @@ and activates the OS (even one set `"active": false` in `os-library.json`).
 
 Cron runs `ciscat-scheduler.py` every 5 minutes. On each tick:
 
-1. It runs a job once when one or more of its scheduled times fall in (last tick, now].
+1. It runs a job once when one or more of its scheduled times fall in (last tick, now]. The window
+   is kept in epoch seconds: a local time repeated when daylight saving time ends runs once.
 2. Times missed by more than 6 hours (the scheduler was not running) are reported as `missed`
    and not run late.
 3. A run triggers the agents of the targeted OS groups in waves (`wave_size`, then

@@ -90,7 +90,9 @@ What it does:
 - It refuses a cluster worker and a damaged copy (the payload SHA-256 is checked before anything
   changes).
 - It backs up everything it touches to `/opt/ciscat/backup/ciscat-bridge-<date>.tgz`. Restore it
-  with `--rollback <file>`.
+  with `--rollback <file>`: the `ciscat-*` lists present at that point are kept (they hold what was
+  saved in the dashboard since the backup), and only missing ones are restored. When the
+  installation itself fails, the backup is restored at once, exactly.
 - It installs the scripts into `/opt/ciscat/bin` and `/opt/ciscat/agent/active-response`, and the
   rule into `etc/rules/ciscat_rules.xml`. A rule ID that is already in use is refused, and the
   ruleset is tested with `wazuh-analysisd -t`.
@@ -113,8 +115,11 @@ sh ciscat-bridge-install-<version>.sh --plugin-url https://<internal-repo>/wazuh
 
 On a host that is both master and dashboard, one run does both.
 
-API credentials come from `api_pass_file` in `/opt/ciscat/etc/ciscat-orchestrator.conf` (mode
-600). They are never passed on the command line.
+API credentials come from `api_user` and `api_pass_file` in
+`/opt/ciscat/etc/ciscat-orchestrator.conf` (mode 600). They are never passed on the command line:
+`--password` still works but is deprecated.
+The API certificate is not verified by default (the local manager API, self-signed); set
+`api_ca=<CA file>` in the same file to verify it.
 
 ## Commands on the master
 
@@ -124,7 +129,23 @@ ciscat-fleet.py trigger --targets rhel7,windows_server_2025 --wave-size 50 --wav
 ciscat-scheduler.py            # what cron runs every 5 minutes
 ```
 
-Logs are in `/opt/ciscat/log/`: the scheduler log, and one log per job.
+Logs are in `/opt/ciscat/log/`: the scheduler log, and one log per job. Only one `apply` runs at a
+time: a second one (by hand, from the installer or the scheduler) waits for it.
+
+On the agents, `ciscat-bootstrap.sh` installs the manifest's files only into the Assessor's
+`benchmarks` folder, `/var/lib/wazuh-ciscat` and `active-response/bin/ciscat-refresh.sh`;
+`ciscat-refresh.sh` reads `refresh.conf` as `KEY="value"` data (it is not sourced) and runs one
+assessment at a time.
+
+## Changes
+
+- **2.2.8:** scheduler: a job set in the hour repeated when daylight saving time ends runs once, a
+  fast run keeps its result, and handled requests never run again. Apply: one at a time, files in
+  the shared folders replaced in one step, missing benchmark files reported as errors, combo
+  groups made by hand left alone. Trigger renews its API token during long runs. Agents: an empty
+  or inconsistent report no longer replaces the results; bootstrap destinations limited;
+  `refresh.conf` not sourced; Windows uses only the report of the current run. Installer: restores
+  the backup when it fails. Terraform: `wazuh_major = 5` refused (not supported yet).
 
 ## Tests
 
