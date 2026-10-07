@@ -193,7 +193,6 @@ describe('SCA indexed report controls', () => {
         }),
         checkBucket('003', policy, '2', 'not applicable'),
         checkBucket('003', policy, '3', 'passed'),
-        checkBucket('003', policy, '999', 'failed', {}, 41),
       ],
       [summaryBucket('003', policy, 3, 1, 1, 1)],
     );
@@ -205,6 +204,7 @@ describe('SCA indexed report controls', () => {
       '003',
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
+      { details: true },
     );
 
     expect(search).toHaveBeenCalledTimes(4);
@@ -306,7 +306,7 @@ describe('SCA indexed report controls', () => {
 
     expect(controls).toBeDefined();
     expect(controls.columns.map(column => column.id)).toEqual([
-      'id',
+      'reference',
       'result',
       'title',
       'rationale',
@@ -325,7 +325,7 @@ describe('SCA indexed report controls', () => {
     expect(controls.cellPadding).toBe(1);
     expect(controls.columns[controls.columns.length - 1].id).toBe('compliance');
     expect(controls.items[0]).toEqual({
-      id: '1',
+      reference: '1.1.1',
       result: 'Failed',
       title: 'Control 1',
       rationale: 'Rationale 1',
@@ -335,7 +335,6 @@ describe('SCA indexed report controls', () => {
     });
     expect(controls.items[1].result).toBe('Not applicable');
     expect(controls.items[2].result).toBe('Passed');
-    expect(controls.items.map(item => item.id)).not.toContain('999');
 
     expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
       text: 'Coverage: Complete (3/3 checks) | Score: 50% | Passed: 1 | Failed: 1 | Not applicable: 1',
@@ -365,6 +364,7 @@ describe('SCA indexed report controls', () => {
       ['003', '004', '003'],
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
+      { details: true },
     );
 
     expect(search).toHaveBeenCalledTimes(4);
@@ -427,6 +427,7 @@ describe('SCA indexed report controls', () => {
       ['003'],
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
+      { details: true },
     );
 
     const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
@@ -493,6 +494,7 @@ describe('SCA indexed report controls', () => {
       ['003'],
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
+      { details: true },
     );
 
     const serverResults = printer.addSimpleTable.mock.calls
@@ -512,6 +514,81 @@ describe('SCA indexed report controls', () => {
     });
   });
 
+  it('keeps unchanged checks from earlier scans as the last known state', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed', {}, 42),
+        // Unchanged since scan 40: Wazuh emits no new event for it.
+        checkBucket('003', policy, '2', 'passed', {}, 40),
+      ],
+      [summaryBucket('003', policy, 2, 1, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const serverResults = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Selected server results (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        score: '50%',
+        controls: 2,
+        sca: 'Complete (1 policy)',
+      }),
+    );
+  });
+
+  it('withholds scores when a stale check is no longer in the latest scan', async () => {
+    const policy = 'CIS Linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed'),
+        checkBucket('003', policy, '2', 'not applicable'),
+        checkBucket('003', policy, '3', 'passed'),
+        // e.g. a check removed from the policy: its last event stays indexed.
+        checkBucket('003', policy, '999', 'failed', {}, 41),
+      ],
+      [summaryBucket('003', policy, 3, 1, 1, 1)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+      { details: true },
+    );
+
+    const serverResults = printer.addSimpleTable.mock.calls
+      .map(call => call[0])
+      .find(table => table.title === 'Selected server results (1)');
+
+    expect(serverResults.items[0]).toEqual(
+      expect.objectContaining({
+        score: '-',
+        controls: 4,
+        sca: 'Incomplete history (1 policy)',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith({
+      text: 'Coverage: Incomplete (4/3 checks) | Passed: 1 | Failed: 2 | Not applicable: 1',
+      style: 'standard',
+    });
+  });
+
   it('marks reconstructed checks unverified when no indexed scan summary exists', async () => {
     const policy = 'CIS Linux';
     const { context } = buildContext(
@@ -527,6 +604,7 @@ describe('SCA indexed report controls', () => {
       ['003'],
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
+      { details: true },
     );
 
     const serverResults = printer.addSimpleTable.mock.calls
@@ -560,6 +638,7 @@ describe('SCA indexed report controls', () => {
       ['003', '004'],
       'wazuh-alerts-*',
       { bool: { must: [], filter: [] } },
+      { details: true },
     );
 
     const serverResults = printer.addSimpleTable.mock.calls
@@ -578,5 +657,238 @@ describe('SCA indexed report controls', () => {
       text: 'No indexed SCA controls were found for this server.',
       style: 'standard',
     });
+  });
+
+  it('omits the per-server detail by default and groups results by family', async () => {
+    const policy = 'CIS Linux';
+    const { context, search } = buildContext(
+      [inventoryBucket('003'), inventoryBucket('004')],
+      [
+        checkBucket('003', policy, '1', 'failed', { cis: '1.10' }),
+        checkBucket('003', policy, '2', 'passed', { cis: '1.2' }),
+        checkBucket('003', policy, '3', 'failed', { cis: '18.9.1' }),
+        checkBucket('003', policy, '4', 'failed'),
+        checkBucket('004', policy, '1', 'failed', { cis: '1.10' }),
+        checkBucket('004', policy, '2', 'failed', { cis: '1.2' }),
+        checkBucket('004', policy, '3', 'passed', { cis: '18.9.1' }),
+        checkBucket('004', policy, '4', 'passed'),
+      ],
+      [
+        summaryBucket('003', policy, 4, 1, 3, 0),
+        summaryBucket('004', policy, 4, 2, 2, 0),
+      ],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      ['003', '004'],
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    // Inventory, summaries and a single pass over the checks.
+    expect(search).toHaveBeenCalledTimes(3);
+    const texts = [
+      ...printer.addContent.mock.calls,
+      ...printer.addContentWithNewLine.mock.calls,
+    ].map(call => call[0]?.text);
+    expect(texts).not.toContain('Detailed results by selected server');
+    expect(texts).toContain('Results by benchmark family');
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    expect(tables.some(table => /^Controls /.test(table.title))).toBe(false);
+
+    const families = tables.find(
+      table => table.title === 'Results by family (3)',
+    );
+    expect(families.items).toEqual([
+      {
+        family: 'Family 1',
+        controls: 4,
+        passed: 1,
+        failed: 3,
+        notApplicable: 0,
+        passRate: '25%',
+      },
+      {
+        family: 'Family 18',
+        controls: 2,
+        passed: 1,
+        failed: 1,
+        notApplicable: 0,
+        passRate: '50%',
+      },
+      {
+        family: 'Not mapped to a family',
+        controls: 2,
+        passed: 1,
+        failed: 1,
+        notApplicable: 0,
+        passRate: '50%',
+      },
+    ]);
+
+    const familyOne = tables.find(table => table.title === 'Family 1 (2)');
+    expect(familyOne.items).toEqual([
+      {
+        reference: '1.2',
+        title: 'Control 2',
+        affected: 1,
+        servers: 'server-004 (004)',
+      },
+      {
+        reference: '1.10',
+        title: 'Control 1',
+        affected: 2,
+        servers: 'server-003 (003), server-004 (004)',
+      },
+    ]);
+    expect(
+      tables.find(table => table.title === 'Not mapped to a family (1)')
+        .items[0].reference,
+    ).toBe('ID 4');
+
+    const chart = printer.addContent.mock.calls
+      .map(call => call[0])
+      .find(content => typeof content?.svg === 'string');
+    expect(chart.svg).toContain('Family 18');
+    expect(chart.svg).toContain('3/4 failed');
+  });
+
+  it('names families from the CIS family index of the policy', async () => {
+    // The fixture policy_id is the lower-cased policy name: cis_rhel9_linux.
+    const policy = 'cis_rhel9_linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed', { cis: '1.1.1' }),
+        checkBucket('003', policy, '2', 'passed', { cis: '5.2.1' }),
+        checkBucket('003', policy, '3', 'failed', { cis: '99.1' }),
+      ],
+      [summaryBucket('003', policy, 3, 1, 2, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      '003',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    expect(
+      tables
+        .find(table => table.title === 'Results by family (3)')
+        .items.map(item => item.family),
+    ).toEqual([
+      'Family 1 - Initial Setup',
+      'Family 5 - Access, Authentication and Authorization',
+      'Family 99',
+    ]);
+    expect(
+      tables.find(table => table.title === 'Family 1 - Initial Setup (1)'),
+    ).toBeDefined();
+    const chart = printer.addContent.mock.calls
+      .map(call => call[0])
+      .find(content => typeof content?.svg === 'string');
+    expect(chart.svg).toContain('Family 1 - Initial Setup');
+  });
+
+  it('prefers the family titles carried by the checks', async () => {
+    // A CIS-CAT bridge copies the benchmark group title into `cis_family`, so
+    // it follows the assessed benchmark version rather than the index.
+    const policy = 'cis_rhel9_linux';
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        checkBucket('003', policy, '1', 'failed', {
+          cis: '1.1.1',
+          cis_family: '1 Initial Setup (bridged)',
+        }),
+        checkBucket('003', policy, '2', 'passed', {
+          cis: '5.2.1',
+          cis_family: '4 Not this family',
+        }),
+      ],
+      [summaryBucket('003', policy, 2, 1, 1, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      '003',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    expect(
+      tables
+        .find(table => table.title === 'Results by family (2)')
+        .items.map(item => item.family),
+    ).toEqual([
+      'Family 1 - Initial Setup (bridged)',
+      'Family 5 - Access, Authentication and Authorization',
+    ]);
+  });
+
+  it('uses CIS-CAT Pro title numbers and withholds partial pass rates', async () => {
+    const policy = 'CIS-CAT Pro tailored';
+    const imported = (checkId: string, title: string, result: string) => {
+      const bucket = checkBucket('003', policy, checkId, result, {
+        cis: '9.9',
+      });
+      bucket.latest.hits.hits[0]._source.data.sca.check.title = title;
+      return bucket;
+    };
+    const { context } = buildContext(
+      [inventoryBucket('003')],
+      [
+        imported('5001', '1.1.1 Ensure cramfs is disabled', 'failed'),
+        imported('5002', '2.2.5 Ensure a service is disabled', 'passed'),
+      ],
+      [summaryBucket('003', policy, 3, 1, 2, 0)],
+    );
+    const printer = createPrinter();
+
+    await addScaChecksToReport(
+      context,
+      printer as any,
+      '003',
+      'wazuh-alerts-*',
+      { bool: { must: [], filter: [] } },
+      { details: true },
+    );
+
+    const tables = printer.addSimpleTable.mock.calls.map(call => call[0]);
+    expect(
+      tables.find(table => table.title === 'Results by family (2)').items,
+    ).toEqual([
+      expect.objectContaining({ family: 'Family 1', passRate: '-' }),
+      expect.objectContaining({ family: 'Family 2', passRate: '-' }),
+    ]);
+    expect(
+      tables.find(table => table.title === 'Family 1 (1)').items[0],
+    ).toEqual(
+      expect.objectContaining({
+        reference: '1.1.1',
+        title: 'Ensure cramfs is disabled',
+      }),
+    );
+    expect(printer.addContentWithNewLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('Pass rates are withheld'),
+      }),
+    );
+    const controls = tables.find(table => table.title === 'Controls (2)');
+    expect(controls.items.map(item => [item.reference, item.title])).toEqual([
+      ['1.1.1', 'Ensure cramfs is disabled'],
+      ['2.2.5', 'Ensure a service is disabled'],
+    ]);
   });
 });

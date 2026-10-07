@@ -1,0 +1,29 @@
+{
+  "_comment": "CIS profile taxonomy per OS FAMILY. Extracted from the real XCCDF benchmarks (CIS-CAT library). The VALUES of levels/roles change per family; the profile id template is COMMON. Used by the converter to generate the correct tailored profiles for each OS.",
+  "profile_id_template": "xccdf_org.cisecurity.benchmarks_profile_{level}_-_{role}",
+  "level_aliases": {
+    "L1": "Level_1",
+    "L2": "Level_2",
+    "NG": "Next_Generation_Windows_Security"
+  },
+  "families": {
+    "windows_server": {
+      "levels": ["Level_1", "Level_2", "Next_Generation_Windows_Security"],
+      "roles": ["Member_Server", "Domain_Controller"],
+      "default_role": "Member_Server",
+      "rule_number_depth": "variable (e.g. 1.1.1)"
+    },
+    "rhel": {
+      "levels": ["Level_1", "Level_2"],
+      "roles": ["Server", "Workstation"],
+      "default_role": "Server",
+      "rule_number_depth": "variable (e.g. 1.1.1.1)"
+    },
+    "debian": {
+      "levels": ["Level_1", "Level_2"],
+      "roles": ["Server", "Workstation"],
+      "default_role": "Server",
+      "rule_number_depth": "variable (e.g. 1.1.1.1)"
+    }
+  }
+}
