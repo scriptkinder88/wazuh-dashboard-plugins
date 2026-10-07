@@ -29,10 +29,12 @@ describe('SCA multi-server report wiring', () => {
       path.resolve(__dirname, '../../routes/wazuh-reporting.ts'),
       'utf8',
     );
-    const scaSource = fs.readFileSync(
-      path.resolve(__dirname, 'sca-report.ts'),
-      'utf8',
-    );
+    // the SCA report is split into sca-report*.ts modules
+    const scaSource = fs
+      .readdirSync(__dirname)
+      .filter(file => /^sca-report.*\.ts$/.test(file) && !/\.test\./.test(file))
+      .map(file => fs.readFileSync(path.resolve(__dirname, file), 'utf8'))
+      .join('\n');
     const scaRequestSource = fs.readFileSync(
       path.resolve(__dirname, 'sca-request.ts'),
       'utf8',

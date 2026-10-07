@@ -8,6 +8,26 @@ import { SCA_REPORT_MAX_AGENTS } from '../../../common/sca/report-limits';
 
 export class ScaReportAgentsError extends Error {}
 
+/** The part of the route handler context used to call the Wazuh server API. */
+interface WazuhApiContext {
+  wazuh: {
+    api: {
+      client: {
+        asCurrentUser: {
+          request: (
+            method: string,
+            path: string,
+            data: Record<string, unknown>,
+            options: { apiHostID: string },
+          ) => Promise<{
+            data?: { data?: { affected_items?: Array<{ id?: string }> } };
+          }>;
+        };
+      };
+    };
+  };
+}
+
 const normalize = (agentIds: string | string[]) => [
   ...new Set(
     (Array.isArray(agentIds) ? agentIds : [agentIds])
@@ -22,7 +42,7 @@ const normalize = (agentIds: string | string[]) => [
  * remain or when more than SCA_REPORT_MAX_AGENTS are requested.
  */
 export async function filterAuthorizedAgentIds(
-  context,
+  context: WazuhApiContext,
   agentIds: string | string[],
   apiId: string,
 ): Promise<string[]> {
