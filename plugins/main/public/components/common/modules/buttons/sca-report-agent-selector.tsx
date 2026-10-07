@@ -17,6 +17,7 @@ import {
   EuiText,
 } from '@elastic/eui';
 import { WzRequest } from '../../../../react-services';
+import { SCA_REPORT_MAX_AGENTS } from '../../../../../common/sca/report-limits';
 
 const AGENTS_PAGE_SIZE = 100;
 
@@ -152,8 +153,10 @@ export const ScaReportAgentSelector = ({
     ]);
   };
 
+  const tooManyAgents = selectedAgentIds.length > SCA_REPORT_MAX_AGENTS;
+
   const generateReport = async () => {
-    if (!selectedAgentIds.length || generating) {
+    if (!selectedAgentIds.length || tooManyAgents || generating) {
       return;
     }
 
@@ -256,6 +259,23 @@ export const ScaReportAgentSelector = ({
 
         <EuiSpacer size='s' />
 
+        {tooManyAgents && (
+          <>
+            <EuiCallOut
+              title={`Select at most ${SCA_REPORT_MAX_AGENTS} servers`}
+              color='warning'
+              iconType='alert'
+              data-test-subj='sca-report-too-many-agents'
+            >
+              <p>
+                A report includes up to {SCA_REPORT_MAX_AGENTS} servers. Narrow
+                the selection or generate several reports.
+              </p>
+            </EuiCallOut>
+            <EuiSpacer size='s' />
+          </>
+        )}
+
         {loadError ? (
           <EuiCallOut title='Unable to load servers' color='danger'>
             <p>{loadError}</p>
@@ -295,8 +315,12 @@ export const ScaReportAgentSelector = ({
           onClick={generateReport}
           isLoading={generating}
           isDisabled={
-            loadingAgents || Boolean(loadError) || !selectedAgentIds.length
+            loadingAgents ||
+            Boolean(loadError) ||
+            !selectedAgentIds.length ||
+            tooManyAgents
           }
+          data-test-subj='sca-report-generate'
         >
           Generate report ({selectedAgentIds.length})
         </EuiButton>
