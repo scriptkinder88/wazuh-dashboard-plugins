@@ -11,6 +11,7 @@ import {
   EuiToolTip,
 } from '@elastic/eui';
 import { RuleRow, describeScope } from './lib/composer';
+import { messages } from './messages';
 
 export const ruleColumns = ({
   selected,
@@ -34,43 +35,46 @@ export const ruleColumns = ({
         checked={selected.has(rule)}
         disabled={!row.applicable}
         onChange={() => toggle(rule)}
-        aria-label={`Select ${rule}`}
+        aria-label={messages.selectControl(rule)}
       />
     ),
   },
   {
     field: 'rule',
-    name: 'CIS',
+    name: messages.columnCis(),
     width: '100px',
     render: (rule: string) => <strong>{rule}</strong>,
   },
   {
     field: 'title',
-    name: 'Control',
+    name: messages.columnControl(),
     render: (title: string, row: RuleRow) => (
       <span>
         {title}{' '}
         {row.manual && (
-          <EuiToolTip content='Manual control: CIS-CAT does not assess it, so it is never scored'>
-            <EuiBadge color='hollow'>manual</EuiBadge>
+          <EuiToolTip content={messages.manualHelp()}>
+            <EuiBadge color='hollow'>{messages.manual()}</EuiBadge>
           </EuiToolTip>
         )}
-        {!row.applicable && <EuiBadge color='hollow'>not in profile</EuiBadge>}
+        {!row.applicable && (
+          <EuiBadge color='hollow'>{messages.notInProfile()}</EuiBadge>
+        )}
       </span>
     ),
   },
   {
     field: 'exclusions',
-    name: 'Excluded for',
+    name: messages.columnExcludedFor(),
     width: '32%',
     render: (list: RuleRow['exclusions']) => (
       <EuiFlexGroup gutterSize='xs' wrap responsive={false}>
         {list.map(({ key, exclusion }) => (
           <EuiFlexItem grow={false} key={key}>
             <EuiToolTip
-              content={`${exclusion.reason} · ticket ${exclusion.ticket}${
-                exclusion.updated_by ? ` · ${exclusion.updated_by}` : ''
-              }`}
+              content={`${messages.exclusionTooltip(
+                exclusion.reason,
+                exclusion.ticket,
+              )}${exclusion.updated_by ? ` · ${exclusion.updated_by}` : ''}`}
             >
               <EuiBadge
                 color={
@@ -81,7 +85,7 @@ export const ruleColumns = ({
                 iconType='cross'
                 iconSide='right'
                 iconOnClick={() => removeExclusion(key)}
-                iconOnClickAriaLabel='Remove exclusion'
+                iconOnClickAriaLabel={messages.removeExclusion()}
               >
                 {describeScope(exclusion)}
               </EuiBadge>
@@ -97,8 +101,8 @@ export const ruleColumns = ({
     render: (row: RuleRow) => (
       <EuiButtonIcon
         iconType='minusInCircle'
-        aria-label={`Exclude ${row.rule}`}
-        title='Exclude…'
+        aria-label={messages.excludeControl(row.rule)}
+        title={messages.excludeTitle()}
         isDisabled={!row.applicable}
         onClick={() => exclude([row.rule])}
       />

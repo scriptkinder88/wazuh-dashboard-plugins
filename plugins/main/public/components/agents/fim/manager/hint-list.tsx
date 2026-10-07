@@ -4,6 +4,7 @@
 import React from 'react';
 import { EuiButtonEmpty, EuiCallOut, EuiText } from '@elastic/eui';
 import { Hint, HintFix } from './lib/path-checks';
+import { messages } from './messages';
 
 export const HintList = ({
   hints,
@@ -21,8 +22,8 @@ export const HintList = ({
       iconType='alert'
       title={
         hints.length === 1
-          ? 'Check this rule'
-          : `Check this rule (${hints.length})`
+          ? messages.checkHint()
+          : messages.checkHints(hints.length)
       }
       data-test-subj={testSubj}
     >

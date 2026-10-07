@@ -31,12 +31,13 @@ import {
   profileLevelRole,
 } from './lib/composer';
 import { fetchAgentNames, fetchGroupNames } from './lib/lists-api';
+import { messages } from './messages';
 
-const SCOPE_OPTIONS: Array<{ value: ScopeChoice; text: string }> = [
-  { value: 'os', text: 'All agents of this OS' },
-  { value: 'host', text: 'Specific agents' },
-  { value: 'app_group', text: 'Agent groups' },
-  { value: 'global', text: 'Global (every OS with this number)' },
+const SCOPE_OPTIONS: Array<{ value: ScopeChoice; text: () => string }> = [
+  { value: 'os', text: messages.scopeOs },
+  { value: 'host', text: messages.scopeHost },
+  { value: 'app_group', text: messages.scopeGroup },
+  { value: 'global', text: messages.scopeGlobal },
 ];
 
 interface FlyoutProps {
@@ -102,7 +103,11 @@ export const ExcludeFlyout = ({
       <EuiFlyoutHeader hasBorder>
         <EuiTitle size='s'>
           <h3>
-            Exclude {rules.length === 1 ? rules[0] : `${rules.length} controls`}
+            {messages.excludeRules(
+              rules.length === 1
+                ? rules[0]
+                : messages.controlsCount(rules.length),
+            )}
           </h3>
         </EuiTitle>
         <EuiText size='xs' color='subdued'>
@@ -111,11 +116,11 @@ export const ExcludeFlyout = ({
       </EuiFlyoutHeader>
       <EuiFlyoutBody>
         <EuiForm component='form' onSubmit={e => e.preventDefault()}>
-          <EuiFormRow label='Exclude for'>
+          <EuiFormRow label={messages.excludeFor()}>
             <EuiSuperSelect
               options={SCOPE_OPTIONS.map(o => ({
                 value: o.value,
-                inputDisplay: o.text,
+                inputDisplay: o.text(),
               }))}
               valueOfSelected={scope}
               onChange={v => setScope(v as ScopeChoice)}
@@ -123,8 +128,10 @@ export const ExcludeFlyout = ({
           </EuiFormRow>
           {(scope === 'host' || scope === 'app_group') && (
             <EuiFormRow
-              label={scope === 'host' ? 'Agents' : 'Agent groups'}
-              helpText='Pick from the list or type names (comma separated).'
+              label={
+                scope === 'host' ? messages.agents() : messages.agentGroups()
+              }
+              helpText={messages.namesHelp()}
             >
               <EuiComboBox
                 options={options.map(label => ({ label }))}
@@ -143,7 +150,10 @@ export const ExcludeFlyout = ({
               />
             </EuiFormRow>
           )}
-          <EuiFormRow label='Reason' helpText='Kept for the audit trail.'>
+          <EuiFormRow
+            label={messages.reason()}
+            helpText={messages.reasonHelp()}
+          >
             <EuiTextArea
               value={reason}
               onChange={e => setReason(e.target.value)}
@@ -151,13 +161,13 @@ export const ExcludeFlyout = ({
               data-test-subj='ciscat-reason'
             />
           </EuiFormRow>
-          <EuiFormRow label='Ticket'>
+          <EuiFormRow label={messages.ticket()}>
             <EuiFieldText
               value={ticket}
               onChange={e => setTicket(e.target.value)}
             />
           </EuiFormRow>
-          <EuiFormRow label='Owner'>
+          <EuiFormRow label={messages.owner()}>
             <EuiFieldText
               value={owner}
               onChange={e => setOwner(e.target.value)}
@@ -174,7 +184,9 @@ export const ExcludeFlyout = ({
       <EuiFlyoutFooter>
         <EuiFlexGroup justifyContent='spaceBetween'>
           <EuiFlexItem grow={false}>
-            <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
+            <EuiButtonEmpty onClick={onClose}>
+              {messages.cancel()}
+            </EuiButtonEmpty>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
             <EuiButton
@@ -182,7 +194,7 @@ export const ExcludeFlyout = ({
               onClick={submit}
               data-test-subj='ciscat-add-exclusion'
             >
-              Add exclusion
+              {messages.addExclusion()}
             </EuiButton>
           </EuiFlexItem>
         </EuiFlexGroup>

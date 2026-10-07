@@ -51,16 +51,13 @@ import {
 } from './lib/rule-form';
 import { HintList } from './hint-list';
 import { PathTest, usePathTest } from './path-test';
+import { messages } from './messages';
 
-const MODE_HELP: Record<Mode, string> = {
-  scheduled: 'Checked at each periodic scan.',
-  realtime: 'Real time applies to directories, not single files.',
-  whodata: 'Who-data needs auditd on Linux and the audit policy on Windows.',
+const MODE_HELP: Record<Mode, () => string> = {
+  scheduled: messages.modeHelpScheduled,
+  realtime: messages.modeHelpRealtime,
+  whodata: messages.modeHelpWhodata,
 };
-
-const PATH_HELP =
-  'Several paths can be separated by commas. Environment variables such as ' +
-  '%WINDIR% are expanded by the agent.';
 
 export const RuleFlyout = ({
   row,
@@ -120,7 +117,7 @@ export const RuleFlyout = ({
     ...validateRule(rule),
     ...(form.groups.length || form.hostIds.length
       ? []
-      : ['choose at least one group or server']),
+      : [messages.chooseTarget()]),
   ];
 
   const hints = pathHints({
@@ -176,12 +173,12 @@ export const RuleFlyout = ({
     >
       <EuiFlyoutHeader hasBorder>
         <EuiTitle size='s'>
-          <h3>{row ? 'Change FIM rule' : 'New FIM rule'}</h3>
+          <h3>{row ? messages.changeRule() : messages.newRule()}</h3>
         </EuiTitle>
       </EuiFlyoutHeader>
       <EuiFlyoutBody>
         <EuiForm>
-          <EuiFormRow label='Type'>
+          <EuiFormRow label={messages.type()}>
             <EuiSelect
               options={RULE_KINDS.map(k => ({
                 value: k,
@@ -193,12 +190,12 @@ export const RuleFlyout = ({
             />
           </EuiFormRow>
           <EuiFormRow
-            label={isRegistryKind(form.kind) ? 'Registry key' : 'Path'}
-            helpText={
-              form.sregex
-                ? 'Regular expression (sregex) matched against the full path.'
-                : PATH_HELP
+            label={
+              isRegistryKind(form.kind)
+                ? messages.registryKey()
+                : messages.path()
             }
+            helpText={form.sregex ? messages.sregexHelp() : messages.pathHelp()}
           >
             <EuiFieldText
               value={form.path}
@@ -214,16 +211,16 @@ export const RuleFlyout = ({
           <HintList hints={hints} onFix={applyFix} testSubj='fim-rule-hints' />
           {hints.length > 0 && <EuiSpacer size='s' />}
           <EuiFormRow
-            label='Platform'
-            helpText='Agents whose operating system the rule applies to.'
+            label={messages.platform()}
+            helpText={messages.platformHelp()}
           >
             <EuiSelect
               options={[
-                { value: 'any', text: 'Any' },
+                { value: 'any', text: messages.platformAny() },
                 { value: 'Linux', text: 'Linux' },
                 { value: 'Windows', text: 'Windows' },
                 ...(keepLabel && platformOf(row!.rule.filter) === 'keep'
-                  ? [{ value: 'keep', text: `As imported (${keepLabel})` }]
+                  ? [{ value: 'keep', text: messages.asImported(keepLabel) }]
                   : []),
               ]}
               value={form.platform}
@@ -232,12 +229,15 @@ export const RuleFlyout = ({
             />
           </EuiFormRow>
           {form.kind === 'directories' && (
-            <EuiFormRow label='Mode' helpText={MODE_HELP[form.mode]}>
+            <EuiFormRow
+              label={messages.mode()}
+              helpText={MODE_HELP[form.mode]()}
+            >
               <EuiSelect
                 options={[
-                  { value: 'scheduled', text: 'Scheduled scan' },
-                  { value: 'realtime', text: 'Real time' },
-                  { value: 'whodata', text: 'Who-data (real time + user)' },
+                  { value: 'scheduled', text: messages.modeScheduled() },
+                  { value: 'realtime', text: messages.modeRealtime() },
+                  { value: 'whodata', text: messages.modeWhodata() },
                 ]}
                 value={form.mode}
                 onChange={e => update({ mode: e.target.value as Mode })}
@@ -249,14 +249,17 @@ export const RuleFlyout = ({
             <>
               <EuiFormRow>
                 <EuiSwitch
-                  label='Report changes (content diff)'
+                  label={messages.reportChanges()}
                   checked={form.reportChanges}
                   onChange={e => update({ reportChanges: e.target.checked })}
                 />
               </EuiFormRow>
               <EuiFlexGroup>
                 <EuiFlexItem>
-                  <EuiFormRow label='Recursion level' helpText='Empty: default'>
+                  <EuiFormRow
+                    label={messages.recursionLevel()}
+                    helpText={messages.recursionHelp()}
+                  >
                     <EuiFieldText
                       value={form.recursion}
                       onChange={e => update({ recursion: e.target.value })}
@@ -264,7 +267,10 @@ export const RuleFlyout = ({
                   </EuiFormRow>
                 </EuiFlexItem>
                 <EuiFlexItem>
-                  <EuiFormRow label='Tags' helpText='Added to the FIM events'>
+                  <EuiFormRow
+                    label={messages.tags()}
+                    helpText={messages.tagsHelp()}
+                  >
                     <EuiFieldText
                       value={form.tags}
                       onChange={e => update({ tags: e.target.value })}
@@ -274,8 +280,8 @@ export const RuleFlyout = ({
                 </EuiFlexItem>
               </EuiFlexGroup>
               <EuiFormRow
-                label='Restrict'
-                helpText='Only files matching this regular expression'
+                label={messages.restrict()}
+                helpText={messages.restrictHelp()}
               >
                 <EuiFieldText
                   value={form.restrict}
@@ -287,19 +293,19 @@ export const RuleFlyout = ({
           {!isMonitorKind(form.kind) && (
             <EuiFormRow>
               <EuiSwitch
-                label='The path is a regular expression (sregex)'
+                label={messages.isSregex()}
                 checked={form.sregex}
                 onChange={e => update({ sregex: e.target.checked })}
               />
             </EuiFormRow>
           )}
           {isRegistryKind(form.kind) && (
-            <EuiFormRow label='Architecture'>
+            <EuiFormRow label={messages.architecture()}>
               <EuiSelect
                 options={[
-                  { value: '', text: 'Default (32bit)' },
+                  { value: '', text: messages.archDefault() },
                   { value: '64bit', text: '64bit' },
-                  { value: 'both', text: 'Both' },
+                  { value: 'both', text: messages.archBoth() },
                 ]}
                 value={form.arch}
                 onChange={e => update({ arch: e.target.value })}
@@ -308,9 +314,12 @@ export const RuleFlyout = ({
           )}
           <EuiSpacer size='m' />
           <EuiTitle size='xxs'>
-            <h4>Applies to</h4>
+            <h4>{messages.appliesTo()}</h4>
           </EuiTitle>
-          <EuiFormRow label='Groups' helpText='Every agent of these groups'>
+          <EuiFormRow
+            label={messages.groups()}
+            helpText={messages.groupsHelp()}
+          >
             <EuiComboBox
               options={groups.map(g => ({ label: g }))}
               selectedOptions={form.groups.map(g => ({ label: g }))}
@@ -319,8 +328,8 @@ export const RuleFlyout = ({
             />
           </EuiFormRow>
           <EuiFormRow
-            label='Servers'
-            helpText='Single servers: each gets its own fim-host-<id> group'
+            label={messages.servers()}
+            helpText={messages.serversHelp()}
           >
             <EuiComboBox
               options={agentOptions}
@@ -355,9 +364,9 @@ export const RuleFlyout = ({
           )}
           <EuiSpacer size='m' />
           <EuiTitle size='xxs'>
-            <h4>Audit</h4>
+            <h4>{messages.audit()}</h4>
           </EuiTitle>
-          <EuiFormRow label='Reason'>
+          <EuiFormRow label={messages.reason()}>
             <EuiFieldText
               value={form.reason}
               onChange={e => update({ reason: e.target.value })}
@@ -366,7 +375,7 @@ export const RuleFlyout = ({
           </EuiFormRow>
           <EuiFlexGroup>
             <EuiFlexItem>
-              <EuiFormRow label='Ticket'>
+              <EuiFormRow label={messages.ticket()}>
                 <EuiFieldText
                   value={form.ticket}
                   onChange={e => update({ ticket: e.target.value })}
@@ -374,7 +383,7 @@ export const RuleFlyout = ({
               </EuiFormRow>
             </EuiFlexItem>
             <EuiFlexItem>
-              <EuiFormRow label='Owner'>
+              <EuiFormRow label={messages.ownerLabel()}>
                 <EuiFieldText
                   value={form.owner}
                   onChange={e => update({ owner: e.target.value })}
@@ -386,7 +395,7 @@ export const RuleFlyout = ({
         {tried && errors.length > 0 && (
           <>
             <EuiSpacer size='m' />
-            <EuiCallOut color='danger' title='Check the rule'>
+            <EuiCallOut color='danger' title={messages.checkTheRule()}>
               <ul>
                 {errors.map(e => (
                   <li key={e}>{e}</li>
@@ -399,11 +408,13 @@ export const RuleFlyout = ({
       <EuiFlyoutFooter>
         <EuiFlexGroup justifyContent='spaceBetween'>
           <EuiFlexItem grow={false}>
-            <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
+            <EuiButtonEmpty onClick={onClose}>
+              {messages.cancel()}
+            </EuiButtonEmpty>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
             <EuiButton fill onClick={submit} data-test-subj='fim-rule-review'>
-              Review changes
+              {messages.reviewChanges()}
             </EuiButton>
           </EuiFlexItem>
         </EuiFlexGroup>

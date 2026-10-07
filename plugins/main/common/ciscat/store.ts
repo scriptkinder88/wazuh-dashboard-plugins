@@ -28,6 +28,8 @@ export const CISCAT_LISTS = {
 };
 export const CISCAT_BENCH_PREFIX = 'ciscat-bench-';
 export const CISCAT_SCHEMA_VERSION = 1;
+/** Largest wave of agents a job can trigger at once (same bound as ciscat_store.py). */
+export const MAX_WAVE_SIZE = 100000;
 
 export const SCOPES = ['os', 'global', 'host', 'app_group'] as const;
 export const LEVELS = ['L1', 'L2', 'NG', 'ALL'] as const;
@@ -254,7 +256,7 @@ export const validateJob = (rec: ListRecord): Job => {
     }
   }
   out.targets = Array.from(new Set(targets as string[])).sort();
-  out.wave_size = integer(rec, 'wave_size', 1, 100000, 50);
+  out.wave_size = integer(rec, 'wave_size', 1, MAX_WAVE_SIZE, 50);
   out.wave_pause_s = integer(rec, 'wave_pause_s', 0, 86400, 300);
   const enabled = rec.enabled === undefined ? true : rec.enabled;
   if (typeof enabled !== 'boolean') {

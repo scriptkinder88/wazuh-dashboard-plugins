@@ -52,6 +52,7 @@ import { isTerraformManaged } from './lib/path-checks';
 import { PlanModal } from './plan-modal';
 import { ActivePath, AgentsPanel } from './agents-panel';
 import { HistoryPanel } from './history-panel';
+import { messages } from './messages';
 
 interface FimData {
   groups: Record<string, GroupConf>;
@@ -68,10 +69,10 @@ interface PendingPlan {
 
 type TabId = 'rules' | 'agents' | 'history';
 
-const TABS: Array<{ id: TabId; name: string }> = [
-  { id: 'rules', name: 'Rules' },
-  { id: 'agents', name: 'Agents' },
-  { id: 'history', name: 'History' },
+const TABS: Array<{ id: TabId; name: () => string }> = [
+  { id: 'rules', name: messages.tabRules },
+  { id: 'agents', name: messages.tabAgents },
+  { id: 'history', name: messages.tabHistory },
 ];
 
 export const FimManagement = () => {
@@ -153,7 +154,7 @@ export const FimManagement = () => {
       setEditing(undefined);
     } catch (e) {
       getToasts().addDanger({
-        title: 'This change cannot be prepared',
+        title: messages.cannotPrepare(),
         text: (e as Error).message || String(e),
       });
     }
@@ -174,7 +175,7 @@ export const FimManagement = () => {
       after: entry.content,
     };
     setPlan({
-      title: `Restore ${entry.group} as of ${when}`,
+      title: messages.restoreTitle(entry.group, when),
       steps: current?.raw === entry.content ? [] : [step],
       restore: true,
     });
@@ -200,12 +201,10 @@ export const FimManagement = () => {
       <EuiFlexGroup alignItems='center' gutterSize='s' responsive={false}>
         <EuiFlexItem>
           <EuiTitle size='s'>
-            <h2>FIM rules</h2>
+            <h2>{messages.title()}</h2>
           </EuiTitle>
           <EuiText size='xs' color='subdued'>
-            Paths and registry keys monitored on groups of agents or on single
-            servers. Changes are written to the groups&apos; agent.conf; agents
-            apply them within a few minutes.
+            {messages.description()}
           </EuiText>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -215,7 +214,7 @@ export const FimManagement = () => {
             isLoading={loading}
             data-test-subj='fim-reload'
           >
-            Reload
+            {messages.reload()}
           </EuiButtonEmpty>
         </EuiFlexItem>
       </EuiFlexGroup>
@@ -228,14 +227,14 @@ export const FimManagement = () => {
             onClick={() => setTab(t.id)}
             data-test-subj={`fim-tab-${t.id}`}
           >
-            {t.name}
+            {t.name()}
           </EuiTab>
         ))}
       </EuiTabs>
       <EuiSpacer size='m' />
       {error && (
         <>
-          <EuiCallOut color='danger' iconType='alert' title='FIM rules'>
+          <EuiCallOut color='danger' iconType='alert' title={messages.title()}>
             <p>{error}</p>
           </EuiCallOut>
           <EuiSpacer size='m' />
@@ -250,7 +249,9 @@ export const FimManagement = () => {
           onAdd={() => setEditing({})}
           onEdit={row => setEditing({ row })}
           onRemove={row =>
-            review(`Remove ${row.rule.kind} ${row.rule.path}`, { before: row })
+            review(messages.removeTitle(row.rule.kind, row.rule.path), {
+              before: row,
+            })
           }
         />
       )}
@@ -276,9 +277,10 @@ export const FimManagement = () => {
           onClose={() => setEditing(undefined)}
           onSubmit={change =>
             review(
-              `${editing.row ? 'Change' : 'Add'} ${change.after!.rule.kind} ${
-                change.after!.rule.path
-              }`,
+              (editing.row ? messages.changeTitle : messages.addTitle)(
+                change.after!.rule.kind,
+                change.after!.rule.path,
+              ),
               change,
             )
           }

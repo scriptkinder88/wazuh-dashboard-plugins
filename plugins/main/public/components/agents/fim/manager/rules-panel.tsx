@@ -16,33 +16,34 @@ import {
 import { KIND_LABELS } from './lib/agent-conf';
 import { WzButtonPermissions } from '../../../common/permissions/button';
 import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
+import { messages } from './messages';
 import { AgentInfo, GroupConf, RuleRow } from './lib/plan';
 
 const optionBadges = (row: RuleRow) => {
   const a = row.rule.attrs;
   const out: string[] = [];
   if (a.whodata === 'yes') {
-    out.push('who-data');
+    out.push(messages.optionWhodata());
   } else if (a.realtime === 'yes') {
-    out.push('real time');
+    out.push(messages.optionRealtime());
   }
   if (a.report_changes === 'yes') {
-    out.push('report changes');
+    out.push(messages.optionReportChanges());
   }
   if (a.type) {
     out.push(a.type);
   }
   if (a.recursion_level) {
-    out.push(`recursion ${a.recursion_level}`);
+    out.push(messages.optionRecursion(a.recursion_level));
   }
   if (a.restrict) {
-    out.push(`restrict ${a.restrict}`);
+    out.push(messages.optionRestrict(a.restrict));
   }
   if (a.arch) {
     out.push(a.arch);
   }
   if (a.tags) {
-    out.push(...a.tags.split(',').map(t => `tag ${t}`));
+    out.push(...a.tags.split(',').map(messages.optionTag));
   }
   return out;
 };
@@ -95,12 +96,12 @@ export const RulesPanel = ({
 
   const columns = [
     {
-      name: 'Type',
+      name: messages.columnType(),
       width: '130px',
       render: (row: RuleRow) => KIND_LABELS[row.rule.kind],
     },
     {
-      name: 'Path',
+      name: messages.columnPath(),
       render: (row: RuleRow) => (
         <div>
           <code>{row.rule.path}</code>
@@ -114,7 +115,7 @@ export const RulesPanel = ({
       ),
     },
     {
-      name: 'Options',
+      name: messages.columnOptions(),
       render: (row: RuleRow) =>
         optionBadges(row).map(b => (
           <EuiBadge key={b} color='default'>
@@ -123,7 +124,7 @@ export const RulesPanel = ({
         )),
     },
     {
-      name: 'Applies to',
+      name: messages.columnAppliesTo(),
       render: (row: RuleRow) => (
         <div>
           {row.groups.map(g => (
@@ -140,13 +141,13 @@ export const RulesPanel = ({
       ),
     },
     {
-      name: 'Audit',
+      name: messages.columnAudit(),
       render: (row: RuleRow) => {
         const meta = row.rule.meta;
         if (!meta) {
           return (
             <EuiText size='xs' color='subdued'>
-              Imported (no audit data)
+              {messages.importedNoAudit()}
             </EuiText>
           );
         }
@@ -156,34 +157,35 @@ export const RulesPanel = ({
             {meta.ticket ? ` · ${meta.ticket}` : ''}
             <br />
             <span style={{ opacity: 0.7 }}>
-              {meta.by || 'unknown'} · {meta.at.slice(0, 16).replace('T', ' ')}
-              {meta.owner ? ` · owner ${meta.owner}` : ''}
+              {meta.by || messages.unknownUser()} ·{' '}
+              {meta.at.slice(0, 16).replace('T', ' ')}
+              {meta.owner ? messages.owner(meta.owner) : ''}
             </span>
           </EuiText>
         );
       },
     },
     {
-      name: 'Actions',
+      name: messages.columnActions(),
       width: '80px',
       render: (row: RuleRow) => (
         <div>
           <WzButtonPermissions
             buttonType='icon'
             permissions={FIM_WRITE_PERMISSIONS}
-            tooltip={{ position: 'top', content: 'Change' }}
+            tooltip={{ position: 'top', content: messages.change() }}
             iconType='pencil'
-            aria-label='Change'
+            aria-label={messages.change()}
             onClick={() => onEdit(row)}
             data-test-subj='fim-rule-edit'
           />
           <WzButtonPermissions
             buttonType='icon'
             permissions={FIM_WRITE_PERMISSIONS}
-            tooltip={{ position: 'top', content: 'Remove' }}
+            tooltip={{ position: 'top', content: messages.remove() }}
             iconType='trash'
             color='danger'
-            aria-label='Remove'
+            aria-label={messages.remove()}
             onClick={() => onRemove(row)}
             data-test-subj='fim-rule-remove'
           />
@@ -199,7 +201,7 @@ export const RulesPanel = ({
           <EuiCallOut
             color='warning'
             iconType='alert'
-            title='Some groups cannot be managed here'
+            title={messages.unreadableGroups()}
           >
             <ul>
               {unreadable.map(g => (
@@ -216,7 +218,7 @@ export const RulesPanel = ({
         <EuiFlexItem>
           <EuiFieldSearch
             fullWidth
-            placeholder='Path, group, server, tag, reason…'
+            placeholder={messages.rulesSearch()}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -229,7 +231,7 @@ export const RulesPanel = ({
             onClick={onAdd}
             data-test-subj='fim-rule-add'
           >
-            Add rule
+            {messages.addRule()}
           </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
@@ -239,7 +241,7 @@ export const RulesPanel = ({
         pagination={true}
         itemId='key'
         columns={columns}
-        message='No FIM rules in the groups yet'
+        message={messages.noRules()}
         data-test-subj='fim-rules-table'
       />
     </>

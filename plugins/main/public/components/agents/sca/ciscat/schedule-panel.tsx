@@ -25,9 +25,10 @@ import {
 import { getToasts } from '../../../../kibana-services';
 import { describeJob, describeTargets } from './lib/composer';
 import { addRequest, writeList } from './lib/lists-api';
-import { masterTime } from './lib/status';
+import { SCHEDULER_INTERVAL_MINUTES, masterTime } from './lib/status';
 import { STATE_COLOR, formatDate, validJobs } from './lib/schedule';
 import { JobFlyout } from './job-flyout';
+import { messages } from './messages';
 import type { CiscatData } from './ciscat-management';
 
 interface Props {
@@ -55,7 +56,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       return true;
     } catch (e) {
       getToasts().addDanger({
-        title: 'Schedule not saved',
+        title: messages.scheduleNotSaved(),
         text: (e as Error).message,
       });
       return false;
@@ -72,7 +73,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
 
   const columns = [
     {
-      name: 'Schedule',
+      name: messages.columnSchedule(),
       render: ({ key, job }: (typeof items)[number]) => (
         <span>
           <strong>{job.label || key}</strong>
@@ -84,25 +85,23 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       ),
     },
     {
-      name: 'Targets',
+      name: messages.columnTargets(),
       render: ({ job }: (typeof items)[number]) => describeTargets(job.targets),
     },
     {
-      name: 'Waves',
+      name: messages.columnWaves(),
       render: ({ job }: (typeof items)[number]) =>
-        `${job.wave_size} agents, ${Math.round(
-          job.wave_pause_s / 60,
-        )} min pause`,
+        messages.waves(job.wave_size, Math.round(job.wave_pause_s / 60)),
     },
     {
-      name: 'Next run',
+      name: messages.columnNextRun(),
       render: ({ job, status }: (typeof items)[number]) =>
         job.enabled
           ? formatDate(masterTime(status.next_run, offset))
-          : 'disabled',
+          : messages.disabled(),
     },
     {
-      name: 'Last run',
+      name: messages.columnLastRun(),
       render: ({ status }: (typeof items)[number]) =>
         status.last_run ? (
           <EuiHealth color={STATE_COLOR[String(status.state)] || 'subdued'}>
@@ -114,7 +113,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
         ),
     },
     {
-      name: 'Enabled',
+      name: messages.columnEnabled(),
       width: '80px',
       render: ({ key, job }: (typeof items)[number]) => (
         <WzButtonPermissions
@@ -126,7 +125,9 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
           onChange={() =>
             persist(
               { ...jobs, [key]: { ...job, enabled: !job.enabled } },
-              job.enabled ? 'Schedule disabled' : 'Schedule enabled',
+              job.enabled
+                ? messages.scheduleDisabled()
+                : messages.scheduleEnabled(),
             )
           }
         />
@@ -141,7 +142,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             buttonType='icon'
             permissions={CISCAT_WRITE_PERMISSIONS}
             iconType='pencil'
-            aria-label='Edit'
+            aria-label={messages.edit()}
             onClick={() => setEditing({ key, job })}
           />
           <WzButtonPermissions
@@ -149,7 +150,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             permissions={CISCAT_WRITE_PERMISSIONS}
             iconType='trash'
             color='danger'
-            aria-label='Delete'
+            aria-label={messages.delete()}
             onClick={() => setDeleting(key)}
           />
         </>
@@ -162,11 +163,11 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       <EuiFlexGroup alignItems='center' responsive={false}>
         <EuiFlexItem>
           <EuiText size='s'>
-            Times are in the manager&apos;s time zone
-            {scheduler.tz
-              ? ` (${scheduler.tz}, UTC${scheduler.utc_offset})`
-              : ''}
-            . Disconnected agents are skipped and reported in the status.
+            {messages.timeZone(
+              scheduler.tz
+                ? ` (${scheduler.tz}, UTC${scheduler.utc_offset})`
+                : '',
+            )}
           </EuiText>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -177,7 +178,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             onClick={() => setRunNow(true)}
             data-test-subj='ciscat-run-now'
           >
-            Run now
+            {messages.runNow()}
           </WzButtonPermissions>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -189,7 +190,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             onClick={() => setEditing({ key: newJobKey() })}
             data-test-subj='ciscat-new-schedule'
           >
-            New schedule
+            {messages.newSchedule()}
           </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
@@ -198,7 +199,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
         items={items}
         itemId='key'
         columns={columns}
-        noItemsMessage='No schedule yet: CIS-CAT runs only on demand.'
+        noItemsMessage={messages.noSchedule()}
         data-test-subj='ciscat-schedules'
       />
       {editing && (
@@ -215,7 +216,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             if (
               await persist(
                 { ...jobs, [editing.key]: stamped },
-                'Schedule saved',
+                messages.scheduleSaved(),
               )
             ) {
               setEditing(undefined);
@@ -237,21 +238,21 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
                   targets: job.targets,
                   wave_size: job.wave_size,
                   wave_pause_s: job.wave_pause_s,
-                  label: job.label || 'Run now',
+                  label: job.label || messages.runNow(),
                   requested_by: user,
                   requested_at: new Date().toISOString(),
                 },
                 (data.status.requests?.processed as string[]) || [],
               );
               getToasts().addSuccess({
-                title: 'Run requested',
-                text: 'The manager starts it within 5 minutes.',
+                title: messages.runRequested(),
+                text: messages.runStartsWithin(SCHEDULER_INTERVAL_MINUTES),
               });
               setRunNow(false);
               onSaved();
             } catch (e) {
               getToasts().addDanger({
-                title: 'Run not requested',
+                title: messages.runNotRequested(),
                 text: (e as Error).message,
               });
             }
@@ -260,16 +261,16 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       )}
       {deleting && (
         <EuiConfirmModal
-          title='Delete this schedule?'
+          title={messages.deleteTitle()}
           onCancel={() => setDeleting(undefined)}
           onConfirm={async () => {
             const next = { ...jobs };
             delete next[deleting];
-            await persist(next, 'Schedule deleted');
+            await persist(next, messages.scheduleDeleted());
             setDeleting(undefined);
           }}
-          cancelButtonText='Cancel'
-          confirmButtonText='Delete'
+          cancelButtonText={messages.cancel()}
+          confirmButtonText={messages.delete()}
           buttonColor='danger'
         >
           <p>{describeJob(jobs[deleting])}</p>

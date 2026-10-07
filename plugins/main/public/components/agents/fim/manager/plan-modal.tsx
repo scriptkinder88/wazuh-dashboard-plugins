@@ -31,15 +31,16 @@ import {
 import { StepResult, applyPlan } from './lib/fim-api';
 import { WzButtonPermissions } from '../../../common/permissions/button';
 import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
+import { messages } from './messages';
 
 const stepTitle = (step: GroupStep, agents: AgentInfo[]) => {
   const host = hostOfGroup(step.group);
   const agent = host && agents.find(a => a.id === host);
   const name = agent ? `${step.group} (${agent.name})` : step.group;
   if (step.create) {
-    return `${name}: new group`;
+    return messages.newGroup(name);
   }
-  return step.deleteGroup ? `${name}: no rules left, group deleted` : name;
+  return step.deleteGroup ? messages.groupDeleted(name) : name;
 };
 
 export const PlanModal = ({
@@ -104,15 +105,14 @@ export const PlanModal = ({
       </EuiModalHeader>
       <EuiModalBody>
         {!steps.length && (
-          <EuiCallOut title='Nothing to change' iconType='check' />
+          <EuiCallOut title={messages.nothingToChange()} iconType='check' />
         )}
         {steps.length > 0 && (
           <EuiText size='s'>
             <p>
-              {steps.length} group(s) change.{' '}
-              <strong>{affected.length} agent(s)</strong> will download the new
-              configuration and restart within a few minutes
-              {affectedNames}.
+              {messages.groupsChange(steps.length)}{' '}
+              <strong>{messages.agentsCount(affected.length)}</strong>{' '}
+              {messages.willRestart(affectedNames)}
             </p>
           </EuiText>
         )}
@@ -122,18 +122,13 @@ export const PlanModal = ({
             <EuiCallOut
               color='warning'
               iconType='alert'
-              title='Check the whole file before restoring it'
+              title={messages.restoreWarningTitle()}
               data-test-subj='fim-plan-restore-warning'
             >
-              <p>
-                The saved version replaces the entire agent.conf of the group,
-                not only its FIM rules. Saved versions are kept in the
-                fim-history list, which anyone allowed to edit CDB lists can
-                change: compare it with the current file below.
-              </p>
+              <p>{messages.restoreWarning()}</p>
               <EuiCheckbox
                 id='fim-plan-restore-reviewed'
-                label='I checked the changes below'
+                label={messages.restoreReviewed()}
                 checked={reviewed}
                 onChange={e => setReviewed(e.target.checked)}
                 data-test-subj='fim-plan-restore-reviewed'
@@ -147,10 +142,10 @@ export const PlanModal = ({
             <EuiCallOut
               color='warning'
               iconType='alert'
-              title='The same path gets different options from several groups'
+              title={messages.conflictsTitle()}
               data-test-subj='fim-plan-conflicts'
             >
-              <p>The agent keeps the options of the group assigned last.</p>
+              <p>{messages.conflictsHelp()}</p>
               <ul>
                 {conflicts.slice(0, 10).map(c => (
                   <li key={`${c.agent}${c.path}`}>
@@ -169,7 +164,7 @@ export const PlanModal = ({
               <EuiTitle size='xxs'>
                 <h4>
                   {stepTitle(step, agents)}
-                  {step.assign ? ` — agent ${step.assign} added to it` : ''}
+                  {step.assign ? messages.agentAdded(step.assign) : ''}
                   {result ? ` ✓ ${result.done.join(', ')}` : ''}
                 </h4>
               </EuiTitle>
@@ -192,10 +187,7 @@ export const PlanModal = ({
         {steps.length > 0 && !finished && (
           <>
             <EuiSpacer size='m' />
-            <EuiFormRow
-              label='Change note (saved with the previous versions)'
-              fullWidth
-            >
+            <EuiFormRow label={messages.changeNote()} fullWidth>
               <EuiFieldText
                 fullWidth
                 value={note}
@@ -211,14 +203,11 @@ export const PlanModal = ({
             <EuiCallOut
               color='danger'
               iconType='alert'
-              title='The change stopped'
+              title={messages.stoppedTitle()}
               data-test-subj='fim-plan-error'
             >
               <p>{error}</p>
-              <p>
-                What was done is listed next to each group; the groups after the
-                failure were not touched. Reload to see the current state.
-              </p>
+              <p>{messages.stoppedHelp()}</p>
             </EuiCallOut>
           </>
         )}
@@ -228,13 +217,10 @@ export const PlanModal = ({
             <EuiCallOut
               color='success'
               iconType='check'
-              title='Applied'
+              title={messages.appliedTitle()}
               data-test-subj='fim-plan-done'
             >
-              <p>
-                Agents pick up the new configuration within a few minutes. The
-                Agents tab shows when each one is synchronized.
-              </p>
+              <p>{messages.appliedHelp()}</p>
             </EuiCallOut>
           </>
         )}
@@ -245,7 +231,7 @@ export const PlanModal = ({
           isDisabled={running}
           data-test-subj='fim-plan-close'
         >
-          {finished ? 'Close' : 'Cancel'}
+          {finished ? messages.close() : messages.cancel()}
         </EuiButtonEmpty>
         {!finished && steps.length > 0 && (
           <WzButtonPermissions
@@ -256,7 +242,7 @@ export const PlanModal = ({
             isDisabled={restore && !reviewed}
             data-test-subj='fim-plan-apply'
           >
-            Apply
+            {messages.apply()}
           </WzButtonPermissions>
         )}
       </EuiModalFooter>

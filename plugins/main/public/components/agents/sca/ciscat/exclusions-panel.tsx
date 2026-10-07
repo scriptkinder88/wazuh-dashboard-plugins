@@ -43,6 +43,8 @@ import {
 } from './lib/exclusion-data';
 import { ExcludeFlyout } from './exclude-flyout';
 import { ruleColumns } from './exclusion-columns';
+import { messages } from './messages';
+import { SCHEDULER_INTERVAL_MINUTES } from './lib/status';
 import type { CiscatData } from './ciscat-management';
 
 const PAGE_SIZES = [25, 50, 100];
@@ -145,21 +147,21 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
     try {
       await saveExclusions({ data, draft, targets, user, apply });
       toast(
-        apply ? 'Exclusions saved, apply requested' : 'Exclusions saved',
+        apply ? messages.exclusionsSavedApply() : messages.exclusionsSaved(),
         'success',
         apply
-          ? 'The manager regenerates the policies within 5 minutes.'
-          : 'Use "Save and apply" to publish them to the agents.',
+          ? messages.exclusionsApplyHelp(SCHEDULER_INTERVAL_MINUTES)
+          : messages.exclusionsSaveHelp(),
       );
       onSaved();
     } catch (e) {
       if (e instanceof PartialSaveError) {
         // the lists read before the save are outdated: reload them, or the
         // next save would be refused as a concurrent change
-        toast('Exclusions saved, the rest was not', 'danger', e.message);
+        toast(messages.exclusionsPartial(), 'danger', e.message);
         onSaved();
       } else {
-        toast('Exclusions not saved', 'danger', (e as Error).message);
+        toast(messages.exclusionsNotSaved(), 'danger', (e as Error).message);
       }
     } finally {
       setSaving(false);
@@ -184,11 +186,8 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
 
   if (!osKeys.length) {
     return (
-      <EuiCallOut title='No benchmark available' iconType='iInCircle'>
-        <p>
-          The manager has not published any benchmark sheet yet, or no OS in its
-          library has its benchmark file.
-        </p>
+      <EuiCallOut title={messages.noBenchmarkTitle()} iconType='iInCircle'>
+        <p>{messages.noBenchmark()}</p>
       </EuiCallOut>
     );
   }
@@ -197,12 +196,12 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
     <>
       <EuiFlexGroup gutterSize='m' wrap>
         <EuiFlexItem grow={false}>
-          <EuiFormRow label='Operating system'>
+          <EuiFormRow label={messages.operatingSystem()}>
             <EuiSelect
               options={osKeys.map(k => ({
                 value: k,
                 text: `${osTitle(data, k)}${
-                  data.oskeys[k].active ? '' : ' (inactive)'
+                  data.oskeys[k].active ? '' : messages.inactive()
                 }`,
               }))}
               value={osKey}
@@ -216,8 +215,8 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
         </EuiFlexItem>
         <EuiFlexItem grow={false} style={{ minWidth: 220 }}>
           <EuiFormRow
-            label='Applies to group'
-            helpText='Agents of this group get the benchmark at the next apply'
+            label={messages.appliesToGroup()}
+            helpText={messages.appliesToGroupHelp()}
           >
             <EuiComboBox
               singleSelection={{ asPlainText: true }}
@@ -237,7 +236,7 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
           </EuiFormRow>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiFormRow label='Profile'>
+          <EuiFormRow label={messages.profile()}>
             <EuiSelect
               options={(bench?.profiles || []).map(p => ({
                 value: p,
@@ -250,12 +249,12 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
           </EuiFormRow>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiFormRow label='Show'>
+          <EuiFormRow label={messages.show()}>
             <EuiSelect
               options={[
-                { value: 'applicable', text: 'Controls in the profile' },
-                { value: 'excluded', text: 'Excluded only' },
-                { value: 'all', text: 'All controls' },
+                { value: 'applicable', text: messages.showApplicable() },
+                { value: 'excluded', text: messages.showExcluded() },
+                { value: 'all', text: messages.showAll() },
               ]}
               value={show}
               onChange={e => {
@@ -266,9 +265,9 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
           </EuiFormRow>
         </EuiFlexItem>
         <EuiFlexItem>
-          <EuiFormRow label='Filter'>
+          <EuiFormRow label={messages.filter()}>
             <EuiFieldSearch
-              placeholder='CIS number or title'
+              placeholder={messages.filterPlaceholder()}
               value={text}
               onChange={e => {
                 setText(e.target.value);
@@ -284,14 +283,14 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
         <EuiFlexItem grow={false}>
           <EuiStat
             title={stats.applicable}
-            description='In profile'
+            description={messages.statInProfile()}
             titleSize='s'
           />
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
           <EuiStat
             title={stats.fleetWide}
-            description='Excluded for the OS'
+            description={messages.statFleetWide()}
             titleColor='accent'
             titleSize='s'
           />
@@ -299,14 +298,14 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
         <EuiFlexItem grow={false}>
           <EuiStat
             title={stats.partial}
-            description='Excluded for some agents'
+            description={messages.statPartial()}
             titleSize='s'
           />
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
           <EuiStat
             title={stats.scored}
-            description='Scored (automated)'
+            description={messages.statScored()}
             titleColor='primary'
             titleSize='s'
           />
@@ -319,7 +318,7 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             isDisabled={!selected.size}
             onClick={() => setFlyoutRules(Array.from(selected))}
           >
-            Exclude selected ({selected.size})
+            {messages.excludeSelected(selected.size)}
           </EuiButton>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -331,7 +330,7 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             onClick={() => save(false)}
             data-test-subj='ciscat-save'
           >
-            Save
+            {messages.save()}
           </WzButtonPermissions>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -343,13 +342,13 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             onClick={() => save(true)}
             data-test-subj='ciscat-save-apply'
           >
-            {dirty ? 'Save and apply' : 'Apply'}
+            {dirty ? messages.saveAndApply() : messages.apply()}
           </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer size='m' />
       {benchError && (
-        <EuiCallOut color='danger' title='Cannot read the benchmark sheet'>
+        <EuiCallOut color='danger' title={messages.cannotReadBench()}>
           <p>{benchError}</p>
         </EuiCallOut>
       )}
@@ -358,7 +357,7 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
         <>
           <EuiText size='xs' color='subdued'>
             {bench.benchmark} {bench.version}
-            {dirty && ' · unsaved changes'}
+            {dirty && messages.unsavedChanges()}
           </EuiText>
           <EuiBasicTable
             items={pageRows}

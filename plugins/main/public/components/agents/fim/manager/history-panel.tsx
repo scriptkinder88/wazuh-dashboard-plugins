@@ -18,6 +18,7 @@ import {
 import { HISTORY_DEPTH, HistoryEntry } from './lib/fim-api';
 import { WzButtonPermissions } from '../../../common/permissions/button';
 import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
+import { messages } from './messages';
 
 export const HistoryPanel = ({
   entries,
@@ -35,17 +36,12 @@ export const HistoryPanel = ({
   return (
     <>
       <EuiText size='s' color='subdued'>
-        <p>
-          The version of agent.conf each group had before a change made here
-          (last {HISTORY_DEPTH} per group). Restoring shows the changes first.
-          The user and note are recorded by the dashboard for information: the
-          Wazuh server API does not verify them.
-        </p>
+        <p>{messages.historyDescription(HISTORY_DEPTH)}</p>
       </EuiText>
       <EuiSpacer size='s' />
       <EuiFieldSearch
         fullWidth
-        placeholder='Group, user, note…'
+        placeholder={messages.historySearch()}
         value={search}
         onChange={e => setSearch(e.target.value)}
       />
@@ -57,23 +53,29 @@ export const HistoryPanel = ({
         data-test-subj='fim-history-table'
         columns={[
           {
-            name: 'Saved',
+            name: messages.columnSaved(),
             width: '160px',
             render: (e: HistoryEntry) => e.at.slice(0, 19).replace('T', ' '),
           },
-          { name: 'Group', render: (e: HistoryEntry) => e.group },
           {
-            name: 'Changed by',
-            render: (e: HistoryEntry) => e.by || 'unknown',
+            name: messages.columnGroup(),
+            render: (e: HistoryEntry) => e.group,
           },
-          { name: 'Change', render: (e: HistoryEntry) => e.note },
+          {
+            name: messages.columnChangedBy(),
+            render: (e: HistoryEntry) => e.by || messages.unknownUser(),
+          },
+          {
+            name: messages.columnChange(),
+            render: (e: HistoryEntry) => e.note,
+          },
           {
             name: '',
             width: '190px',
             render: (e: HistoryEntry) => (
               <div>
                 <EuiButtonEmpty size='xs' onClick={() => setViewed(e)}>
-                  View
+                  {messages.view()}
                 </EuiButtonEmpty>
                 <WzButtonPermissions
                   buttonType='empty'
@@ -83,13 +85,13 @@ export const HistoryPanel = ({
                   onClick={() => onRestore(e)}
                   data-test-subj='fim-history-restore'
                 >
-                  Restore
+                  {messages.restore()}
                 </WzButtonPermissions>
               </div>
             ),
           },
         ]}
-        message='No saved versions yet'
+        message={messages.noHistory()}
       />
       {viewed && (
         <EuiFlyout onClose={() => setViewed(undefined)} size='m' ownFocus>

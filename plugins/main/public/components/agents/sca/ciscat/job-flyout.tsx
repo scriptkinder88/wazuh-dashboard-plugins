@@ -25,15 +25,16 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { Job, validateJob } from '../../../../../common/ciscat/store';
+import { messages } from './messages';
 
 const WEEKDAYS = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
+  messages.monday,
+  messages.tuesday,
+  messages.wednesday,
+  messages.thursday,
+  messages.friday,
+  messages.saturday,
+  messages.sunday,
 ];
 
 interface JobFlyoutProps {
@@ -53,6 +54,8 @@ export const JobFlyout = ({
   onClose,
   onSave,
 }: JobFlyoutProps) => {
+  // the option standing for every active OS ("*")
+  const allOs = messages.allActiveOs();
   const [label, setLabel] = useState(initial?.label || '');
   const [type, setType] = useState<Job['type']>(initial?.type || 'monthly');
   const [date, setDate] = useState((initial?.at || '').slice(0, 10) || today());
@@ -64,7 +67,7 @@ export const JobFlyout = ({
   const [weekday, setWeekday] = useState(initial?.weekday ?? 5);
   const [targets, setTargets] = useState<Array<{ label: string }>>(
     (initial?.targets || ['*']).map(t => ({
-      label: t === '*' ? 'All active OS' : t,
+      label: t === '*' ? allOs : t,
     })),
   );
   const [waveSize, setWaveSize] = useState(initial?.wave_size ?? 50);
@@ -76,9 +79,7 @@ export const JobFlyout = ({
 
   const submit = () => {
     try {
-      const chosen = targets.map(t =>
-        t.label === 'All active OS' ? '*' : t.label,
-      );
+      const chosen = targets.map(t => (t.label === allOs ? '*' : t.label));
       const job = validateJob({
         type: runNow ? 'once' : type,
         at: runNow ? '2000-01-01T00:00' : `${date}T${time}`,
@@ -102,37 +103,40 @@ export const JobFlyout = ({
       <EuiFlyoutHeader hasBorder>
         <EuiTitle size='s'>
           <h3>
-            {runNow && 'Run CIS-CAT now'}
-            {!runNow && (initial ? 'Edit schedule' : 'New schedule')}
+            {runNow && messages.runCiscatNow()}
+            {!runNow &&
+              (initial ? messages.editSchedule() : messages.newSchedule())}
           </h3>
         </EuiTitle>
       </EuiFlyoutHeader>
       <EuiFlyoutBody>
         <EuiForm component='form' onSubmit={e => e.preventDefault()}>
-          <EuiFormRow label='Name'>
+          <EuiFormRow label={messages.name()}>
             <EuiFieldText
               value={label}
               onChange={e => setLabel(e.target.value)}
-              placeholder={runNow ? 'Run now' : 'Month-end assessment'}
+              placeholder={
+                runNow ? messages.runNow() : messages.namePlaceholder()
+              }
             />
           </EuiFormRow>
           {!runNow && (
-            <EuiFormRow label='When'>
+            <EuiFormRow label={messages.when()}>
               <EuiRadioGroup
                 idSelected={`ciscat-type-${type}`}
                 onChange={id =>
                   setType(id.replace('ciscat-type-', '') as Job['type'])
                 }
                 options={[
-                  { id: 'ciscat-type-once', label: 'Once' },
-                  { id: 'ciscat-type-monthly', label: 'Every month' },
-                  { id: 'ciscat-type-weekly', label: 'Every week' },
+                  { id: 'ciscat-type-once', label: messages.once() },
+                  { id: 'ciscat-type-monthly', label: messages.everyMonth() },
+                  { id: 'ciscat-type-weekly', label: messages.everyWeek() },
                 ]}
               />
             </EuiFormRow>
           )}
           {!runNow && type === 'once' && (
-            <EuiFormRow label='Date' helpText='YYYY-MM-DD'>
+            <EuiFormRow label={messages.date()} helpText='YYYY-MM-DD'>
               <EuiFieldText
                 value={date}
                 onChange={e => setDate(e.target.value)}
@@ -141,30 +145,22 @@ export const JobFlyout = ({
           )}
           {!runNow && type === 'monthly' && (
             <>
-              <EuiFormRow label='Day'>
+              <EuiFormRow label={messages.day()}>
                 <EuiRadioGroup
                   idSelected={fromEnd ? 'ciscat-from-end' : 'ciscat-day'}
                   onChange={id => setFromEnd(id === 'ciscat-from-end')}
                   options={[
-                    { id: 'ciscat-day', label: 'Day of the month' },
+                    { id: 'ciscat-day', label: messages.dayOfMonth() },
                     {
                       id: 'ciscat-from-end',
-                      label: 'Days before the end of the month',
+                      label: messages.daysBeforeEnd(),
                     },
                   ]}
                 />
               </EuiFormRow>
               <EuiFormRow
-                label={
-                  fromEnd
-                    ? 'Day from the end (1 = last day)'
-                    : 'Day of the month'
-                }
-                helpText={
-                  fromEnd
-                    ? '1..28'
-                    : '1..31; months without that day use their last day'
-                }
+                label={fromEnd ? messages.dayFromEnd() : messages.dayOfMonth()}
+                helpText={fromEnd ? '1..28' : messages.dayOfMonthHelp()}
               >
                 <EuiFieldNumber
                   min={1}
@@ -176,40 +172,40 @@ export const JobFlyout = ({
             </>
           )}
           {!runNow && type === 'weekly' && (
-            <EuiFormRow label='Day of the week'>
+            <EuiFormRow label={messages.dayOfWeek()}>
               <EuiSelect
-                options={WEEKDAYS.map((text, value) => ({ value, text }))}
+                options={WEEKDAYS.map((text, value) => ({
+                  value,
+                  text: text(),
+                }))}
                 value={weekday}
                 onChange={e => setWeekday(Number(e.target.value))}
               />
             </EuiFormRow>
           )}
           {!runNow && (
-            <EuiFormRow label='Time' helpText="HH:MM, manager's local time">
+            <EuiFormRow label={messages.time()} helpText={messages.timeHelp()}>
               <EuiFieldText
                 value={time}
                 onChange={e => setTime(e.target.value)}
               />
             </EuiFormRow>
           )}
-          <EuiFormRow label='Operating systems'>
+          <EuiFormRow label={messages.operatingSystems()}>
             <EuiComboBox
-              options={[
-                { label: 'All active OS' },
-                ...osKeys.map(label => ({ label })),
-              ]}
+              options={[{ label: allOs }, ...osKeys.map(label => ({ label }))]}
               selectedOptions={targets}
               onChange={setTargets}
             />
           </EuiFormRow>
-          <EuiFormRow label='Agents per wave'>
+          <EuiFormRow label={messages.agentsPerWave()}>
             <EuiFieldNumber
               min={1}
               value={waveSize}
               onChange={e => setWaveSize(Number(e.target.value))}
             />
           </EuiFormRow>
-          <EuiFormRow label='Pause between waves (minutes)'>
+          <EuiFormRow label={messages.pauseBetweenWaves()}>
             <EuiFieldNumber
               min={0}
               value={pauseMin}
@@ -219,7 +215,7 @@ export const JobFlyout = ({
           {!runNow && (
             <EuiFormRow>
               <EuiSwitch
-                label='Enabled'
+                label={messages.enabled()}
                 checked={enabled}
                 onChange={e => setEnabled(e.target.checked)}
               />
@@ -236,11 +232,13 @@ export const JobFlyout = ({
       <EuiFlyoutFooter>
         <EuiFlexGroup justifyContent='spaceBetween'>
           <EuiFlexItem grow={false}>
-            <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
+            <EuiButtonEmpty onClick={onClose}>
+              {messages.cancel()}
+            </EuiButtonEmpty>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
             <EuiButton fill onClick={submit} data-test-subj='ciscat-save-job'>
-              {runNow ? 'Run now' : 'Save'}
+              {runNow ? messages.runNow() : messages.save()}
             </EuiButton>
           </EuiFlexItem>
         </EuiFlexGroup>

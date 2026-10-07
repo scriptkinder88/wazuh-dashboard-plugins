@@ -9,20 +9,19 @@ import { AgentInfo } from './lib/plan';
 import { inventoryPrefix, rulePaths } from './lib/path-checks';
 import { PathTestResult, testPathOnAgents } from './lib/fim-api';
 import { FormState } from './lib/rule-form';
+import { messages } from './messages';
 
 /** Agents the path test runs on: the chosen servers, then agents of the groups. */
 const TEST_AGENTS = 5;
 
 const testOutcome = (r: PathTestResult) => {
   if (r.error) {
-    return `cannot read the inventory (${r.error})`;
+    return messages.testCannotRead(r.error);
   }
   if (r.files) {
-    return `${r.files}${r.more ? '+' : ''} entries`;
+    return messages.testEntries(`${r.files}${r.more ? '+' : ''}`);
   }
-  return r.more
-    ? 'none among the first entries found, the inventory may hold more'
-    : 'none (the path does not exist there or is not monitored yet)';
+  return r.more ? messages.testNoneSampled() : messages.testNone();
 };
 
 export const PathTest = ({
@@ -34,7 +33,7 @@ export const PathTest = ({
 }) => (
   <EuiText size='xs' data-test-subj='fim-path-test'>
     <p>
-      FIM inventory entries under <code>{prefix}</code>:
+      {messages.testUnder()} <code>{prefix}</code>:
     </p>
     <ul>
       {results.map(r => (
@@ -43,7 +42,7 @@ export const PathTest = ({
           {r.agent.status !== 'active' ? `, ${r.agent.status}` : ''}):{' '}
           {testOutcome(r)}
           {r.lastScan
-            ? ` · last scan ${new Date(r.lastScan).toLocaleString()}`
+            ? messages.testLastScan(new Date(r.lastScan).toLocaleString())
             : ''}
         </li>
       ))}
@@ -84,10 +83,11 @@ export const usePathTest = (
     results?: PathTestResult[];
   }>();
   useEffect(() => setTest(undefined), [testPrefix, testAgents]);
-  const plural = testAgents.length === 1 ? '' : 's';
+  const onAgents =
+    testAgents.length === 1 ? messages.testOnAgent : messages.testOnAgents;
   const testLabel = testAgents.length
-    ? `Test the path on ${testAgents.length} agent${plural} of the targets`
-    : 'Test the path (choose groups or servers first)';
+    ? onAgents(testAgents.length)
+    : messages.testChooseFirst();
   const runTest = async () => {
     setTest({ prefix: testPrefix });
     const results = await testPathOnAgents(testPrefix, testAgents);
