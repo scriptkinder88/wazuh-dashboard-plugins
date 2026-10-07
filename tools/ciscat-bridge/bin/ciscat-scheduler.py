@@ -31,7 +31,6 @@ FLEET = os.environ.get("CISCAT_FLEET_CMD", os.path.join(BIN_DIR, "ciscat-fleet.p
 TICK = timedelta(minutes=5)
 SYNC_EVERY = timedelta(hours=1)
 RUNNING_LIMIT = timedelta(hours=12)  # a job reported running longer than this is presumed dead
-KEEP_PROCESSED = 200
 FMT = "%Y-%m-%dT%H:%M:%S"
 SCHEDULED_KEY = re.compile(r"^job-j[0-9a-f]{12}$")
 KEEP_RUNS = 20
@@ -56,24 +55,37 @@ def fleet(*args):
     return p.returncode
 
 
-def start_trigger(key, job):
+def start_trigger(key, job, record):
+    """Records the job as starting, then starts it: the trigger's own status updates come later
+    and are never overwritten by this tick."""
+    store.update_records(store.STATUS, {"job-" + key: record}, LISTS_DIR, RUN_DIR)
     os.makedirs(LOG_DIR, exist_ok=True)
-    out = open(os.path.join(LOG_DIR, "ciscat-job-{0}.log".format(key)), "a")
     cmd = [sys.executable, FLEET, "trigger", "--targets", ",".join(job["targets"]),
            "--wave-size", str(job["wave_size"]), "--wave-pause", str(job["wave_pause_s"]),
            "--job", key]
-    subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                     start_new_session=True, close_fds=True)
+    with open(os.path.join(LOG_DIR, "ciscat-job-{0}.log".format(key)), "a") as out:
+        subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                         start_new_session=True, close_fds=True)
     return cmd
 
 
-def tick(now):
+def last_tick_ts(sched, now_ts):
+    """Epoch of the previous tick (last_tick_ts, else the older local last_tick)."""
+    ts = sched.get("last_tick_ts")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        last = parse(sched.get("last_tick"))
+        ts = schedule.local_ts(last) if last else None
+    if ts is None or ts > now_ts:  # first tick, or the clock moved back
+        ts = now_ts - TICK.total_seconds()
+    return ts
+
+
+def tick(now_ts):
+    now = datetime.fromtimestamp(now_ts).replace(microsecond=0)
     status, errors = store.read_list(store.STATUS, LISTS_DIR)
     for e in errors:
         log("WARNING status: " + e)
-    last_tick = parse(status.get("scheduler", {}).get("last_tick")) or now - TICK
-    if last_tick > now:  # clock moved back
-        last_tick = now - TICK
+    last_ts = last_tick_ts(status.get("scheduler", {}), now_ts)
     patches, remove = {}, []
 
     # 1. dashboard data
@@ -108,14 +120,16 @@ def tick(now):
     # "Run now" requests start after a pending apply, so they assess the new policies
     for key in (k for k in pending if requests[k]["action"] == "run"):
         req = requests[key]
-        log("run now requested by {0}: start {1}".format(
-            req.get("requested_by") or "?", " ".join(start_trigger(key, req)[2:])))
-        patches["job-" + key] = {"state": "starting", "last_run": now.strftime(FMT),
-                                 "label": req.get("label") or "Run now",
-                                 "requested_by": req.get("requested_by", "")}
-    if pending:
-        processed = (processed + pending)[-KEEP_PROCESSED:]
-        patches["requests"] = {"processed": processed}
+        cmd = start_trigger(key, req, {"state": "starting", "last_run": now.strftime(FMT),
+                                       "label": req.get("label") or "Run now",
+                                       "requested_by": req.get("requested_by", "")})
+        log("run now requested by {0}: start {1}".format(req.get("requested_by") or "?",
+                                                         " ".join(cmd[2:])))
+    # keys the dashboard removed leave the processed list, so it stays as long as the request
+    # list and a request is never handled twice
+    still = [k for k in processed if k in raw]
+    if pending or still != processed:
+        patches["requests"] = {"processed": still + pending}
 
     # 3. jobs
     raw, errors = store.read_list(store.SCHEDULE, LISTS_DIR)
@@ -124,7 +138,7 @@ def tick(now):
         log("WARNING job rejected: " + e)
     for key, job in sorted(jobs.items()):
         skey = "job-" + key
-        run, missed = schedule.due(job, last_tick, now)
+        run, missed = schedule.due(job, last_ts, now_ts)
         patch = {}
         if missed:
             log("job {0}: missed {1}".format(key, ", ".join(t.strftime("%Y-%m-%d %H:%M") for t in missed)))
@@ -137,9 +151,9 @@ def tick(now):
                 log("job {0}: still running since {1}, this run is skipped".format(key, cur["last_run"]))
                 patch["overlap"] = now.strftime(FMT)
             else:
+                cmd = start_trigger(key, job, {"state": "starting", "last_run": now.strftime(FMT)})
                 log("job {0} ({1}): start {2}".format(key, job.get("label") or job["type"],
-                                                      " ".join(start_trigger(key, job)[2:])))
-                patch.update({"state": "starting", "last_run": now.strftime(FMT)})
+                                                      " ".join(cmd[2:])))
         nxt = schedule.next_run(job, now) if job["enabled"] else None
         patch["next_run"] = nxt.strftime("%Y-%m-%dT%H:%M") if nxt else ""
         patches[skey] = patch
@@ -149,7 +163,7 @@ def tick(now):
                   key=lambda k: status[k].get("last_run", ""), reverse=True)
     remove += runs[KEEP_RUNS:]
 
-    sched = {"last_tick": now.strftime(FMT), "jobs": len(jobs),
+    sched = {"last_tick": now.strftime(FMT), "last_tick_ts": int(now_ts), "jobs": len(jobs),
              "tz": time.strftime("%Z"), "utc_offset": time.strftime("%z")}
     if synced:
         sched["last_sync"] = synced
@@ -168,8 +182,8 @@ def main():
     except OSError:
         log("previous tick still running; skipping")
         return 0
-    now = parse(os.environ.get("CISCAT_NOW", "")) or datetime.now().replace(microsecond=0)
-    tick(now)
+    fixed = parse(os.environ.get("CISCAT_NOW", ""))  # tests
+    tick(int(schedule.local_ts(fixed)) if fixed else int(time.time()))
     return 0
 
 
