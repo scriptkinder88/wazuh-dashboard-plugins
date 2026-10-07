@@ -35,11 +35,15 @@ def selected_rules(profile_block):
             out.append((m.group(1), idref))
     return out
 
+# a <check> or <complex-check>, with or without the xccdf: prefix (not <check-content-ref>)
+CHECK_RE = re.compile(r'<(?:xccdf:)?(?:complex-check|check)[\s>]')
+
+
 def manual_rule_numbers(xml):
     """Rules without any check element are manual (no OVAL). Return set of rule numbers."""
     manual = set()
     for b in re.findall(r'<xccdf:Rule\b.*?</xccdf:Rule>', xml, re.DOTALL):
-        if ('<xccdf:complex-check' in b) or ('<check system=' in b):
+        if CHECK_RE.search(b):
             continue
         m = re.search(r'id="[^"]*_rule_([0-9.]+)_', b)
         if m:

@@ -26,6 +26,13 @@ LINUX = "CIS_Ubuntu_Linux_20.04_LTS_Benchmark_v2.0.1-xccdf.xml"
 WIN = "CIS_Microsoft_Windows_Server_2025_Benchmark_v1.0.0-xccdf.xml"
 
 
+def companions(bench_dir, xccdf):
+    """Small stand-ins for the OVAL/CPE files that come with a benchmark (apply requires them)."""
+    for suf in ("-oval.xml", "-cpe-oval.xml", "-cpe-dictionary.xml"):
+        with open(os.path.join(bench_dir, xccdf[:-len("-xccdf.xml")] + suf), "w") as f:
+            f.write("<x/>")
+
+
 def excl(**kw):
     rec = store.validate_exclusion(dict({"level": "L1", "reason": "test"}, **kw))
     return store.exclusion_key(rec), rec
@@ -46,6 +53,7 @@ class FleetIntegration(unittest.TestCase):
             os.symlink(os.path.join(BENCH_DIR, f), os.path.join(p["benchmarks_dir"], f))
         with open(os.path.join(p["benchmarks_dir"], WIN[:-10] + "-oval.xml"), "w") as f:
             f.write("<oval_definitions/>")
+        companions(p["benchmarks_dir"], LINUX)
         etc = os.path.join(self.root, "etc")
         os.makedirs(etc)
         lib = {
@@ -214,7 +222,8 @@ class FleetDiscovery(FleetIntegration):
         with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
                                "ciscat-params.txt")) as f:
             self.assertEqual(f.read(), "Profile=xccdf_org.cisecurity.benchmarks_profile_TAILORED_"
-                                       "Level_1_-_Member_Server\nFlatName=x.flat\n")
+                                       "Level_1_-_Member_Server\nFlatName=x.flat\n"
+                                       "CustomXccdf=cis_win2025_tailored_l1_ms-custom.xml\n")
         # the OVAL the XCCDF checks reference goes with it, under its original name
         with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
                                "ciscat-manifest.csv")) as f:
@@ -253,6 +262,7 @@ class FleetStig(FleetIntegration):
             data = data.replace("benchmarks_profile_" + old + '"', "benchmarks_profile_" + new + '"')
         with open(os.path.join(self.paths["benchmarks_dir"], self.STIG), "w", encoding="utf-8") as f:
             f.write(data)
+        companions(self.paths["benchmarks_dir"], self.STIG)
         lib_file = os.path.join(self.env["CISCAT_ETC_DIR"], "os-library.json")
         with open(lib_file) as f:
             lib = json.load(f)
