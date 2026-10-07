@@ -21,7 +21,9 @@ import { getErrorOrchestrator } from '../../../../../react-services/common-servi
 import { useGetGroups } from '../../../hooks';
 import {
   addAgentsToGroupService,
+  createGroupService,
   getAgentsService,
+  groupNameError,
   removeAgentsFromGroupService,
 } from '../../../services';
 import { Agent } from '../../../types';
@@ -82,6 +84,9 @@ export const EditAgentsGroupsModal = compose(withErrorBoundary)(
     const [saveChangesStatus, setSaveChangesStatus] = useState('disabled');
     const [isResultVisible, setIsResultVisible] = useState(false);
     const [groupResults, setGroupResults] = useState<GroupResult[]>([]);
+    // groups typed in the selector, created before the agents are added to them
+    const [newGroups, setNewGroups] = useState<string[]>([]);
+    const [newGroupError, setNewGroupError] = useState<string>();
 
     const {
       groups,
@@ -154,10 +159,24 @@ export const EditAgentsGroupsModal = compose(withErrorBoundary)(
 
       const groups = getArrayByProperty(selectedGroups, 'label');
 
+      // a group typed in the selector is created before the agents are added to it
+      const addToGroup = async (group: string) => {
+        if (newGroups.includes(group)) {
+          try {
+            await createGroupService(group);
+          } catch (error) {
+            throw new Error(
+              `Could not create the group: ${getEditGroupsErrorMessage(error)}`,
+            );
+          }
+        }
+        return addAgentsToGroupService({ agentIds, groupId: group });
+      };
+
       const promises = groups.map(group => {
         const promise =
           addOrRemove === 'add'
-            ? addAgentsToGroupService({ agentIds, groupId: group })
+            ? addToGroup(group)
             : removeAgentsFromGroupService({ agentIds, groupId: group });
         return promise
           .then(result => {
@@ -240,6 +259,18 @@ export const EditAgentsGroupsModal = compose(withErrorBoundary)(
       setSelectedGroups(selectedGroups);
     };
 
+    const handleOnCreateGroup = (searchValue: string) => {
+      const name = searchValue.trim();
+      const error = groupNameError(name, groups || []);
+      if (error) {
+        setNewGroupError(error);
+        return false;
+      }
+      setNewGroupError(undefined);
+      setNewGroups(current => [...current, name]);
+      setSelectedGroups(current => [...current, { label: name }]);
+    };
+
     const selectGroupsForm = (
       <EuiForm component='form'>
         {allAgentsSelected ? (
@@ -256,14 +287,30 @@ export const EditAgentsGroupsModal = compose(withErrorBoundary)(
           </EuiFormRow>
         )}
 
-        <EuiFormRow label={groupsText}>
+        <EuiFormRow
+          label={groupsText}
+          helpText={
+            addOrRemove === 'add'
+              ? 'To create a new group, type its name and press Enter'
+              : undefined
+          }
+          isInvalid={!!newGroupError}
+          error={newGroupError}
+        >
           <EuiComboBox
             placeholder={groupsText}
             options={groups?.map(group => ({ label: group })) || []}
             selectedOptions={selectedGroups}
             onChange={handleOnChangeGroupsSelect}
+            onCreateOption={
+              addOrRemove === 'add' ? handleOnCreateGroup : undefined
+            }
+            onSearchChange={() => setNewGroupError(undefined)}
+            customOptionText='Create the group {searchValue}'
+            isInvalid={!!newGroupError}
             isLoading={isGroupsLoading}
             clearOnBlur
+            data-test-subj='edit-groups-select'
           />
         </EuiFormRow>
         {errorGetGroups ? (
@@ -274,7 +321,7 @@ export const EditAgentsGroupsModal = compose(withErrorBoundary)(
               title='Could not load groups. Check your permissions.'
             />
           </EuiFormRow>
-        ) : !isGroupsLoading && !groups?.length ? (
+        ) : !isGroupsLoading && !groups?.length && addOrRemove === 'remove' ? (
           <EuiFormRow>
             <EuiCallOut
               color='warning'
