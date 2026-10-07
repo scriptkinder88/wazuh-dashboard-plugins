@@ -5,9 +5,9 @@
  */
 import React, { useState } from 'react';
 import {
-  EuiButton,
   EuiButtonEmpty,
   EuiCallOut,
+  EuiCheckbox,
   EuiCodeBlock,
   EuiFieldText,
   EuiFormRow,
@@ -29,6 +29,8 @@ import {
   hostOfGroup,
 } from './lib/plan';
 import { StepResult, applyPlan } from './lib/fim-api';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
 
 const stepTitle = (step: GroupStep, agents: AgentInfo[]) => {
   const host = hostOfGroup(step.group);
@@ -47,6 +49,7 @@ export const PlanModal = ({
   affected,
   conflicts,
   user,
+  restore = false,
   onClose,
 }: {
   title: string;
@@ -55,16 +58,26 @@ export const PlanModal = ({
   affected: AgentInfo[];
   conflicts: Conflict[];
   user: string;
+  /** The new content comes from a saved version (fim-history). */
+  restore?: boolean;
   onClose: (changed: boolean) => void;
 }) => {
   const [note, setNote] = useState('');
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<StepResult[]>([]);
   const [error, setError] = useState('');
+  const [reviewed, setReviewed] = useState(false);
   const finished = !running && (results.length > 0 || !!error);
   const names = affected.slice(0, 10).map(a => a.name);
   const more = affected.length > names.length ? '…' : '';
   const affectedNames = names.length ? `: ${names.join(', ')}${more}` : '';
+
+  // closing while the groups are written would hide the outcome
+  const close = () => {
+    if (!running) {
+      onClose(results.length > 0);
+    }
+  };
 
   const apply = async () => {
     setRunning(true);
@@ -82,7 +95,7 @@ export const PlanModal = ({
 
   return (
     <EuiModal
-      onClose={() => onClose(results.length > 0)}
+      onClose={close}
       style={{ width: 860 }}
       data-test-subj='fim-plan-modal'
     >
@@ -102,6 +115,31 @@ export const PlanModal = ({
               {affectedNames}.
             </p>
           </EuiText>
+        )}
+        {restore && steps.length > 0 && !finished && (
+          <>
+            <EuiSpacer size='s' />
+            <EuiCallOut
+              color='warning'
+              iconType='alert'
+              title='Check the whole file before restoring it'
+              data-test-subj='fim-plan-restore-warning'
+            >
+              <p>
+                The saved version replaces the entire agent.conf of the group,
+                not only its FIM rules. Saved versions are kept in the
+                fim-history list, which anyone allowed to edit CDB lists can
+                change: compare it with the current file below.
+              </p>
+              <EuiCheckbox
+                id='fim-plan-restore-reviewed'
+                label='I checked the changes below'
+                checked={reviewed}
+                onChange={e => setReviewed(e.target.checked)}
+                data-test-subj='fim-plan-restore-reviewed'
+              />
+            </EuiCallOut>
+          </>
         )}
         {conflicts.length > 0 && (
           <>
@@ -178,8 +216,8 @@ export const PlanModal = ({
             >
               <p>{error}</p>
               <p>
-                Groups marked ✓ were written; the others were not touched.
-                Reload to see the current state.
+                What was done is listed next to each group; the groups after the
+                failure were not touched. Reload to see the current state.
               </p>
             </EuiCallOut>
           </>
@@ -202,18 +240,24 @@ export const PlanModal = ({
         )}
       </EuiModalBody>
       <EuiModalFooter>
-        <EuiButtonEmpty onClick={() => onClose(results.length > 0)}>
+        <EuiButtonEmpty
+          onClick={close}
+          isDisabled={running}
+          data-test-subj='fim-plan-close'
+        >
           {finished ? 'Close' : 'Cancel'}
         </EuiButtonEmpty>
         {!finished && steps.length > 0 && (
-          <EuiButton
+          <WzButtonPermissions
             fill
+            permissions={FIM_WRITE_PERMISSIONS}
             onClick={apply}
             isLoading={running}
+            isDisabled={restore && !reviewed}
             data-test-subj='fim-plan-apply'
           >
             Apply
-          </EuiButton>
+          </WzButtonPermissions>
         )}
       </EuiModalFooter>
     </EuiModal>

@@ -6,17 +6,16 @@ import React, { useMemo, useState } from 'react';
 import {
   EuiBadge,
   EuiInMemoryTable,
-  EuiButton,
-  EuiButtonIcon,
   EuiCallOut,
   EuiFieldSearch,
   EuiFlexGroup,
   EuiFlexItem,
   EuiSpacer,
   EuiText,
-  EuiToolTip,
 } from '@elastic/eui';
 import { KIND_LABELS } from './lib/agent-conf';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
 import { AgentInfo, GroupConf, RuleRow } from './lib/plan';
 
 const optionBadges = (row: RuleRow) => {
@@ -169,23 +168,25 @@ export const RulesPanel = ({
       width: '80px',
       render: (row: RuleRow) => (
         <div>
-          <EuiToolTip content='Change'>
-            <EuiButtonIcon
-              iconType='pencil'
-              aria-label='Change'
-              onClick={() => onEdit(row)}
-              data-test-subj='fim-rule-edit'
-            />
-          </EuiToolTip>
-          <EuiToolTip content='Remove'>
-            <EuiButtonIcon
-              iconType='trash'
-              color='danger'
-              aria-label='Remove'
-              onClick={() => onRemove(row)}
-              data-test-subj='fim-rule-remove'
-            />
-          </EuiToolTip>
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={FIM_WRITE_PERMISSIONS}
+            tooltip={{ position: 'top', content: 'Change' }}
+            iconType='pencil'
+            aria-label='Change'
+            onClick={() => onEdit(row)}
+            data-test-subj='fim-rule-edit'
+          />
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={FIM_WRITE_PERMISSIONS}
+            tooltip={{ position: 'top', content: 'Remove' }}
+            iconType='trash'
+            color='danger'
+            aria-label='Remove'
+            onClick={() => onRemove(row)}
+            data-test-subj='fim-rule-remove'
+          />
         </div>
       ),
     },
@@ -221,14 +222,15 @@ export const RulesPanel = ({
           />
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
             fill
+            permissions={FIM_WRITE_PERMISSIONS}
             iconType='plusInCircle'
             onClick={onAdd}
             data-test-subj='fim-rule-add'
           >
             Add rule
-          </EuiButton>
+          </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer size='m' />

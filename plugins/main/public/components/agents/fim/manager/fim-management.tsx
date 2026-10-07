@@ -4,7 +4,13 @@
  * through the Wazuh API. Only the <syscheck> rules are touched; every change is
  * previewed, and the previous version of each file is kept in fim-history.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   EuiButtonEmpty,
   EuiCallOut,
@@ -56,6 +62,8 @@ interface FimData {
 interface PendingPlan {
   title: string;
   steps: GroupStep[];
+  /** The plan restores a saved version. */
+  restore?: boolean;
 }
 
 type TabId = 'rules' | 'agents' | 'history';
@@ -75,7 +83,18 @@ export const FimManagement = () => {
   const [editing, setEditing] = useState<{ row?: RuleRow; preset?: RuleRow }>();
   const [plan, setPlan] = useState<PendingPlan>();
 
+  // only the latest load updates the state, and none after unmounting
+  const loadId = useRef(0);
+  useEffect(
+    () => () => {
+      loadId.current = -1;
+    },
+    [],
+  );
+
   const load = useCallback(async () => {
+    const id = ++loadId.current;
+    const current = () => loadId.current === id;
     setLoading(true);
     setError('');
     try {
@@ -84,18 +103,28 @@ export const FimManagement = () => {
         fetchAgents(),
         readHistory(),
       ]);
-      const groups = await loadGroupConfs(groupList.map(g => g.name));
-      setData({ groups, agents, history });
+      const groups = await loadGroupConfs(groupList);
+      if (current()) {
+        setData({ groups, agents, history });
+      }
     } catch (e) {
-      setError((e as Error).message || String(e));
+      if (current()) {
+        setError((e as Error).message || String(e));
+      }
     } finally {
-      setLoading(false);
+      if (current()) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     load();
-    fetchCurrentUserName().then(setUser);
+    fetchCurrentUserName().then(name => {
+      if (loadId.current >= 0) {
+        setUser(name);
+      }
+    });
   }, [load]);
 
   const rows = useMemo(
@@ -147,6 +176,7 @@ export const FimManagement = () => {
     setPlan({
       title: `Restore ${entry.group} as of ${when}`,
       steps: current?.raw === entry.content ? [] : [step],
+      restore: true,
     });
   };
 
@@ -262,6 +292,7 @@ export const FimManagement = () => {
           affected={affectedAgents(data.agents, plan.steps)}
           conflicts={findConflicts(data.groups, data.agents, plan.steps)}
           user={user}
+          restore={plan.restore}
           onClose={changed => {
             setPlan(undefined);
             if (changed) {

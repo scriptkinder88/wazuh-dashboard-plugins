@@ -96,8 +96,11 @@ const testOutcome = (r: PathTestResult) => {
   if (r.error) {
     return `cannot read the inventory (${r.error})`;
   }
-  return r.files
-    ? `${r.files} entries`
+  if (r.files) {
+    return `${r.files}${r.more ? '+' : ''} entries`;
+  }
+  return r.more
+    ? 'none among the first entries found, the inventory may hold more'
     : 'none (the path does not exist there or is not monitored yet)';
 };
 
@@ -363,10 +366,13 @@ export const RuleFlyout = ({
     : 'Test the path (choose groups or servers first)';
   const runTest = async () => {
     setTest({ prefix: testPrefix });
-    setTest({
-      prefix: testPrefix,
-      results: await testPathOnAgents(testPrefix, testAgents),
-    });
+    const results = await testPathOnAgents(testPrefix, testAgents);
+    // ignore the results if the path or the agents changed meanwhile
+    setTest(current =>
+      current?.prefix === testPrefix && !current.results
+        ? { prefix: testPrefix, results }
+        : current,
+    );
   };
 
   const agentOptions = agents.map(a => ({

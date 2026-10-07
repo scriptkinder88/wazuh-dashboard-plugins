@@ -81,12 +81,20 @@ const handle = (method: string, path: string, body: any) => {
     });
   }
   if (method === 'GET' && (m = path.match(/^\/syscheck\/(\d+)$/))) {
-    const files =
-      m[1] === '001' ? ['/etc/nginx/nginx.conf', '/etc/nginx/mime.types'] : [];
-    const prefix = String(body.params.q).replace(/^file~/, '');
+    const inventory: Record<string, string[]> = {
+      '001': [
+        '/etc/nginx/nginx.conf',
+        '/etc/nginx/mime.types',
+        '/opt/backup/etc/nginx/nginx.conf',
+      ],
+    };
+    const files = inventory[m[1]] || [];
+    // "~" matches anywhere in the path, like the Wazuh server API
+    const like = String(body.params.q).replace(/^file~/, '');
+    const matching = files.filter(f => f.includes(like));
     return ok({
-      affected_items: [],
-      total_affected_items: files.filter(f => f.startsWith(prefix)).length,
+      affected_items: matching.map(file => ({ file })),
+      total_affected_items: matching.length,
     });
   }
   if (method === 'GET' && (m = path.match(/^\/syscheck\/(\d+)\/last_scan$/))) {
@@ -109,6 +117,29 @@ const mockApiReq = jest.fn((method: string, path: string, body: any) => {
 jest.mock('../../../../react-services', () => ({
   WzRequest: { apiReq: (...args: any[]) => mockApiReq(...args) },
 }));
+
+// Permissions are granted; the mock exposes those each button requires.
+jest.mock('../../../common/permissions/button', () => {
+  const { createElement } = jest.requireActual('react');
+  const eui = jest.requireActual('@elastic/eui');
+  const buttons: Record<string, unknown> = {
+    default: eui.EuiButton,
+    empty: eui.EuiButtonEmpty,
+    icon: eui.EuiButtonIcon,
+  };
+  return {
+    WzButtonPermissions: ({
+      buttonType = 'default',
+      permissions,
+      tooltip, // eslint-disable-line @typescript-eslint/no-unused-vars
+      ...props
+    }: any) =>
+      createElement(buttons[buttonType], {
+        ...props,
+        'data-permissions': JSON.stringify(permissions),
+      }),
+  };
+});
 
 jest.mock('../../../../kibana-services', () => ({
   getToasts: () => ({ addSuccess: jest.fn(), addDanger: jest.fn() }),
@@ -319,8 +350,105 @@ describe('FIM rules management tab', () => {
     fireEvent.click(await screen.findByTestId('fim-tab-history'));
     fireEvent.click(await screen.findByTestId('fim-history-restore'));
     const modal = await screen.findByTestId('fim-plan-modal');
-    fireEvent.click(within(modal).getByTestId('fim-plan-apply'));
+    expect(within(modal).getByTestId('fim-plan-restore-warning')).toBeTruthy();
+    const apply = within(modal).getByTestId(
+      'fim-plan-apply',
+    ) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    fireEvent.click(
+      within(modal).getByLabelText('I checked the changes below'),
+    );
+    expect(apply.disabled).toBe(false);
+    fireEvent.click(apply);
     await screen.findByTestId('fim-plan-done');
     expect(confs.web).toBe(CONF_WEB);
+  });
+
+  it('requires write permissions for the buttons that change rules', async () => {
+    render(<FimManagement />);
+    const table = await screen.findByTestId('fim-rules-table');
+    const required = JSON.parse(
+      within(table)
+        .getByTestId('fim-rule-remove')
+        .getAttribute('data-permissions') || '[]',
+    );
+    expect(required).toEqual(
+      expect.arrayContaining([
+        { action: 'group:update_config', resource: 'group:id:*' },
+        { action: 'lists:update', resource: 'list:file:*' },
+      ]),
+    );
+    expect(
+      screen.getByTestId('fim-rule-add').getAttribute('data-permissions'),
+    ).toContain('group:update_config');
+  });
+
+  it('cannot be closed while the change is applied', async () => {
+    let release: () => void = () => undefined;
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const real = mockApiReq.getMockImplementation()!;
+    mockApiReq.mockImplementation((method: string, path: string, body: any) =>
+      method === 'PUT' && path.endsWith('/configuration')
+        ? pending.then(() => real(method, path, body))
+        : real(method, path, body),
+    );
+    try {
+      render(<FimManagement />);
+      const table = await screen.findByTestId('fim-rules-table');
+      fireEvent.click(within(table).getByTestId('fim-rule-remove'));
+      const modal = await screen.findByTestId('fim-plan-modal');
+      fireEvent.click(within(modal).getByTestId('fim-plan-apply'));
+      const close = within(modal).getByTestId(
+        'fim-plan-close',
+      ) as HTMLButtonElement;
+      await waitFor(() => expect(close.disabled).toBe(true));
+      fireEvent.keyDown(modal, { key: 'Escape', code: 'Escape' });
+      expect(screen.getByTestId('fim-plan-modal')).toBeTruthy();
+
+      release();
+      await screen.findByTestId('fim-plan-done');
+      expect(close.disabled).toBe(false);
+    } finally {
+      mockApiReq.mockImplementation(real);
+    }
+  });
+
+  it('reports what was done when a write is rejected', async () => {
+    const real = mockApiReq.getMockImplementation()!;
+    mockApiReq.mockImplementation((method: string, path: string, body: any) =>
+      method === 'PUT' && path.endsWith('/configuration')
+        ? Promise.reject(new Error('Wazuh API error 1113: XML syntax error'))
+        : real(method, path, body),
+    );
+    try {
+      render(<FimManagement />);
+      const table = await screen.findByTestId('fim-rules-table');
+      fireEvent.click(within(table).getByTestId('fim-rule-remove'));
+      const modal = await screen.findByTestId('fim-plan-modal');
+      fireEvent.click(within(modal).getByTestId('fim-plan-apply'));
+      const error = await within(modal).findByTestId('fim-plan-error');
+      expect(error.textContent).toContain('web: Wazuh API error 1113');
+      expect(within(modal).getByText(/previous version saved/)).toBeTruthy();
+      expect(confs.web).toBe(CONF_WEB);
+    } finally {
+      mockApiReq.mockImplementation(real);
+    }
+  });
+
+  it('shows why the rules cannot be loaded', async () => {
+    const real = mockApiReq.getMockImplementation()!;
+    mockApiReq.mockImplementation((method: string, path: string, body: any) =>
+      path === '/groups'
+        ? Promise.reject(new Error('Permission denied'))
+        : real(method, path, body),
+    );
+    try {
+      render(<FimManagement />);
+      expect(await screen.findByText('Permission denied')).toBeTruthy();
+    } finally {
+      mockApiReq.mockImplementation(real);
+    }
   });
 });

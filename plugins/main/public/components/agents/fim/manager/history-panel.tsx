@@ -16,6 +16,8 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { HISTORY_DEPTH, HistoryEntry } from './lib/fim-api';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
 
 export const HistoryPanel = ({
   entries,
@@ -36,6 +38,8 @@ export const HistoryPanel = ({
         <p>
           The version of agent.conf each group had before a change made here
           (last {HISTORY_DEPTH} per group). Restoring shows the changes first.
+          The user and note are recorded by the dashboard for information: the
+          Wazuh server API does not verify them.
         </p>
       </EuiText>
       <EuiSpacer size='s' />
@@ -71,14 +75,16 @@ export const HistoryPanel = ({
                 <EuiButtonEmpty size='xs' onClick={() => setViewed(e)}>
                   View
                 </EuiButtonEmpty>
-                <EuiButtonEmpty
+                <WzButtonPermissions
+                  buttonType='empty'
+                  permissions={FIM_WRITE_PERMISSIONS}
                   size='xs'
                   iconType='editorUndo'
                   onClick={() => onRestore(e)}
                   data-test-subj='fim-history-restore'
                 >
                   Restore
-                </EuiButtonEmpty>
+                </WzButtonPermissions>
               </div>
             ),
           },

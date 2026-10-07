@@ -22,6 +22,8 @@ import {
 } from '@elastic/eui';
 import { AgentInfo, GroupConf, hostGroup } from './lib/plan';
 import { ActiveSyscheck, fetchActiveSyscheck } from './lib/fim-api';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
 
 export interface ActivePath {
   kind: 'directories' | 'windows_registry';
@@ -160,14 +162,16 @@ const ActiveConfigFlyout = ({
                 width: '170px',
                 render: (p: ActivePath) =>
                   !p.groups.length && (
-                    <EuiButtonEmpty
+                    <WzButtonPermissions
+                      buttonType='empty'
+                      permissions={FIM_WRITE_PERMISSIONS}
                       size='xs'
                       iconType='eyeClosed'
                       onClick={() => onIgnore(agent, p)}
                       data-test-subj='fim-ignore-local'
                     >
                       Ignore on this server
-                    </EuiButtonEmpty>
+                    </WzButtonPermissions>
                   ),
               },
             ]}

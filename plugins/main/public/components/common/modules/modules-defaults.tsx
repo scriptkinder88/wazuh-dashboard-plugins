@@ -95,7 +95,7 @@ import {
 } from '../../overview/it-hygiene';
 import { InventoryFIM } from '../../overview/fim';
 import { MainFim } from '../../agents/fim';
-import { FimManagement } from '../../agents/fim/manager';
+import { FimManagementTab } from '../../agents/fim/manager';
 
 const renderDiscoverTab = (props: WazuhDiscoverProps) => {
   return {
@@ -149,7 +149,7 @@ export const ModulesDefaults = {
         id: 'manage',
         name: 'Manage',
         buttons: [],
-        component: FimManagement,
+        component: FimManagementTab,
       },
       renderDiscoverTab({
         moduleId: 'fim',
