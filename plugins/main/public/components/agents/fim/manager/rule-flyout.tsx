@@ -3,7 +3,7 @@
  * platform, for which groups and servers, and why.
  */
 /* eslint-disable camelcase */ // attribute names are the agent.conf ones
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   EuiButton,
   EuiButtonEmpty,
@@ -22,154 +22,35 @@ import {
   EuiSelect,
   EuiSpacer,
   EuiSwitch,
-  EuiText,
   EuiTitle,
 } from '@elastic/eui';
 import {
-  BlockFilter,
   FimRule,
-  KIND_ATTRS,
   KIND_LABELS,
   RULE_KINDS,
   RuleKind,
-  isExclusionKind,
   isMonitorKind,
   isRegistryKind,
   validateRule,
 } from './lib/agent-conf';
 import { AgentInfo, RuleChange, RuleRow } from './lib/plan';
 import {
-  Hint,
   HintFix,
-  inventoryPrefix,
   managedHints,
   overlapHints,
   pathHints,
-  rulePaths,
 } from './lib/path-checks';
-import { PathTestResult, testPathOnAgents } from './lib/fim-api';
-
-/** Agents the path test runs on: the chosen servers, then agents of the groups. */
-const TEST_AGENTS = 5;
-
-const HintList = ({
-  hints,
-  onFix,
-  testSubj,
-}: {
-  hints: Hint[];
-  onFix: (fix: HintFix) => void;
-  testSubj: string;
-}) =>
-  hints.length ? (
-    <EuiCallOut
-      size='s'
-      color='warning'
-      iconType='alert'
-      title={
-        hints.length === 1
-          ? 'Check this rule'
-          : `Check this rule (${hints.length})`
-      }
-      data-test-subj={testSubj}
-    >
-      {hints.map(h => (
-        <div key={h.message} style={{ marginBottom: 4 }}>
-          <EuiText size='xs'>
-            <p>{h.message}</p>
-          </EuiText>
-          {(h.fixes || []).map(f => (
-            <EuiButtonEmpty
-              key={f.label}
-              size='xs'
-              flush='left'
-              onClick={() => onFix(f)}
-              data-test-subj='fim-rule-fix'
-            >
-              {f.label}
-            </EuiButtonEmpty>
-          ))}
-        </div>
-      ))}
-    </EuiCallOut>
-  ) : null;
-
-const testOutcome = (r: PathTestResult) => {
-  if (r.error) {
-    return `cannot read the inventory (${r.error})`;
-  }
-  if (r.files) {
-    return `${r.files}${r.more ? '+' : ''} entries`;
-  }
-  return r.more
-    ? 'none among the first entries found, the inventory may hold more'
-    : 'none (the path does not exist there or is not monitored yet)';
-};
-
-const PathTest = ({
-  results,
-  prefix,
-}: {
-  results: PathTestResult[];
-  prefix: string;
-}) => (
-  <EuiText size='xs' data-test-subj='fim-path-test'>
-    <p>
-      FIM inventory entries under <code>{prefix}</code>:
-    </p>
-    <ul>
-      {results.map(r => (
-        <li key={r.agent.id}>
-          {r.agent.name} ({r.agent.id}
-          {r.agent.status !== 'active' ? `, ${r.agent.status}` : ''}):{' '}
-          {testOutcome(r)}
-          {r.lastScan
-            ? ` · last scan ${new Date(r.lastScan).toLocaleString()}`
-            : ''}
-        </li>
-      ))}
-    </ul>
-  </EuiText>
-);
-
-type Platform = 'any' | 'Linux' | 'Windows' | 'keep';
-type Mode = 'scheduled' | 'realtime' | 'whodata';
-
-interface FormState {
-  kind: RuleKind;
-  path: string;
-  platform: Platform;
-  mode: Mode;
-  reportChanges: boolean;
-  recursion: string;
-  restrict: string;
-  tags: string;
-  sregex: boolean;
-  arch: string;
-  groups: string[];
-  hostIds: string[];
-  reason: string;
-  ticket: string;
-  owner: string;
-}
-
-const platformOf = (filter: BlockFilter): Platform => {
-  const keys = Object.keys(filter);
-  if (!keys.length) {
-    return 'any';
-  }
-  if (keys.length === 1 && (filter.os === 'Linux' || filter.os === 'Windows')) {
-    return filter.os;
-  }
-  return 'keep';
-};
-
-const modeOf = (attrs: Record<string, string>): Mode => {
-  if (attrs.whodata === 'yes') {
-    return 'whodata';
-  }
-  return attrs.realtime === 'yes' ? 'realtime' : 'scheduled';
-};
+import {
+  FormState,
+  Mode,
+  Platform,
+  buildAttrs,
+  buildFilter,
+  initialState,
+  platformOf,
+} from './lib/rule-form';
+import { HintList } from './hint-list';
+import { PathTest, usePathTest } from './path-test';
 
 const MODE_HELP: Record<Mode, string> = {
   scheduled: 'Checked at each periodic scan.',
@@ -180,70 +61,6 @@ const MODE_HELP: Record<Mode, string> = {
 const PATH_HELP =
   'Several paths can be separated by commas. Environment variables such as ' +
   '%WINDIR% are expanded by the agent.';
-
-const initialState = (row?: RuleRow): FormState => {
-  const rule = row?.rule;
-  const attrs = rule?.attrs || {};
-  return {
-    kind: rule?.kind || 'directories',
-    path: rule?.path || '',
-    platform: rule ? platformOf(rule.filter) : 'any',
-    mode: modeOf(attrs),
-    reportChanges: attrs.report_changes === 'yes',
-    recursion: attrs.recursion_level || '',
-    restrict: attrs.restrict || '',
-    tags: attrs.tags || '',
-    sregex: attrs.type === 'sregex',
-    arch: attrs.arch || '',
-    groups: row?.groups || [],
-    hostIds: row?.hostIds || [],
-    reason: rule?.meta?.reason || '',
-    ticket: rule?.meta?.ticket || '',
-    owner: rule?.meta?.owner || '',
-  };
-};
-
-/** Attributes written for the form, plus any the form does not manage. */
-const buildAttrs = (form: FormState, original?: FimRule) => {
-  const managed = KIND_ATTRS[form.kind];
-  const attrs: Record<string, string> = {};
-  Object.entries(original?.attrs || {}).forEach(([k, v]) => {
-    if (!managed.includes(k)) {
-      attrs[k] = v;
-    }
-  });
-  const set = (k: string, v: string | boolean | undefined) => {
-    if (v && managed.includes(k)) {
-      attrs[k] = v === true ? 'yes' : String(v);
-    }
-  };
-  if (form.kind === 'directories') {
-    set('realtime', form.mode === 'realtime');
-    set('whodata', form.mode === 'whodata');
-  }
-  if (isMonitorKind(form.kind)) {
-    set('report_changes', form.reportChanges);
-    set('recursion_level', form.recursion.trim());
-    set('restrict', form.restrict.trim());
-    set('tags', form.tags.trim());
-  } else {
-    set('type', form.sregex && 'sregex');
-  }
-  if (isRegistryKind(form.kind)) {
-    set('arch', form.arch);
-  }
-  if (form.kind === 'directories' && original?.attrs.follow_symbolic_link) {
-    attrs.follow_symbolic_link = original.attrs.follow_symbolic_link;
-  }
-  return attrs;
-};
-
-const buildFilter = (form: FormState, original?: FimRule): BlockFilter => {
-  if (form.platform === 'keep') {
-    return original?.filter || {};
-  }
-  return form.platform === 'any' ? {} : { os: form.platform };
-};
 
 export const RuleFlyout = ({
   row,
@@ -329,49 +146,7 @@ export const RuleFlyout = ({
     ),
   ];
   const applyFix = (fix: HintFix) => update(fix.patch);
-
-  // path test: the chosen servers first, then agents of the chosen groups, active first
-  const testAgents = useMemo(() => {
-    const byId = new Map(agents.map(a => [a.id, a]));
-    const hosts = form.hostIds
-      .map(id => byId.get(id))
-      .filter(Boolean) as AgentInfo[];
-    const members = agents
-      .filter(
-        a =>
-          !form.hostIds.includes(a.id) &&
-          a.groups.some(g => form.groups.includes(g)),
-      )
-      .sort(
-        (a, b) => Number(b.status === 'active') - Number(a.status === 'active'),
-      );
-    return [...hosts, ...members].slice(0, TEST_AGENTS);
-  }, [agents, form.groups, form.hostIds]);
-  const testPrefix = inventoryPrefix(rulePaths(form.kind, form.path)[0] || '');
-  const canTest =
-    !!testPrefix &&
-    testAgents.length > 0 &&
-    !isRegistryKind(form.kind) &&
-    !(isExclusionKind(form.kind) && form.sregex);
-  const [test, setTest] = useState<{
-    prefix: string;
-    results?: PathTestResult[];
-  }>();
-  useEffect(() => setTest(undefined), [testPrefix, testAgents]);
-  const plural = testAgents.length === 1 ? '' : 's';
-  const testLabel = testAgents.length
-    ? `Test the path on ${testAgents.length} agent${plural} of the targets`
-    : 'Test the path (choose groups or servers first)';
-  const runTest = async () => {
-    setTest({ prefix: testPrefix });
-    const results = await testPathOnAgents(testPrefix, testAgents);
-    // ignore the results if the path or the agents changed meanwhile
-    setTest(current =>
-      current?.prefix === testPrefix && !current.results
-        ? { prefix: testPrefix, results }
-        : current,
-    );
-  };
+  const { canTest, test, testLabel, runTest } = usePathTest(agents, form);
 
   const agentOptions = agents.map(a => ({
     label: `${a.name} (${a.id})`,

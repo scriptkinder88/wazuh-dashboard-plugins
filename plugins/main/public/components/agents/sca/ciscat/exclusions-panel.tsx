@@ -7,264 +7,49 @@
 /* eslint-disable camelcase */ // record fields are the snake_case wire format
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  EuiBadge,
   EuiBasicTable,
   EuiButton,
-  EuiButtonEmpty,
-  EuiButtonIcon,
   EuiCallOut,
-  EuiCheckbox,
   EuiComboBox,
   EuiFieldSearch,
-  EuiFieldText,
   EuiFlexGroup,
   EuiFlexItem,
-  EuiFlyout,
-  EuiFlyoutBody,
-  EuiFlyoutFooter,
-  EuiFlyoutHeader,
-  EuiForm,
   EuiFormRow,
   EuiLoadingSpinner,
   EuiSelect,
   EuiSpacer,
   EuiStat,
-  EuiSuperSelect,
   EuiText,
-  EuiTextArea,
-  EuiTitle,
-  EuiToolTip,
 } from '@elastic/eui';
 import { WzButtonPermissions } from '../../../common/permissions/button';
 import { CISCAT_WRITE_PERMISSIONS } from './lib/permissions';
-import {
-  CISCAT_LISTS,
-  benchListName,
-  newRequestKey,
-  validateExclusion,
-  validateTarget,
-} from '../../../../../common/ciscat/store';
+import { benchListName } from '../../../../../common/ciscat/store';
 import { getToasts } from '../../../../kibana-services';
 import {
   Bench,
   KeyedExclusions,
-  RuleRow,
-  ScopeChoice,
   ShowFilter,
   buildRows,
   composerStats,
-  describeScope,
-  makeExclusions,
   parseBench,
-  profileLevelRole,
 } from './lib/composer';
+import { fetchGroupNames, readList } from './lib/lists-api';
 import {
-  addRequest,
-  fetchAgentNames,
-  fetchGroupNames,
-  readList,
-  writeList,
-} from './lib/lists-api';
+  PartialSaveError,
+  osTitle,
+  saveExclusions,
+  savedTargets,
+  validExclusions,
+} from './lib/exclusion-data';
+import { ExcludeFlyout } from './exclude-flyout';
+import { ruleColumns } from './exclusion-columns';
 import type { CiscatData } from './ciscat-management';
 
 const PAGE_SIZES = [25, 50, 100];
-
-const SCOPE_OPTIONS: Array<{ value: ScopeChoice; text: string }> = [
-  { value: 'os', text: 'All agents of this OS' },
-  { value: 'host', text: 'Specific agents' },
-  { value: 'app_group', text: 'Agent groups' },
-  { value: 'global', text: 'Global (every OS with this number)' },
-];
-
-const validExclusions = (records: CiscatData['exclusions']['records']) =>
-  Object.entries(records).reduce((acc, [key, rec]) => {
-    if (!key.startsWith('_')) {
-      try {
-        acc[key] = validateExclusion(rec);
-      } catch {
-        // invalid records are reported by the manager, not edited here
-      }
-    }
-    return acc;
-  }, {} as KeyedExclusions);
-
-/** Group each OS applies to: chosen here (ciscat-targets) or the master's default. */
-const savedTargets = (data: CiscatData): Record<string, string> =>
-  Object.fromEntries(
-    Object.keys(data.oskeys).map(k => {
-      const rec = data.targets.records[k];
-      return [
-        k,
-        String((rec && rec.group) || data.oskeys[k].group || `os-${k}`),
-      ];
-    }),
-  );
-
-/** Benchmark name and version, e.g. "Red Hat Enterprise Linux 9 v2.0.0". */
-const osTitle = (data: CiscatData, key: string) => {
-  const os = data.oskeys[key];
-  const title = String(os.title || key);
-  return os.version && !title.includes(`v${os.version}`)
-    ? `${title} v${os.version}`
-    : title;
-};
-
 const toast = (title: string, color: 'success' | 'danger', text?: string) =>
   color === 'success'
     ? getToasts().addSuccess({ title, text })
     : getToasts().addDanger({ title, text });
-
-interface FlyoutProps {
-  osKey: string;
-  column: string;
-  rules: string[];
-  user: string;
-  onClose: () => void;
-  onAdd: (records: KeyedExclusions) => void;
-}
-
-const ExcludeFlyout = ({
-  osKey,
-  column,
-  rules,
-  user,
-  onClose,
-  onAdd,
-}: FlyoutProps) => {
-  const [scope, setScope] = useState<ScopeChoice>('os');
-  const [values, setValues] = useState<Array<{ label: string }>>([]);
-  const [options, setOptions] = useState<string[]>([]);
-  const [reason, setReason] = useState('');
-  const [ticket, setTicket] = useState('');
-  const [owner, setOwner] = useState('');
-  const [error, setError] = useState('');
-  const { level, role } = profileLevelRole(column);
-
-  useEffect(() => {
-    setValues([]);
-    setOptions([]);
-    const fetchers: Partial<Record<ScopeChoice, () => Promise<string[]>>> = {
-      host: fetchAgentNames,
-      app_group: fetchGroupNames,
-    };
-    fetchers[scope]?.()
-      .then(setOptions)
-      .catch(() => setOptions([]));
-  }, [scope]);
-
-  const submit = async () => {
-    try {
-      onAdd(
-        await makeExclusions({
-          osKey,
-          column,
-          rules,
-          scope,
-          values: values.map(v => v.label),
-          reason,
-          ticket,
-          owner,
-          user,
-        }),
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  return (
-    <EuiFlyout onClose={onClose} size='s' ownFocus>
-      <EuiFlyoutHeader hasBorder>
-        <EuiTitle size='s'>
-          <h3>
-            Exclude {rules.length === 1 ? rules[0] : `${rules.length} controls`}
-          </h3>
-        </EuiTitle>
-        <EuiText size='xs' color='subdued'>
-          {osKey} · {level} {role.replace(/_/g, ' ')}
-        </EuiText>
-      </EuiFlyoutHeader>
-      <EuiFlyoutBody>
-        <EuiForm component='form' onSubmit={e => e.preventDefault()}>
-          <EuiFormRow label='Exclude for'>
-            <EuiSuperSelect
-              options={SCOPE_OPTIONS.map(o => ({
-                value: o.value,
-                inputDisplay: o.text,
-              }))}
-              valueOfSelected={scope}
-              onChange={v => setScope(v as ScopeChoice)}
-            />
-          </EuiFormRow>
-          {(scope === 'host' || scope === 'app_group') && (
-            <EuiFormRow
-              label={scope === 'host' ? 'Agents' : 'Agent groups'}
-              helpText='Pick from the list or type names (comma separated).'
-            >
-              <EuiComboBox
-                options={options.map(label => ({ label }))}
-                selectedOptions={values}
-                onChange={setValues}
-                onCreateOption={(value: string) =>
-                  setValues([
-                    ...values,
-                    ...value
-                      .split(/[\s,;]+/)
-                      .filter(Boolean)
-                      .map(label => ({ label })),
-                  ])
-                }
-                data-test-subj='ciscat-scope-values'
-              />
-            </EuiFormRow>
-          )}
-          <EuiFormRow label='Reason' helpText='Kept for the audit trail.'>
-            <EuiTextArea
-              value={reason}
-              onChange={e => setReason(e.target.value)}
-              rows={3}
-              data-test-subj='ciscat-reason'
-            />
-          </EuiFormRow>
-          <EuiFormRow label='Ticket'>
-            <EuiFieldText
-              value={ticket}
-              onChange={e => setTicket(e.target.value)}
-            />
-          </EuiFormRow>
-          <EuiFormRow label='Owner'>
-            <EuiFieldText
-              value={owner}
-              onChange={e => setOwner(e.target.value)}
-            />
-          </EuiFormRow>
-        </EuiForm>
-        {error && (
-          <>
-            <EuiSpacer size='s' />
-            <EuiCallOut color='danger' size='s' title={error} />
-          </>
-        )}
-      </EuiFlyoutBody>
-      <EuiFlyoutFooter>
-        <EuiFlexGroup justifyContent='spaceBetween'>
-          <EuiFlexItem grow={false}>
-            <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
-          </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            <EuiButton
-              fill
-              onClick={submit}
-              data-test-subj='ciscat-add-exclusion'
-            >
-              Add exclusion
-            </EuiButton>
-          </EuiFlexItem>
-        </EuiFlexGroup>
-      </EuiFlyoutFooter>
-    </EuiFlyout>
-  );
-};
 
 interface Props {
   data: CiscatData;
@@ -355,41 +140,10 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
     setDraft(next);
     setDirty(true);
   };
-
   const save = async (apply: boolean) => {
     setSaving(true);
-    let exclusionsSaved = false;
     try {
-      await writeList(CISCAT_LISTS.exclusions, draft, data.exclusions.raw);
-      exclusionsSaved = true;
-      const saved = savedTargets(data);
-      if (Object.keys(targets).some(k => targets[k] !== saved[k])) {
-        const records = { ...data.targets.records };
-        delete records._empty;
-        Object.entries(targets).forEach(([k, group]) => {
-          if (group !== saved[k]) {
-            records[k] = {
-              ...validateTarget({
-                group,
-                updated_by: user,
-                updated_at: new Date().toISOString(),
-              }),
-            };
-          }
-        });
-        await writeList(CISCAT_LISTS.targets, records, data.targets.raw);
-      }
-      if (apply) {
-        await addRequest(
-          newRequestKey(),
-          {
-            action: 'apply',
-            requested_by: user,
-            requested_at: new Date().toISOString(),
-          },
-          (data.status.requests?.processed as string[]) || [],
-        );
-      }
+      await saveExclusions({ data, draft, targets, user, apply });
       toast(
         apply ? 'Exclusions saved, apply requested' : 'Exclusions saved',
         'success',
@@ -399,14 +153,10 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
       );
       onSaved();
     } catch (e) {
-      if (exclusionsSaved) {
+      if (e instanceof PartialSaveError) {
         // the lists read before the save are outdated: reload them, or the
         // next save would be refused as a concurrent change
-        toast(
-          'Exclusions saved, the rest was not',
-          'danger',
-          (e as Error).message,
-        );
+        toast('Exclusions saved, the rest was not', 'danger', e.message);
         onSaved();
       } else {
         toast('Exclusions not saved', 'danger', (e as Error).message);
@@ -425,91 +175,12 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
     }
     setSelected(next);
   };
-
-  const columns = [
-    {
-      field: 'rule',
-      name: '',
-      width: '36px',
-      render: (rule: string, row: RuleRow) => (
-        <EuiCheckbox
-          id={`ciscat-select-${rule}`}
-          checked={selected.has(rule)}
-          disabled={!row.applicable}
-          onChange={() => toggle(rule)}
-          aria-label={`Select ${rule}`}
-        />
-      ),
-    },
-    {
-      field: 'rule',
-      name: 'CIS',
-      width: '100px',
-      render: (rule: string) => <strong>{rule}</strong>,
-    },
-    {
-      field: 'title',
-      name: 'Control',
-      render: (title: string, row: RuleRow) => (
-        <span>
-          {title}{' '}
-          {row.manual && (
-            <EuiToolTip content='Manual control: CIS-CAT does not assess it, so it is never scored'>
-              <EuiBadge color='hollow'>manual</EuiBadge>
-            </EuiToolTip>
-          )}
-          {!row.applicable && (
-            <EuiBadge color='hollow'>not in profile</EuiBadge>
-          )}
-        </span>
-      ),
-    },
-    {
-      field: 'exclusions',
-      name: 'Excluded for',
-      width: '32%',
-      render: (list: RuleRow['exclusions']) => (
-        <EuiFlexGroup gutterSize='xs' wrap responsive={false}>
-          {list.map(({ key, exclusion }) => (
-            <EuiFlexItem grow={false} key={key}>
-              <EuiToolTip
-                content={`${exclusion.reason} · ticket ${exclusion.ticket}${
-                  exclusion.updated_by ? ` · ${exclusion.updated_by}` : ''
-                }`}
-              >
-                <EuiBadge
-                  color={
-                    ['os', 'global'].includes(exclusion.scope)
-                      ? 'warning'
-                      : 'default'
-                  }
-                  iconType='cross'
-                  iconSide='right'
-                  iconOnClick={() => removeExclusion(key)}
-                  iconOnClickAriaLabel='Remove exclusion'
-                >
-                  {describeScope(exclusion)}
-                </EuiBadge>
-              </EuiToolTip>
-            </EuiFlexItem>
-          ))}
-        </EuiFlexGroup>
-      ),
-    },
-    {
-      name: '',
-      width: '48px',
-      render: (row: RuleRow) => (
-        <EuiButtonIcon
-          iconType='minusInCircle'
-          aria-label={`Exclude ${row.rule}`}
-          title='Exclude…'
-          isDisabled={!row.applicable}
-          onClick={() => setFlyoutRules([row.rule])}
-        />
-      ),
-    },
-  ];
+  const columns = ruleColumns({
+    selected,
+    toggle,
+    removeExclusion,
+    exclude: setFlyoutRules,
+  });
 
   if (!osKeys.length) {
     return (

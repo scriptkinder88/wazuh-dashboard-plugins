@@ -84,7 +84,8 @@ export const parseList = (
   return { records, errors };
 };
 
-export const renderList = (records: ListRecords): string => {
+/** Accepts typed records as well (every record is an object). */
+export const renderList = (records: Record<string, object>): string => {
   const keys = Object.keys(records).sort();
   for (const key of keys) {
     if (!KEY_RE.test(key)) {

@@ -177,7 +177,7 @@ export const fetchActiveSyscheck = async (
     `/agents/${agentId}/config/syscheck/syscheck`,
     {},
   );
-  return ((response as ApiResponse<never>)?.data?.data?.syscheck ||
+  return ((response as unknown as ApiResponse<never>)?.data?.data?.syscheck ||
     {}) as ActiveSyscheck;
 };
 

@@ -92,15 +92,12 @@ const text = (
   required = false,
   fallback = '',
 ): string => {
-  let value = rec[field];
-  if (value === undefined || value === null) {
-    value = fallback;
-  }
-  if (typeof value !== 'string') {
+  const raw = rec[field] ?? fallback;
+  if (typeof raw !== 'string') {
     throw new StoreError(`${field}: text expected`);
   }
   // str.split() + join in Python: collapse any whitespace run
-  value = value.split(/\s+/).filter(Boolean).join(' ');
+  const value = raw.split(/\s+/).filter(Boolean).join(' ');
   if (value.length > limit) {
     throw new StoreError(`${field}: longer than ${limit} characters`);
   }

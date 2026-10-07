@@ -52,7 +52,7 @@ export class ConcurrentChangeError extends Error {}
  */
 export const writeList = async (
   name: string,
-  records: ListRecords,
+  records: Record<string, object>,
   expectedRaw?: string,
 ) => {
   if (expectedRaw !== undefined) {
