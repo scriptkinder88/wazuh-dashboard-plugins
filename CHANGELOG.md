@@ -14,6 +14,12 @@ All notable changes to the Wazuh app project will be documented in this file.
 - Verify reconstructed indexed SCA checks against the latest scan `total_checks` and withhold scores when index history is incomplete or unverified
 - Added sanitization in markdown component [#8713](https://github.com/wazuh/wazuh-dashboard-plugins/pull/8713)
 
+### Fixed
+
+- Fixed the SCA PDF report including agents the user cannot read in the Wazuh server API, and limited it to 500 agents
+- Fixed FIM rule changes restarting agents of unchanged groups, the change preview closing while it is applied, and the FIM history growing without limit; restoring a saved version now asks to check its diff
+- Fixed the FIM rules and CIS-CAT tabs showing editing actions to users without the permissions to change them
+
 ## Wazuh v4.14.6 - OpenSearch Dashboards 2.19.5 - Revision 02
 
 ### Added
