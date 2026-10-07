@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,7 @@ if sys.argv[1] == "trigger" and os.environ.get("STUB_FAST_TRIGGER"):
 class Scheduler(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.lists = os.path.join(self.d, "lists")
         os.makedirs(self.lists)
         stub = os.path.join(self.d, "fleet-stub.py")

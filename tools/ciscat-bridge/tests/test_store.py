@@ -3,6 +3,7 @@ import json
 import io
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -47,6 +48,7 @@ class Encoding(unittest.TestCase):
 
     def test_atomic_write_and_read(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         rec = exclusion()
         s.write_list(s.EXCLUSIONS, {s.exclusion_key(rec): rec}, lists_dir=d)
         self.assertEqual(oct(os.stat(os.path.join(d, s.EXCLUSIONS)).st_mode & 0o777), "0o660")
