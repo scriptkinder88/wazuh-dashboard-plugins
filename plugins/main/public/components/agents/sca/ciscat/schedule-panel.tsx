@@ -7,287 +7,29 @@
 import React, { useMemo, useState } from 'react';
 import {
   EuiBasicTable,
-  EuiButton,
-  EuiButtonEmpty,
-  EuiButtonIcon,
-  EuiCallOut,
-  EuiComboBox,
   EuiConfirmModal,
-  EuiFieldNumber,
-  EuiFieldText,
   EuiFlexGroup,
   EuiFlexItem,
-  EuiFlyout,
-  EuiFlyoutBody,
-  EuiFlyoutFooter,
-  EuiFlyoutHeader,
-  EuiForm,
-  EuiFormRow,
   EuiHealth,
-  EuiRadioGroup,
-  EuiSelect,
   EuiSpacer,
-  EuiSwitch,
   EuiText,
-  EuiTitle,
 } from '@elastic/eui';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { CISCAT_WRITE_PERMISSIONS } from './lib/permissions';
 import {
   CISCAT_LISTS,
   Job,
-  ListRecords,
   newJobKey,
   newRequestKey,
-  validateJob,
 } from '../../../../../common/ciscat/store';
 import { getToasts } from '../../../../kibana-services';
 import { describeJob, describeTargets } from './lib/composer';
 import { addRequest, writeList } from './lib/lists-api';
-import { masterTime } from './lib/status';
+import { SCHEDULER_INTERVAL_MINUTES, masterTime } from './lib/status';
+import { STATE_COLOR, formatDate, validJobs } from './lib/schedule';
+import { JobFlyout } from './job-flyout';
+import { messages } from './messages';
 import type { CiscatData } from './ciscat-management';
-
-const WEEKDAYS = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
-];
-
-const STATE_COLOR: Record<string, string> = {
-  ok: 'success',
-  error: 'danger',
-  running: 'primary',
-  starting: 'primary',
-};
-
-const validJobs = (records: ListRecords) =>
-  Object.entries(records).reduce((acc, [key, rec]) => {
-    if (!key.startsWith('_')) {
-      try {
-        acc[key] = validateJob(rec);
-      } catch {
-        // invalid jobs are reported by the manager
-      }
-    }
-    return acc;
-  }, {} as Record<string, Job>);
-
-const formatDate = (date?: Date) => (date ? date.toLocaleString() : '—');
-
-interface JobFlyoutProps {
-  initial?: Job;
-  runNow?: boolean;
-  osKeys: string[];
-  onClose: () => void;
-  onSave: (job: Job) => void;
-}
-
-const today = () => new Date().toISOString().slice(0, 10);
-
-const JobFlyout = ({
-  initial,
-  runNow,
-  osKeys,
-  onClose,
-  onSave,
-}: JobFlyoutProps) => {
-  const [label, setLabel] = useState(initial?.label || '');
-  const [type, setType] = useState<Job['type']>(initial?.type || 'monthly');
-  const [date, setDate] = useState((initial?.at || '').slice(0, 10) || today());
-  const [time, setTime] = useState(
-    initial?.time || (initial?.at || '').slice(11, 16) || '22:00',
-  );
-  const [fromEnd, setFromEnd] = useState((initial?.day ?? 1) < 0);
-  const [day, setDay] = useState(Math.abs(initial?.day ?? 1));
-  const [weekday, setWeekday] = useState(initial?.weekday ?? 5);
-  const [targets, setTargets] = useState<Array<{ label: string }>>(
-    (initial?.targets || ['*']).map(t => ({
-      label: t === '*' ? 'All active OS' : t,
-    })),
-  );
-  const [waveSize, setWaveSize] = useState(initial?.wave_size ?? 50);
-  const [pauseMin, setPauseMin] = useState(
-    Math.round((initial?.wave_pause_s ?? 300) / 60),
-  );
-  const [enabled, setEnabled] = useState(initial?.enabled ?? true);
-  const [error, setError] = useState('');
-
-  const submit = () => {
-    try {
-      const chosen = targets.map(t =>
-        t.label === 'All active OS' ? '*' : t.label,
-      );
-      const job = validateJob({
-        type: runNow ? 'once' : type,
-        at: runNow ? '2000-01-01T00:00' : `${date}T${time}`,
-        time,
-        day: fromEnd ? -day : day,
-        weekday,
-        targets: chosen.includes('*') ? ['*'] : chosen,
-        wave_size: Number(waveSize),
-        wave_pause_s: Number(pauseMin) * 60,
-        enabled,
-        label,
-      });
-      onSave(job);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  return (
-    <EuiFlyout onClose={onClose} size='s' ownFocus>
-      <EuiFlyoutHeader hasBorder>
-        <EuiTitle size='s'>
-          <h3>
-            {runNow && 'Run CIS-CAT now'}
-            {!runNow && (initial ? 'Edit schedule' : 'New schedule')}
-          </h3>
-        </EuiTitle>
-      </EuiFlyoutHeader>
-      <EuiFlyoutBody>
-        <EuiForm component='form' onSubmit={e => e.preventDefault()}>
-          <EuiFormRow label='Name'>
-            <EuiFieldText
-              value={label}
-              onChange={e => setLabel(e.target.value)}
-              placeholder={runNow ? 'Run now' : 'Month-end assessment'}
-            />
-          </EuiFormRow>
-          {!runNow && (
-            <EuiFormRow label='When'>
-              <EuiRadioGroup
-                idSelected={`ciscat-type-${type}`}
-                onChange={id =>
-                  setType(id.replace('ciscat-type-', '') as Job['type'])
-                }
-                options={[
-                  { id: 'ciscat-type-once', label: 'Once' },
-                  { id: 'ciscat-type-monthly', label: 'Every month' },
-                  { id: 'ciscat-type-weekly', label: 'Every week' },
-                ]}
-              />
-            </EuiFormRow>
-          )}
-          {!runNow && type === 'once' && (
-            <EuiFormRow label='Date' helpText='YYYY-MM-DD'>
-              <EuiFieldText
-                value={date}
-                onChange={e => setDate(e.target.value)}
-              />
-            </EuiFormRow>
-          )}
-          {!runNow && type === 'monthly' && (
-            <>
-              <EuiFormRow label='Day'>
-                <EuiRadioGroup
-                  idSelected={fromEnd ? 'ciscat-from-end' : 'ciscat-day'}
-                  onChange={id => setFromEnd(id === 'ciscat-from-end')}
-                  options={[
-                    { id: 'ciscat-day', label: 'Day of the month' },
-                    {
-                      id: 'ciscat-from-end',
-                      label: 'Days before the end of the month',
-                    },
-                  ]}
-                />
-              </EuiFormRow>
-              <EuiFormRow
-                label={
-                  fromEnd
-                    ? 'Day from the end (1 = last day)'
-                    : 'Day of the month'
-                }
-                helpText={
-                  fromEnd
-                    ? '1..28'
-                    : '1..31; months without that day use their last day'
-                }
-              >
-                <EuiFieldNumber
-                  min={1}
-                  max={fromEnd ? 28 : 31}
-                  value={day}
-                  onChange={e => setDay(Number(e.target.value))}
-                />
-              </EuiFormRow>
-            </>
-          )}
-          {!runNow && type === 'weekly' && (
-            <EuiFormRow label='Day of the week'>
-              <EuiSelect
-                options={WEEKDAYS.map((text, value) => ({ value, text }))}
-                value={weekday}
-                onChange={e => setWeekday(Number(e.target.value))}
-              />
-            </EuiFormRow>
-          )}
-          {!runNow && (
-            <EuiFormRow label='Time' helpText="HH:MM, manager's local time">
-              <EuiFieldText
-                value={time}
-                onChange={e => setTime(e.target.value)}
-              />
-            </EuiFormRow>
-          )}
-          <EuiFormRow label='Operating systems'>
-            <EuiComboBox
-              options={[
-                { label: 'All active OS' },
-                ...osKeys.map(label => ({ label })),
-              ]}
-              selectedOptions={targets}
-              onChange={setTargets}
-            />
-          </EuiFormRow>
-          <EuiFormRow label='Agents per wave'>
-            <EuiFieldNumber
-              min={1}
-              value={waveSize}
-              onChange={e => setWaveSize(Number(e.target.value))}
-            />
-          </EuiFormRow>
-          <EuiFormRow label='Pause between waves (minutes)'>
-            <EuiFieldNumber
-              min={0}
-              value={pauseMin}
-              onChange={e => setPauseMin(Number(e.target.value))}
-            />
-          </EuiFormRow>
-          {!runNow && (
-            <EuiFormRow>
-              <EuiSwitch
-                label='Enabled'
-                checked={enabled}
-                onChange={e => setEnabled(e.target.checked)}
-              />
-            </EuiFormRow>
-          )}
-        </EuiForm>
-        {error && (
-          <>
-            <EuiSpacer size='s' />
-            <EuiCallOut color='danger' size='s' title={error} />
-          </>
-        )}
-      </EuiFlyoutBody>
-      <EuiFlyoutFooter>
-        <EuiFlexGroup justifyContent='spaceBetween'>
-          <EuiFlexItem grow={false}>
-            <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
-          </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            <EuiButton fill onClick={submit} data-test-subj='ciscat-save-job'>
-              {runNow ? 'Run now' : 'Save'}
-            </EuiButton>
-          </EuiFlexItem>
-        </EuiFlexGroup>
-      </EuiFlyoutFooter>
-    </EuiFlyout>
-  );
-};
 
 interface Props {
   data: CiscatData;
@@ -314,7 +56,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       return true;
     } catch (e) {
       getToasts().addDanger({
-        title: 'Schedule not saved',
+        title: messages.scheduleNotSaved(),
         text: (e as Error).message,
       });
       return false;
@@ -331,7 +73,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
 
   const columns = [
     {
-      name: 'Schedule',
+      name: messages.columnSchedule(),
       render: ({ key, job }: (typeof items)[number]) => (
         <span>
           <strong>{job.label || key}</strong>
@@ -343,25 +85,23 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       ),
     },
     {
-      name: 'Targets',
+      name: messages.columnTargets(),
       render: ({ job }: (typeof items)[number]) => describeTargets(job.targets),
     },
     {
-      name: 'Waves',
+      name: messages.columnWaves(),
       render: ({ job }: (typeof items)[number]) =>
-        `${job.wave_size} agents, ${Math.round(
-          job.wave_pause_s / 60,
-        )} min pause`,
+        messages.waves(job.wave_size, Math.round(job.wave_pause_s / 60)),
     },
     {
-      name: 'Next run',
+      name: messages.columnNextRun(),
       render: ({ job, status }: (typeof items)[number]) =>
         job.enabled
           ? formatDate(masterTime(status.next_run, offset))
-          : 'disabled',
+          : messages.disabled(),
     },
     {
-      name: 'Last run',
+      name: messages.columnLastRun(),
       render: ({ status }: (typeof items)[number]) =>
         status.last_run ? (
           <EuiHealth color={STATE_COLOR[String(status.state)] || 'subdued'}>
@@ -373,17 +113,21 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
         ),
     },
     {
-      name: 'Enabled',
+      name: messages.columnEnabled(),
       width: '80px',
       render: ({ key, job }: (typeof items)[number]) => (
-        <EuiSwitch
+        <WzButtonPermissions
+          buttonType='switch'
+          permissions={CISCAT_WRITE_PERMISSIONS}
           label=''
           showLabel={false}
           checked={job.enabled}
           onChange={() =>
             persist(
               { ...jobs, [key]: { ...job, enabled: !job.enabled } },
-              job.enabled ? 'Schedule disabled' : 'Schedule enabled',
+              job.enabled
+                ? messages.scheduleDisabled()
+                : messages.scheduleEnabled(),
             )
           }
         />
@@ -394,15 +138,19 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       width: '72px',
       render: ({ key, job }: (typeof items)[number]) => (
         <>
-          <EuiButtonIcon
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={CISCAT_WRITE_PERMISSIONS}
             iconType='pencil'
-            aria-label='Edit'
+            aria-label={messages.edit()}
             onClick={() => setEditing({ key, job })}
           />
-          <EuiButtonIcon
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={CISCAT_WRITE_PERMISSIONS}
             iconType='trash'
             color='danger'
-            aria-label='Delete'
+            aria-label={messages.delete()}
             onClick={() => setDeleting(key)}
           />
         </>
@@ -415,33 +163,35 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       <EuiFlexGroup alignItems='center' responsive={false}>
         <EuiFlexItem>
           <EuiText size='s'>
-            Times are in the manager&apos;s time zone
-            {scheduler.tz
-              ? ` (${scheduler.tz}, UTC${scheduler.utc_offset})`
-              : ''}
-            . Disconnected agents are skipped and reported in the status.
+            {messages.timeZone(
+              scheduler.tz
+                ? ` (${scheduler.tz}, UTC${scheduler.utc_offset})`
+                : '',
+            )}
           </EuiText>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
+            permissions={CISCAT_WRITE_PERMISSIONS}
             size='s'
             iconType='play'
             onClick={() => setRunNow(true)}
             data-test-subj='ciscat-run-now'
           >
-            Run now
-          </EuiButton>
+            {messages.runNow()}
+          </WzButtonPermissions>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton
+          <WzButtonPermissions
+            permissions={CISCAT_WRITE_PERMISSIONS}
             size='s'
             fill
             iconType='plusInCircle'
             onClick={() => setEditing({ key: newJobKey() })}
             data-test-subj='ciscat-new-schedule'
           >
-            New schedule
-          </EuiButton>
+            {messages.newSchedule()}
+          </WzButtonPermissions>
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer size='m' />
@@ -449,7 +199,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
         items={items}
         itemId='key'
         columns={columns}
-        noItemsMessage='No schedule yet: CIS-CAT runs only on demand.'
+        noItemsMessage={messages.noSchedule()}
         data-test-subj='ciscat-schedules'
       />
       {editing && (
@@ -466,7 +216,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
             if (
               await persist(
                 { ...jobs, [editing.key]: stamped },
-                'Schedule saved',
+                messages.scheduleSaved(),
               )
             ) {
               setEditing(undefined);
@@ -488,21 +238,21 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
                   targets: job.targets,
                   wave_size: job.wave_size,
                   wave_pause_s: job.wave_pause_s,
-                  label: job.label || 'Run now',
+                  label: job.label || messages.runNow(),
                   requested_by: user,
                   requested_at: new Date().toISOString(),
                 },
                 (data.status.requests?.processed as string[]) || [],
               );
               getToasts().addSuccess({
-                title: 'Run requested',
-                text: 'The manager starts it within 5 minutes.',
+                title: messages.runRequested(),
+                text: messages.runStartsWithin(SCHEDULER_INTERVAL_MINUTES),
               });
               setRunNow(false);
               onSaved();
             } catch (e) {
               getToasts().addDanger({
-                title: 'Run not requested',
+                title: messages.runNotRequested(),
                 text: (e as Error).message,
               });
             }
@@ -511,16 +261,16 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
       )}
       {deleting && (
         <EuiConfirmModal
-          title='Delete this schedule?'
+          title={messages.deleteTitle()}
           onCancel={() => setDeleting(undefined)}
           onConfirm={async () => {
             const next = { ...jobs };
             delete next[deleting];
-            await persist(next, 'Schedule deleted');
+            await persist(next, messages.scheduleDeleted());
             setDeleting(undefined);
           }}
-          cancelButtonText='Cancel'
-          confirmButtonText='Delete'
+          cancelButtonText={messages.cancel()}
+          confirmButtonText={messages.delete()}
           buttonColor='danger'
         >
           <p>{describeJob(jobs[deleting])}</p>

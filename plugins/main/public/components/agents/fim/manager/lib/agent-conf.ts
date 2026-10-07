@@ -22,6 +22,17 @@ export const RULE_KINDS = [
 ] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
 
+/** Rules that add a path or key to the monitored ones. */
+export const isMonitorKind = (kind: RuleKind) =>
+  kind === 'directories' || kind === 'windows_registry';
+
+/** Rules that exclude a path or key, or its content diff. */
+export const isExclusionKind = (kind: RuleKind) => !isMonitorKind(kind);
+
+/** Rules about Windows registry keys rather than file paths. */
+export const isRegistryKind = (kind: RuleKind) =>
+  kind === 'windows_registry' || kind === 'registry_ignore';
+
 export const KIND_LABELS: Record<RuleKind, string> = {
   directories: 'Monitor path',
   ignore: 'Ignore path',
@@ -320,7 +331,15 @@ export const ruleKey = (
 export const targetKey = (rule: Pick<FimRule, 'kind' | 'path' | 'filter'>) =>
   JSON.stringify([rule.kind, rule.path.trim(), sortedEntries(rule.filter)]);
 
-const FORBIDDEN = /[<>&"\r\n]/;
+/*
+ * Values are written and read as they are, without XML entities: the agents
+ * parse agent.conf with the Wazuh XML reader, which does not decode entities
+ * (a path written "R&amp;D" would be monitored literally as "R&amp;D"), and
+ * the Wazuh server API escapes a bare "&" itself when it validates the file.
+ * Only the characters that would end the value are refused.
+ */
+const FORBIDDEN_IN_TEXT = /[<>\r\n]/;
+const FORBIDDEN_IN_ATTR = /[<>"\r\n]/;
 
 /** Problems that prevent writing the rule; empty when valid. */
 export const validateRule = (rule: FimRule): string[] => {
@@ -331,13 +350,13 @@ export const validateRule = (rule: FimRule): string[] => {
   const path = (rule.path || '').trim();
   if (!path) {
     errors.push('the path is required');
-  } else if (FORBIDDEN.test(path)) {
-    errors.push('the path cannot contain < > & " or line breaks');
+  } else if (FORBIDDEN_IN_TEXT.test(path)) {
+    errors.push('the path cannot contain < > or line breaks');
   } else if (path.length > 4096) {
     errors.push('the path is too long');
   }
   for (const [k, v] of Object.entries({ ...rule.attrs, ...rule.filter })) {
-    if (!/^[A-Za-z_][\w.-]*$/.test(k) || FORBIDDEN.test(v)) {
+    if (!/^[A-Za-z_][\w.-]*$/.test(k) || FORBIDDEN_IN_ATTR.test(v)) {
       errors.push(`invalid attribute ${k}`);
     }
   }

@@ -3,10 +3,19 @@
  *
  * Mirror of tools/ciscat-bridge/bin/ciscat_store.py; the contract is in
  * tools/ciscat-bridge/CONTRACT.md and both sides are checked against
- * contract-vectors.json. Wazuh only accepts list values without ':' and '"',
- * so every value is compact JSON (sorted keys) encoded as unpadded base64url.
+ * contract-vectors.json. The records are encoded as in ../encoded-list.
  */
 /* eslint-disable camelcase */ // record fields are the snake_case wire format
+import { EncodedListError as StoreError, ListRecord } from '../encoded-list';
+
+export {
+  EncodedListError as StoreError,
+  decodeRecord,
+  encodeRecord,
+  parseList,
+  renderList,
+} from '../encoded-list';
+export type { ListRecord, ListRecords } from '../encoded-list';
 
 export const CISCAT_LISTS = {
   exclusions: 'ciscat-exclusions',
@@ -19,6 +28,8 @@ export const CISCAT_LISTS = {
 };
 export const CISCAT_BENCH_PREFIX = 'ciscat-bench-';
 export const CISCAT_SCHEMA_VERSION = 1;
+/** Largest wave of agents a job can trigger at once (same bound as ciscat_store.py). */
+export const MAX_WAVE_SIZE = 100000;
 
 export const SCOPES = ['os', 'global', 'host', 'app_group'] as const;
 export const LEVELS = ['L1', 'L2', 'NG', 'ALL'] as const;
@@ -59,12 +70,6 @@ export interface Job {
   created_at: string;
 }
 
-export type ListRecord = Record<string, unknown>;
-export type ListRecords = Record<string, ListRecord>;
-
-export class StoreError extends Error {}
-
-const KEY_RE = /^[A-Za-z0-9._-]{1,128}$/;
 export const OS_KEY_RE = /^[a-z0-9_]{1,64}$/;
 const RULE_RE = /^[0-9]+(?:\.[0-9]+){0,9}$/;
 const ROLE_RE = /^[A-Za-z0-9_ -]{0,64}$/;
@@ -72,91 +77,6 @@ export const NAME_RE = /^[A-Za-z0-9._-]{1,255}$/;
 const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const AT_RE =
   /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([01][0-9]|2[0-3]):([0-5][0-9])$/;
-const B64URL_RE = /^[A-Za-z0-9_-]*$/;
-
-// --- encoding -----------------------------------------------------------------
-
-const sortKeys = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map(sortKeys);
-  }
-  if (value && typeof value === 'object') {
-    const obj = value as ListRecord;
-    return Object.keys(obj)
-      .sort()
-      .reduce((acc, key) => {
-        acc[key] = sortKeys(obj[key]);
-        return acc;
-      }, {} as ListRecord);
-  }
-  return value;
-};
-
-const bytesToBinary = (bytes: Uint8Array) => {
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return out;
-};
-
-export const encodeRecord = (obj: object): string => {
-  const bytes = new TextEncoder().encode(JSON.stringify(sortKeys(obj)));
-  return btoa(bytesToBinary(bytes))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-};
-
-export const decodeRecord = (value: string): ListRecord => {
-  if (!B64URL_RE.test(value || '')) {
-    throw new StoreError('value is not base64url');
-  }
-  const b64 = value.replace(/-/g, '+').replace(/_/g, '/');
-  const binary = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
-  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-  const obj = JSON.parse(
-    new TextDecoder('utf-8', { fatal: true }).decode(bytes),
-  );
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-    throw new StoreError('value is not a JSON object');
-  }
-  return obj;
-};
-
-export const parseList = (
-  text: string,
-): { records: ListRecords; errors: string[] } => {
-  const records: ListRecords = {};
-  const errors: string[] = [];
-  (text || '').split(/\r?\n/).forEach((line, index) => {
-    if (!line.trim()) {
-      return;
-    }
-    const sep = line.indexOf(':');
-    const key = sep < 0 ? '' : line.slice(0, sep);
-    if (!KEY_RE.test(key)) {
-      errors.push(`line ${index + 1}: invalid key`);
-      return;
-    }
-    try {
-      records[key] = decodeRecord(line.slice(sep + 1).trim());
-    } catch (error) {
-      errors.push(`line ${index + 1}: ${(error as Error).message}`);
-    }
-  });
-  return { records, errors };
-};
-
-export const renderList = (records: ListRecords): string => {
-  const keys = Object.keys(records).sort();
-  for (const key of keys) {
-    if (!KEY_RE.test(key)) {
-      throw new StoreError(`invalid key: ${key}`);
-    }
-  }
-  return keys.map(key => `${key}:${encodeRecord(records[key])}\n`).join('');
-};
 
 export const benchListName = (osKey: string) => {
   if (!OS_KEY_RE.test(osKey || '')) {
@@ -174,15 +94,12 @@ const text = (
   required = false,
   fallback = '',
 ): string => {
-  let value = rec[field];
-  if (value === undefined || value === null) {
-    value = fallback;
-  }
-  if (typeof value !== 'string') {
+  const raw = rec[field] ?? fallback;
+  if (typeof raw !== 'string') {
     throw new StoreError(`${field}: text expected`);
   }
   // str.split() + join in Python: collapse any whitespace run
-  value = value.split(/\s+/).filter(Boolean).join(' ');
+  const value = raw.split(/\s+/).filter(Boolean).join(' ');
   if (value.length > limit) {
     throw new StoreError(`${field}: longer than ${limit} characters`);
   }
@@ -339,7 +256,7 @@ export const validateJob = (rec: ListRecord): Job => {
     }
   }
   out.targets = Array.from(new Set(targets as string[])).sort();
-  out.wave_size = integer(rec, 'wave_size', 1, 100000, 50);
+  out.wave_size = integer(rec, 'wave_size', 1, MAX_WAVE_SIZE, 50);
   out.wave_pause_s = integer(rec, 'wave_pause_s', 0, 86400, 300);
   const enabled = rec.enabled === undefined ? true : rec.enabled;
   if (typeof enabled !== 'boolean') {
