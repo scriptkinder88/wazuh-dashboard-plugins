@@ -20,8 +20,11 @@ class Bootstrap(unittest.TestCase):
         self.ar_bin = os.path.join(self.d, "ar-bin")
         for p in (self.shared, self.assessor, self.ar_bin):
             os.makedirs(p)
+        self.ar_log = os.path.join(self.d, "active-responses.log")
+        open(self.ar_log, "w").close()
         self.env = dict(os.environ, CISCAT_AGENT_SHARED=self.shared, CISCAT_PATH=self.assessor,
-                        CISCAT_DATA_DIR=self.data, CISCAT_AR_BIN=self.ar_bin)
+                        CISCAT_DATA_DIR=self.data, CISCAT_AR_BIN=self.ar_bin,
+                        CISCAT_AR_LOG=self.ar_log)
         self.lines = []
 
     def publish(self, name, dest, content=b"<x/>"):
@@ -35,7 +38,9 @@ class Bootstrap(unittest.TestCase):
                     "# ciscat-manifest (test)\n# name;sha256;dest\n" + "\n".join(self.lines) + "\n")
         r = subprocess.run(["sh", SCRIPT], env=self.env, stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, timeout=30, text=True)
-        return r.returncode, r.stdout
+        self.assertEqual(r.stdout, "")  # under execd stdout is not a terminal: nothing on it
+        with open(self.ar_log) as f:
+            return r.returncode, f.read()
 
     def test_files_of_the_bridge_are_installed(self):
         bench = os.path.join(self.assessor, "benchmarks", "rhel7-custom-xccdf.xml")
@@ -47,6 +52,16 @@ class Bootstrap(unittest.TestCase):
         self.assertIn("installed=3 refused=0 missing=0", out)
         self.assertTrue(os.path.isfile(bench))
         self.assertEqual(os.stat(os.path.join(self.ar_bin, "ciscat-refresh.sh")).st_mode & 0o777, 0o750)
+
+    def test_manifest_is_read_from_the_shared_folder_only(self):
+        os.makedirs(os.path.join(self.shared, "os-rhel7"))
+        with open(os.path.join(self.shared, "os-rhel7", "ciscat-manifest.csv"), "w") as f:
+            f.write("# ciscat-manifest\n")
+        r = subprocess.run(["sh", SCRIPT], env=self.env, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=30, text=True)
+        self.assertEqual(r.returncode, 1)
+        with open(self.ar_log) as f:
+            self.assertIn("manifest not found in " + self.shared, f.read())
 
     def test_other_destinations_and_names_are_refused(self):
         outside = os.path.join(self.d, "etc", "cron.d", "evil")

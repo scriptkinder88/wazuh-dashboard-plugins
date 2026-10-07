@@ -104,6 +104,21 @@ class Refresh(unittest.TestCase):
         self.assertEqual(rc, 0, log)
         self.assertIn("unknown key ignored: NEW_SETTING", log)
 
+    def test_only_the_newest_run_logs_are_kept(self):
+        logs = os.path.join(self.data, "logs")
+        os.makedirs(logs)
+        for n in range(40):
+            p = os.path.join(logs, "refresh_20260101_0000{0:02d}.log".format(n))
+            with open(p, "w") as f:
+                f.write("old\n")
+            os.utime(p, (1767225600 + n, 1767225600 + n))
+        rc, log = self.run_refresh(arf(rule_result("1.1", "pass")))
+        self.assertEqual(rc, 0, log)
+        left = sorted(os.listdir(logs))
+        self.assertEqual(len(left), 30)
+        self.assertNotIn("refresh_20260101_000010.log", left)  # the oldest went
+        self.assertIn("refresh_20260101_000039.log", left)
+
     @unittest.skipUnless(shutil.which("flock"), "flock(1) not installed")
     def test_one_assessment_at_a_time(self):
         with open(os.path.join(self.data, "refresh.lock"), "w") as lock:

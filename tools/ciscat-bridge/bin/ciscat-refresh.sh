@@ -32,6 +32,10 @@ AR_LOG="${CISCAT_AR_LOG:-/var/ossec/logs/active-responses.log}"
 
 mkdir -p "$CACHE_DIR" "$LOG_DIR" 2>/dev/null
 RUN_LOG="${LOG_DIR}/refresh_$(date +%Y%m%d_%H%M%S).log"
+# one log per run: the newest LOG_KEEP are kept (this run's included)
+LOG_KEEP=30
+ls -1t "$LOG_DIR"/refresh_*.log 2>/dev/null | tail -n +"$LOG_KEEP" |
+    while IFS= read -r old; do rm -f "$old"; done
 
 log() {
     line="[+] $(date +%Y-%m-%dT%H:%M:%S) $1"

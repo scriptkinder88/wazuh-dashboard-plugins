@@ -6,9 +6,9 @@
 # integrity via the SHA256 manifest before copying each file to its
 # destination. Python-free: works on legacy RHEL 7 (and any Linux).
 #
-# Model: the manager publishes files + ciscat-manifest.csv into the group
-# shared folder (os-rhel7). Wazuh merges the group config; the individual
-# files land in the agent's shared dir. This script reads the manifest,
+# Model: the manager publishes files + ciscat-manifest.csv into the shared
+# folder of the OS group (os-<os>). Wazuh merges the group config; the
+# individual files land in the agent's shared dir. This script reads the manifest,
 # checks each file's sha256, and installs it to the 'dest' path recorded in
 # the manifest. Only files that verify are installed; a mismatch is refused.
 #
@@ -37,13 +37,13 @@ LOG_TAG="ciscat-bootstrap"
 
 # Resolve the Wazuh root from this script's location (active-response/bin -> root)
 _LOCAL=$(dirname "$0"); cd "$_LOCAL" 2>/dev/null; cd ../../ 2>/dev/null; WROOT=$(pwd)
-AR_LOG="${WROOT}/logs/active-responses.log"
+AR_LOG="${CISCAT_AR_LOG:-${WROOT}/logs/active-responses.log}"
 
 log() {
-    _line="[+] $(date '+%Y-%m-%dT%H:%M:%S') ${LOG_TAG}: $1"
-    echo "$_line"
-    # also append to the Wazuh AR log so the execution is traceable (like restart.sh)
+    [ -t 1 ] && echo "[+] $(date '+%Y-%m-%dT%H:%M:%S') ${LOG_TAG}: $1"
+    # the Wazuh AR log keeps the execution traceable (like restart.sh)
     [ -w "$AR_LOG" ] 2>/dev/null && echo "$(date '+%Y/%m/%d %H:%M:%S') $0 ${LOG_TAG}: $1" >> "$AR_LOG" 2>/dev/null
+    return 0
 }
 fail() { log "ERROR: $1"; exit 1; }
 
@@ -64,15 +64,9 @@ dest_allowed() {
 
 log "invoked (bootstrap start)"
 
-# The manifest can arrive in the agent shared root or in a group subdir,
-# depending on how the merge lands. Find it.
-MANIFEST=""
-for cand in \
-    "${AGENT_SHARED}/ciscat-manifest.csv" \
-    "${AGENT_SHARED}/os-rhel7/ciscat-manifest.csv"; do
-    [ -f "$cand" ] && { MANIFEST="$cand"; break; }
-done
-[ -n "$MANIFEST" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
+# The agent unpacks the files of its groups into the shared folder itself.
+MANIFEST="${AGENT_SHARED}/ciscat-manifest.csv"
+[ -f "$MANIFEST" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
 SRC_DIR=$(dirname "$MANIFEST")
 log "using manifest: $MANIFEST"
 
