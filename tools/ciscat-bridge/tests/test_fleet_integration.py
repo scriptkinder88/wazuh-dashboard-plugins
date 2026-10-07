@@ -9,6 +9,7 @@ The test is skipped without it.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,7 @@ def excl(**kw):
 class FleetIntegration(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
         p = {k: os.path.join(self.root, k) for k in
              ("exclusions_dir", "benchmarks_dir", "shared_dir", "work_dir", "lists_dir", "run_dir")}
         for d in p.values():
@@ -144,7 +146,8 @@ class FleetIntegration(unittest.TestCase):
         self.assertIn("ciscat-rhel7-base", a["002"]["group"])
         self.assertNotIn(stale, self.fake.groups)
 
-        out = self.fleet("trigger", "--targets", "rhel7", "--wave-size", "1", "--job", "j1")
+        out = self.fleet("trigger", "--targets", "rhel7", "--wave-size", "1", "--wave-pause", "0",
+                         "--job", "j1")
         cmds = [c for c, _ in self.fake.ar]
         self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 2, out)  # 001 and 002, one per wave
         self.assertNotIn("!ciscat-assessment0", cmds)
@@ -286,8 +289,7 @@ class FleetStig(FleetIntegration):
 
         path = os.path.join(self.paths["benchmarks_dir"], self.STIG)
         _, _, _, _, profiles, _, _ = sheet.extract(path)
-        with open(path, encoding="utf-8") as f:
-            manual = gen.manual_rule_numbers(f.read())
+        manual = gen.manual_rule_numbers(gen.xccdf.load(path))
         cat1 = profiles["SEVERITY_CAT_I"] - manual
         cat2_only = profiles["SEVERITY_CAT_II"] - profiles["SEVERITY_CAT_I"] - manual
         self.assertTrue(cat1 and cat2_only)

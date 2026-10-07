@@ -16,7 +16,14 @@ Profile cell: '' = control not present in that profile; 'applicable' = present;
 'x' = operator excludes it from that profile (per-level AND per-role).
 """
 
-import argparse, csv, hashlib, re, sys
+import argparse
+import csv
+import hashlib
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ciscat_xccdf as xccdf  # noqa: E402
 
 
 def sha256_of(path):
@@ -35,57 +42,35 @@ def rule_num_key(num):
     return parts
 
 
+def col_name(short):
+    """Profile column of the sheet: Level_1_-_Member_Server -> L1_Member_Server."""
+    s = short.replace("Level_1", "L1").replace("Level_2", "L2")
+    s = s.replace("Next_Generation_Windows_Security", "NG")
+    return s.replace("_-_", "_")
+
+
 def extract(benchmark_path):
-    data = open(benchmark_path, encoding="utf-8", errors="replace").read()
-
-    # benchmark name + version
-    bench_id = re.search(r'<xccdf:Benchmark\b[^>]*id="([^"]*)"', data)
-    bench_id = bench_id.group(1) if bench_id else "unknown"
-    ver = re.search(r'<xccdf:version[^>]*>([^<]+)</xccdf:version>', data)
-    version = ver.group(1).strip() if ver else "unknown"
-
-    # standard profiles (no TestResult, no TAILORED) -> {profile_short: set(rule_num)}
+    """(benchmark id, version, profile keys, profile columns, {profile key: {rule numbers}},
+    {rule number: title}, rule numbers sorted) of a benchmark."""
+    bench = xccdf.load(benchmark_path)
+    # standard profiles (no TAILORED) -> {profile_short: set(rule_num)}
     profiles = {}
-    for b in re.findall(r'<xccdf:Profile\b.*?</xccdf:Profile>', data, re.DOTALL):
-        pid = re.search(r'id="([^"]*)"', b).group(1)
+    for p in bench.profiles:
+        pid = p.get("id", "")
         if "TAILORED" in pid:
             continue
         short = pid.split("_profile_")[-1]   # e.g. Level_1_-_Member_Server
-        nums = set()
-        for idref in re.findall(r'idref="([^"]*)"\s+selected="true"', b):
-            m = re.search(r'_rule_([0-9.]+)_', idref)
-            if m:
-                nums.add(m.group(1))
-        profiles[short] = nums
-
-    # control titles: num -> title
+        profiles[short] = {n for n in map(xccdf.rule_number, bench.selected(p)) if n}
     titles = {}
-    for rb in re.findall(r'<xccdf:Rule\b.*?</xccdf:Rule>', data, re.DOTALL):
-        rid = re.search(r'id="([^"]*)"', rb)
-        if not rid:
-            continue
-        m = re.search(r'_rule_([0-9.]+)_', rid.group(1))
-        if not m:
-            continue
-        num = m.group(1)
-        t = re.search(r'<xccdf:title[^>]*>(.*?)</xccdf:title>', rb, re.DOTALL)
-        if t:
-            titles[num] = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', t.group(1))).strip()
-
-    # profile columns: short readable name. Stable ordering.
-    # short is like "Level_1_-_Member_Server" -> column "L1_Member_Server"
-    def col_name(short):
-        s = short.replace("Level_1", "L1").replace("Level_2", "L2")
-        s = s.replace("Next_Generation_Windows_Security", "NG")
-        s = s.replace("_-_", "_")
-        return s
+    for rid in bench.rules:
+        num = xccdf.rule_number(rid)
+        if num:
+            titles[num] = bench.rule_title(rid)
     prof_cols = sorted(profiles.keys(), key=lambda s: (
         0 if "Level_1" in s else 1 if "Level_2" in s else 2, s))
-
-    # all controls (union), sorted by number
     all_nums = sorted(set().union(*profiles.values()) if profiles else set(), key=rule_num_key)
-
-    return bench_id, version, prof_cols, [col_name(p) for p in prof_cols], profiles, titles, all_nums
+    return (bench.id or "unknown", bench.version or "unknown", prof_cols,
+            [col_name(p) for p in prof_cols], profiles, titles, all_nums)
 
 
 def main():
@@ -102,8 +87,8 @@ def main():
         f.write(f"# benchmark: {bench_id}\n")
         f.write(f"# version: {version}\n")
         f.write(f"# sha256: {sha}\n")
-        f.write(f"# --- tailoring sheet. To EXCLUDE a control from a profile, "
-                f"write 'x' in that profile's cell. Audit (who/when/why) in git. ---\n")
+        f.write("# --- tailoring sheet. To EXCLUDE a control from a profile, "
+                "write 'x' in that profile's cell. Audit (who/when/why) in git. ---\n")
         w = csv.writer(f)
         w.writerow(["rule", "title"] + col_names)
         for num in all_nums:

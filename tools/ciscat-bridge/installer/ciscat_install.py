@@ -40,10 +40,12 @@ PLUGIN_TOOL = "/usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin"
 
 MANAGED_BIN = [
     "ciscat-fleet.py", "ciscat-scheduler.py", "ciscat_store.py", "ciscat_schedule.py",
-    "ciscat_discover.py", "csv_to_custom_xccdf.py", "xccdf_to_sca_policy.py", "benchmark_to_sheet.py",
-    "ciscat-refresh.sh", "ciscat-bootstrap.sh", "maps/ciscat-profiles.json",
-    "maps/os-benchmark-map.json",
+    "ciscat_discover.py", "ciscat_xccdf.py", "csv_to_custom_xccdf.py", "xccdf_to_sca_policy.py",
+    "benchmark_to_sheet.py", "ciscat-refresh.sh", "ciscat-bootstrap.sh",
+    "maps/ciscat-profiles.json",
 ]
+# files earlier versions installed into /opt/ciscat/bin and nothing reads any more
+OBSOLETE_BIN = ["maps/os-benchmark-map.json"]
 MANAGED_AGENT = ["ciscat-assessment.ps1", "ciscat-assessment.cmd"]
 CRON_FILE = "/etc/cron.d/ciscat-scheduler"
 CRON_LINE = ("*/5 * * * * root /usr/bin/python3 /opt/ciscat/bin/ciscat-scheduler.py "
@@ -291,6 +293,10 @@ def install_files(payload):
             copy_atomic(src, dst, 0o750)
             installed.append("agent/" + rel)
         os.chmod(dst, 0o750)
+    for rel in OBSOLETE_BIN:
+        if os.path.exists(P("/opt/ciscat/bin/" + rel)):
+            os.remove(P("/opt/ciscat/bin/" + rel))
+            installed.append(rel + " (removed)")
     for d in ("/opt/ciscat/log", "/opt/ciscat/run", "/opt/ciscat/etc"):
         os.makedirs(P(d), exist_ok=True)
     return installed

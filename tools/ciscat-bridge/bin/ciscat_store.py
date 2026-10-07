@@ -43,6 +43,9 @@ SCOPES = ("os", "global", "host", "app_group")
 LEVELS = ("L1", "L2", "NG", "ALL")
 JOB_TYPES = ("once", "monthly", "weekly")
 REQUEST_ACTIONS = ("apply", "run")
+# waves of a run when the schedule (or the command line) does not say
+DEFAULT_WAVE_SIZE = 50
+DEFAULT_WAVE_PAUSE_S = 300
 
 
 class StoreError(ValueError):
@@ -281,8 +284,8 @@ def validate_job(rec):
         if t != "*" and not (isinstance(t, str) and OS_KEY_RE.match(t)):
             raise StoreError("targets: os keys or '*' expected")
     out["targets"] = sorted(set(targets))
-    out["wave_size"] = _int(rec, "wave_size", 1, 100000, default=50)
-    out["wave_pause_s"] = _int(rec, "wave_pause_s", 0, 86400, default=300)
+    out["wave_size"] = _int(rec, "wave_size", 1, 100000, default=DEFAULT_WAVE_SIZE)
+    out["wave_pause_s"] = _int(rec, "wave_pause_s", 0, 86400, default=DEFAULT_WAVE_PAUSE_S)
     enabled = rec.get("enabled", True)
     if not isinstance(enabled, bool):
         raise StoreError("enabled: true/false expected")

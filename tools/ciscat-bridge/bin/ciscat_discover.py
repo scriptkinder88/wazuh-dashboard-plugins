@@ -18,14 +18,14 @@ and runs. Choosing a group in the dashboard activates the OS again (the choice i
 import os
 import re
 
+import ciscat_xccdf as xccdf
+
 # "_Benchmark" is missing from a few names (CIS_Microsoft_Windows_Server_2025_Stand-alone_v2.0.0)
 BENCH_RE = re.compile(
     r"^CIS_(?P<product>.+?)(?:_Benchmark)?_v(?P<version>[0-9][0-9A-Za-z.]*)-xccdf\.xml$")
-PROFILE_RE = re.compile(
-    r'<xccdf:Profile\b[^>]*\bid="xccdf_org\.cisecurity\.benchmarks_profile_'
-    r'(Level_1|Level_2|Next_Generation_Windows_Security)_-_([A-Za-z0-9_]+)"')
-PROFILE_ID_RE = re.compile(
-    r'<xccdf:Profile\b[^>]*\bid="xccdf_org\.cisecurity\.benchmarks_profile_([A-Za-z0-9_.-]+)"')
+# "<Level>_-_<Role>" profile ids, after the common prefix
+LEVEL_ROLE_RE = re.compile(r"^(Level_1|Level_2|Next_Generation_Windows_Security)_-_([A-Za-z0-9_]+)$")
+PROFILE_SUFFIX_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 # other forms of the Level 1 profile, tried in this order when no "Level_1_-_<Role>" profile exists
 LEVEL1_FORMS = (
     re.compile(r"^Level_1_?-_(?P<role>[A-Za-z0-9_]+)$"),  # Level_1-_MongoDB
@@ -84,20 +84,34 @@ def family_for(product):
     return "windows" if windows else "linux"
 
 
+def _suffixes(path):
+    """Profile ids of a benchmark without the common prefix, in document order."""
+    out = []
+    for pid in xccdf.load(path).profile_ids():
+        if pid.startswith(xccdf.PROFILE_PREFIX):
+            suffix = pid[len(xccdf.PROFILE_PREFIX):]
+            if PROFILE_SUFFIX_RE.match(suffix):
+                out.append(suffix)
+    return out
+
+
+def level_roles(suffixes):
+    """[(level, role)] of the "<Level>_-_<Role>" profiles, in document order."""
+    return [m.groups() for m in map(LEVEL_ROLE_RE.match, suffixes) if m]
+
+
 def profile_roles(path):
     """Level 1 roles of a benchmark, in document order (e.g. ['Server', 'Workstation'])."""
     roles = []
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for level, role in PROFILE_RE.findall(f.read()):
-            if level == "Level_1" and role not in roles:
-                roles.append(role)
+    for level, role in level_roles(_suffixes(path)):
+        if level == "Level_1" and role not in roles:
+            roles.append(role)
     return roles
 
 
 def profile_ids(path):
     """Ids of the benchmark's profiles without the common prefix, in document order."""
-    with open(path, encoding="utf-8", errors="replace") as f:
-        ids = PROFILE_ID_RE.findall(f.read())
+    ids = _suffixes(path)
     return [p for i, p in enumerate(ids) if p not in ids[:i] and "TAILORED" not in p]
 
 
@@ -216,12 +230,16 @@ def merge(library, bench_dir):
             notes.append("{0}: no valid OS key, skipped".format(filename))
             continue
         path = os.path.join(bench_dir, filename)
-        roles = profile_roles(path)
+        try:
+            roles, ids = profile_roles(path), profile_ids(path)
+        except (OSError, xccdf.XccdfError) as exc:
+            notes.append("{0}: not readable ({1}), skipped".format(filename, exc))
+            continue
         base_profiles = None
         if roles:
             role = next((r for r in ROLE_PREFERENCE if r in roles), roles[0])
         else:
-            other = other_profile(profile_ids(path))
+            other = other_profile(ids)
             if not other:
                 notes.append("{0}: no Level 1 or STIG profile, skipped".format(filename))
                 continue

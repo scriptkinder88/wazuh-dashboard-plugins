@@ -25,10 +25,12 @@ import argparse
 import base64
 import csv
 import fcntl
+import grp
 import hashlib
 import io
 import json
 import os
+import pwd
 import re
 import ssl
 import subprocess
@@ -41,8 +43,12 @@ from datetime import datetime
 
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BIN_DIR)
-import ciscat_store as store  # noqa: E402
+import benchmark_to_sheet as sheet  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
+import ciscat_store as store  # noqa: E402
+import ciscat_xccdf as xccdf  # noqa: E402
+import csv_to_custom_xccdf as tailor  # noqa: E402
+import xccdf_to_sca_policy as gen  # noqa: E402
 
 VERSION = "2.2.8"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
@@ -134,6 +140,8 @@ _TOKEN = {"value": None, "at": 0.0}
 
 
 def load_os_library():
+    """(OS library, discovery notes): os-library.json (or the seed above), the benchmarks found
+    in the benchmarks folder and the groups chosen in the dashboard."""
     if os.path.isfile(OS_LIBRARY_FILE):
         with open(OS_LIBRARY_FILE, encoding="utf-8") as f:
             lib = json.load(f)
@@ -151,7 +159,8 @@ def load_os_library():
     return discover.apply_targets(lib, targets), notes
 
 
-OS_LIBRARY, DISCOVERY_NOTES = load_os_library()
+# filled by main(): importing this module reads nothing
+OS_LIBRARY, DISCOVERY_NOTES = {}, []
 
 
 # ----------------------------------------------------------------- helpers
@@ -161,15 +170,6 @@ def now_iso():
 
 def sh(cmd):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode()
-
-
-def run_checked(cmd):
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    out = p.stdout.decode()
-    if p.returncode != 0:
-        raise RuntimeError("{0} failed ({1}): {2}".format(os.path.basename(cmd[1]), p.returncode,
-                                                         out.strip().splitlines()[-1:] or ""))
-    return out
 
 
 def sha256(path):
@@ -295,7 +295,6 @@ def is_combo_group(os_key, group):
 
 def own(path, mode=0o640):
     try:
-        import pwd, grp
         os.chown(path, pwd.getpwnam("wazuh").pw_uid, grp.getgrnam("wazuh").gr_gid)
         os.chmod(path, mode)
     except Exception as e:
@@ -370,24 +369,18 @@ def build(os_key, cfg, exc_csv, host, app_groups, out_dir):
     bench = os.path.join(PATHS["benchmarks_dir"], cfg["benchmark"])
     os.makedirs(out_dir, exist_ok=True)
     custom = os.path.join(out_dir, cfg["base"] + "-xccdf.xml")
-    out = run_checked([sys.executable, os.path.join(BIN_DIR, "csv_to_custom_xccdf.py"),
-                       "--csv", exc_csv, "--benchmark", bench, "--host", host,
-                       "--os-key", os_key, "--role", cfg["role"],
-                       "--app-groups", ",".join(app_groups), "--out", custom] +
-                      [a for p in cfg.get("base_profiles", []) for a in ("--base-profile", p)])
-    audit = [l.strip() for l in out.splitlines() if l.strip().startswith("[L")]
+    _, audit, rejected, _, _ = tailor.build_custom_xccdf(
+        exc_csv, bench, host, os_key, cfg["role"], app_groups, custom,
+        cfg.get("base_profiles", []))
+    for _, why in rejected:
+        print("    [REJECTED] {0}".format(why))
     _, level = cfg["profiles"][0]
     pol = os.path.join(out_dir, cfg["policy_id"])
-    out = run_checked([sys.executable, os.path.join(BIN_DIR, "xccdf_to_sca_policy.py"),
-                       "--xccdf", custom, "--profile-id", profile_id(level, cfg["role"]),
-                       "--flat-path", cfg["flat_path"], "--policy-id", cfg["policy_id"],
-                       "--policy-name", cfg["policy_name"], "--out", pol])
-    checks = 0
-    for line in out.splitlines():
-        if "checks in policy:" in line:
-            checks = int(line.split(":")[1].split()[0])
-    return {"custom": custom, "policy": pol + ".yml", "work": out_dir, "checks": checks,
-            "excluded": len(audit), "audit": audit}
+    result = gen.generate(custom, profile_id(level, cfg["role"]), cfg["flat_path"],
+                          cfg["policy_id"], cfg["policy_name"], pol)
+    lines = tailor.audit_lines(audit)
+    return {"custom": custom, "policy": pol + ".yml", "work": out_dir, "checks": result["checks"],
+            "excluded": len(lines), "audit": lines}
 
 
 def publish_linux(os_key, cfg, art):
@@ -590,8 +583,7 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
 
 # ----------------------------------------------------------------- sync (dashboard data)
 def act_sync():
-    import benchmark_to_sheet as sheet
-    import xccdf_to_sca_policy as gen
+    failed = False
     for note in DISCOVERY_NOTES:
         print("[discovery] " + note)
     oskeys = {}
@@ -603,9 +595,14 @@ def act_sync():
                  "discovered": bool(cfg.get("discovered")), "title": cfg.get("title", os_key),
                  "group_source": cfg.get("group_source", "library")}
         if entry["available"]:
-            bench_id, version, prof_keys, cols, profiles, titles, nums = sheet.extract(bench)
-            with open(bench, encoding="utf-8", errors="replace") as f:
-                manual = gen.manual_rule_numbers(f.read())
+            try:
+                bench_id, version, prof_keys, cols, profiles, titles, nums = sheet.extract(bench)
+                manual = gen.manual_rule_numbers(xccdf.load(bench))
+            except (OSError, xccdf.XccdfError) as e:
+                print("[{0}] ERROR: benchmark not readable: {1}".format(os_key, e))
+                entry["available"], failed = False, True
+                oskeys[os_key] = entry
+                continue
             col_of = dict(zip(prof_keys, cols))
             recs = {"_meta": {"os_key": os_key, "benchmark": bench_id, "version": version,
                               "profiles": cols, "file": cfg["benchmark"]}}
@@ -614,14 +611,14 @@ def act_sync():
                              "p": [col_of[p] for p in profiles if num in profiles[p]]}
             name = store.bench_list_name(os_key)
             old, _ = store.read_list(name, PATHS["lists_dir"])
-            if old.get("_meta", {}).get("benchmark") != bench_id or len(old) != len(recs) or \
-                    old.get("_meta", {}).get("version") != version:
+            if old != recs:
                 store.write_list(name, recs, PATHS["lists_dir"])
                 print("[{0}] benchmark sheet published: {1} rules".format(os_key, len(nums)))
             entry["version"] = version
         oskeys[os_key] = entry
     store.write_list(store.OSKEYS, oskeys, PATHS["lists_dir"])
     print("OS list published: {0}".format(", ".join(sorted(oskeys))))
+    return 1 if failed else 0
 
 
 # ----------------------------------------------------------------- actions
@@ -691,7 +688,8 @@ def plan_apply(apply_, restart, request):
     return 0 if status["state"] == "ok" else 1
 
 
-def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
+def act_trigger(targets=None, wave_size=store.DEFAULT_WAVE_SIZE,
+                wave_pause=store.DEFAULT_WAVE_PAUSE_S, job=None):
     started = now_iso()
     get_token()
     result = {"state": "running", "last_run": started, "sent": 0, "failed": 0, "skipped": [],
@@ -745,7 +743,9 @@ def act_trigger(targets=None, wave_size=100000, wave_pause=0, job=None):
 
 
 def act_report():
+    """SCA scores per agent. Exit code 1 when an agent's results could not be read."""
     token = get_token()
+    errors = 0
     print("{0:<5} {1:<28} {2:<38} {3:>6} {4:>6} {5:>6} {6:>7} {7:>6}".format(
         "id", "agent", "policy", "checks", "pass", "fail", "invalid", "score"))
     print("-" * 110)
@@ -765,6 +765,8 @@ def act_report():
                     it["fail"], it["invalid"], it["score"]))
             except Exception as e:
                 print("{0:<5} {1:<28} ERROR: {2}".format(aid, aname, e))
+                errors += 1
+    return 1 if errors else 0
 
 
 # ----------------------------------------------------------------- baseline groups
@@ -891,6 +893,7 @@ def act_history(day=None):
                          PATHS["lists_dir"], PATHS["run_dir"],
                          remove=[k for k in old if k not in keep and k != day])
     print("coverage of {0} recorded for {1} OS(es)".format(day, len(per_os)))
+    return 0
 
 
 def read_conf():
@@ -947,15 +950,20 @@ def main():
     ap.add_argument("--user", help="Wazuh API user (default: api_user in the conf, else wazuh)")
     ap.add_argument("--restart", action="store_true", help="restart wazuh-manager after apply (testing only)")
     ap.add_argument("--targets", default="*", help="trigger: os keys, comma separated, or *")
-    ap.add_argument("--wave-size", type=int, default=100000, help="trigger: agents per wave")
-    ap.add_argument("--wave-pause", type=int, default=0, help="trigger: seconds between waves")
+    ap.add_argument("--wave-size", type=int, default=store.DEFAULT_WAVE_SIZE,
+                    help="trigger: agents per wave (default %(default)s, as in the schedules)")
+    ap.add_argument("--wave-pause", type=int, default=store.DEFAULT_WAVE_PAUSE_S,
+                    help="trigger: seconds between waves (default %(default)s)")
     ap.add_argument("--job", help="trigger: schedule job key, for ciscat-status")
     ap.add_argument("--request", help="apply: request key, for ciscat-status")
     ap.add_argument("--day", help="history: day of the snapshot (YYYY-MM-DD, default today)")
     ap.add_argument("--file", help="baseline: JSON file of the groups owned by infrastructure code")
     args = ap.parse_args()
     if args.action == "version":
-        print(VERSION); return 0
+        print(VERSION)
+        return 0
+    global OS_LIBRARY, DISCOVERY_NOTES
+    OS_LIBRARY, DISCOVERY_NOTES = load_os_library()
     load_api_credentials(args)
     if args.action == "sync":
         return act_sync()
@@ -973,11 +981,14 @@ def main():
             sys.exit("baseline needs --file")
         return act_baseline(args.file)
     if args.action == "history":
-        if args.day and not re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", args.day):
-            sys.exit("--day must be YYYY-MM-DD")
+        if args.day:
+            try:
+                datetime.strptime(args.day, "%Y-%m-%d")
+            except ValueError:
+                sys.exit("--day must be YYYY-MM-DD")
         return act_history(args.day)
     return act_report()
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    sys.exit(main())

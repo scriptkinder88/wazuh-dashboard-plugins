@@ -15,7 +15,8 @@ def bench(roles, extra=()):
     profiles = ['<xccdf:Profile id="{0}Level_{1}_-_{2}"/>'.format(P, lvl, r)
                 for r in roles for lvl in (1, 2)]
     profiles += ['<xccdf:Profile id="{0}{1}"/>'.format(P, e) for e in extra]
-    return "<xccdf:Benchmark>{0}</xccdf:Benchmark>".format("".join(profiles))
+    return ('<xccdf:Benchmark xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2">{0}'
+            '</xccdf:Benchmark>'.format("".join(profiles)))
 
 
 LIBRARY = {

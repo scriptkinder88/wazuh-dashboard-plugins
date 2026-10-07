@@ -97,6 +97,24 @@ class FleetApply(unittest.TestCase):
     def status(self):
         return store.read_list(store.STATUS, self.paths["lists_dir"])[0]
 
+    def test_sync_reports_an_unreadable_benchmark(self):
+        with open(os.path.join(self.paths["benchmarks_dir"], PREFIX + "-xccdf.xml"), "w") as f:
+            f.write("<xccdf:Benchmark")
+        out = self.fleet("sync", rc=1)
+        self.assertIn("[rhel7] ERROR: benchmark not readable", out)
+        oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
+        self.assertFalse(oskeys["rhel7"]["available"])
+
+    def test_sync_publishes_the_sheet_and_republishes_it_when_it_changes(self):
+        self.fleet("sync")
+        sheet, _ = store.read_list("ciscat-bench-rhel7", self.paths["lists_dir"])
+        self.assertEqual((sheet["1.1"]["t"], sheet["1.1"]["m"], sheet["1.2"]["m"]), ("One", False, False))
+        with open(os.path.join(self.paths["benchmarks_dir"], PREFIX + "-xccdf.xml"), "w") as f:
+            f.write(BENCH.replace("<xccdf:title>One</xccdf:title>", "<xccdf:title>One &amp; more</xccdf:title>"))
+        self.fleet("sync")
+        sheet, _ = store.read_list("ciscat-bench-rhel7", self.paths["lists_dir"])
+        self.assertEqual(sheet["1.1"]["t"], "One & more")
+
     def test_missing_benchmark_files_fail_the_apply(self):
         out = self.fleet("apply", rc=1)
         self.assertIn("MISSING", out)
@@ -143,7 +161,7 @@ class FleetApply(unittest.TestCase):
 
     def test_trigger_renews_the_token_and_skips_disconnected_agents(self):
         self.env["CISCAT_TOKEN_MAX_AGE"] = "0"
-        self.fleet("trigger", "--wave-size", "1", "--job", "j1")
+        self.fleet("trigger", "--wave-size", "1", "--wave-pause", "0", "--job", "j1")
         auth = [c for c in self.fake.calls if c[1] == "/security/user/authenticate"]
         self.assertGreaterEqual(len(auth), 5)  # one per call once the token is "old"
         self.assertEqual(sorted(a for _, ids in self.fake.ar for a in ids),
