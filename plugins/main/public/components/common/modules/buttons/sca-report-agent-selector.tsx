@@ -13,6 +13,7 @@ import {
   EuiModalFooter,
   EuiModalHeader,
   EuiModalHeaderTitle,
+  EuiRadioGroup,
   EuiSpacer,
   EuiText,
 } from '@elastic/eui';
@@ -20,14 +21,34 @@ import { WzRequest } from '../../../../react-services';
 
 const AGENTS_PAGE_SIZE = 500;
 
+export const SCA_REPORT_TYPE_DETAILED = 'detailed';
+export const SCA_REPORT_TYPE_SNAPSHOT = 'snapshot';
+
+export type ScaReportType =
+  | typeof SCA_REPORT_TYPE_DETAILED
+  | typeof SCA_REPORT_TYPE_SNAPSHOT;
+
+export type ScaReportOptions = {
+  /** Server-side detailed report or snapshot of the SCA dashboard. */
+  type: ScaReportType;
+  /** Include the per-server tables with every control (detailed report). */
+  details: boolean;
+};
+
 type ScaReportAgentSelectorProps = {
   initialAgentId?: string;
+  /** The dashboard snapshot needs the SCA dashboard and its index pattern. */
+  isSnapshotAvailable?: boolean;
   onCancel: () => void;
-  onGenerate: (agentIds: string[]) => Promise<void> | void;
+  onGenerate: (
+    agentIds: string[],
+    options: ScaReportOptions,
+  ) => Promise<void> | void;
 };
 
 export const ScaReportAgentSelector = ({
   initialAgentId,
+  isSnapshotAvailable = true,
   onCancel,
   onGenerate,
 }: ScaReportAgentSelectorProps) => {
@@ -41,6 +62,11 @@ export const ScaReportAgentSelector = ({
   const [loadError, setLoadError] = useState('');
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  const [reportType, setReportType] = useState<ScaReportType>(
+    SCA_REPORT_TYPE_DETAILED,
+  );
+  const [includeDetails, setIncludeDetails] = useState(false);
+  const isDetailedReport = reportType === SCA_REPORT_TYPE_DETAILED;
 
   useEffect(() => {
     let active = true;
@@ -151,7 +177,10 @@ export const ScaReportAgentSelector = ({
 
     try {
       setGenerating(true);
-      await onGenerate(selectedAgentIds);
+      await onGenerate(selectedAgentIds, {
+        type: reportType,
+        details: isDetailedReport && includeDetails,
+      });
     } finally {
       setGenerating(false);
     }
@@ -200,11 +229,43 @@ export const ScaReportAgentSelector = ({
       </EuiModalHeader>
 
       <EuiModalBody>
-        <EuiText size='s'>
-          Select all servers to include in one PDF. Wazuh 5 will render the SCA
-          overview dashboard using the complete selected server list as a single
-          filter.
-        </EuiText>
+        <EuiText size='s'>Select all servers to include in one PDF.</EuiText>
+
+        <EuiSpacer size='m' />
+
+        <EuiRadioGroup
+          name='sca-report-type'
+          data-test-subj='sca-report-type'
+          idSelected={reportType}
+          onChange={id => setReportType(id as ScaReportType)}
+          legend={{ children: <span>Report type</span> }}
+          options={[
+            {
+              id: SCA_REPORT_TYPE_DETAILED,
+              label:
+                'Detailed report: executive summary, results by benchmark ' +
+                'family and failed controls of the selected servers',
+            },
+            {
+              id: SCA_REPORT_TYPE_SNAPSHOT,
+              label:
+                'Dashboard snapshot: the SCA overview dashboard filtered by ' +
+                'the selected servers',
+              disabled: !isSnapshotAvailable,
+            },
+          ]}
+        />
+
+        <EuiSpacer size='s' />
+
+        <EuiCheckbox
+          id='sca-report-include-details'
+          data-test-subj='sca-report-include-details'
+          label='Include detailed results by server (every control, larger report)'
+          checked={isDetailedReport && includeDetails}
+          disabled={!isDetailedReport}
+          onChange={event => setIncludeDetails(event.target.checked)}
+        />
 
         <EuiSpacer size='m' />
 

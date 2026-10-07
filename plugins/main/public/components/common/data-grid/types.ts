@@ -18,7 +18,18 @@ export interface RenderColumn {
   ) => string | React.ReactNode;
 }
 
-export type tDataGridColumn = Partial<RenderColumn> & EuiDataGridColumn;
+export interface ComputedColumn {
+  /**
+   * The column is not an index pattern field: its value comes only from
+   * `render(value, rowItem)`. Such a column is listed with the index pattern
+   * fields, cannot be sorted and has no filter cell actions.
+   */
+  computed?: boolean;
+}
+
+export type tDataGridColumn = Partial<RenderColumn> &
+  ComputedColumn &
+  EuiDataGridColumn;
 
 export interface PaginationOptions
   extends Pick<

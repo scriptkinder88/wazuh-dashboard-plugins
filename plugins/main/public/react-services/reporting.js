@@ -11,7 +11,7 @@
  */
 
 import { WazuhConfig } from '../react-services/wazuh-config';
-import { getPlugins } from '../kibana-services';
+import { getHttp, getPlugins, getToasts } from '../kibana-services';
 import { NavigationURLSearchParams } from '../react-services/navigation-service';
 import { UI_LOGGER_LEVELS } from '../../common/constants';
 import { UI_ERROR_SEVERITIES } from './error-orchestrator/types';
@@ -19,6 +19,8 @@ import { getErrorOrchestrator } from './common-services';
 import store from '../redux/store';
 import { PatternDataSourceFilterManager } from '../components/common/data-source/pattern/pattern-data-source-filter-manager';
 import { buildScaMultiServerReportContext } from './sca-report-context';
+import { requestScaPdfReport } from './sca-pdf-report';
+import * as FileSaver from '../services/file-saver';
 
 export class ReportingService {
   constructor() {
@@ -101,6 +103,30 @@ export class ReportingService {
       dataSourceContext,
       'generateInContextPDFReport',
     );
+  }
+
+  /**
+   * Downloads the server-side SCA PDF report of the selected agents, built
+   * from the SCA states index.
+   */
+  async generateScaDetailedPDFReport(agentIds, options = {}) {
+    try {
+      const { blob, filename } = await requestScaPdfReport(
+        agentIds,
+        { details: options?.details === true },
+        { prependBasePath: path => getHttp().basePath.prepend(path) },
+      );
+
+      FileSaver.saveAs(blob, filename);
+      getToasts().add({
+        color: 'success',
+        title: 'SCA report downloaded',
+        text: filename,
+        toastLifeTimeMs: 5000,
+      });
+    } catch (error) {
+      this.handleReportError(error, 'generateScaDetailedPDFReport');
+    }
   }
 
   async generateScaMultiServerPDFReport(agentIds) {
