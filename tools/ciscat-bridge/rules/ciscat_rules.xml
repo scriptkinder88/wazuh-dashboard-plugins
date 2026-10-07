@@ -1,0 +1,13 @@
+<!--
+  CIS-CAT bridge (tools/ciscat-bridge): alerts raised from the agent scripts
+  ciscat-refresh.sh (Linux) and ciscat-assessment.ps1 (Windows), which log to
+  the active-responses.log every Wazuh agent monitors by default.
+  In the "sca" group so they also show in Configuration Assessment > Events.
+-->
+<group name="sca,ciscat,">
+  <rule id="100950" level="7">
+    <match>CIS-CAT Pro not found on </match>
+    <description>CIS-CAT Pro not found on the agent: CIS-CAT assessment stopped and previous results withdrawn from SCA</description>
+    <group>ciscat_not_installed,</group>
+  </rule>
+</group>

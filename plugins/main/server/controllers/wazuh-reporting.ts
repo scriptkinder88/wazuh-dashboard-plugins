@@ -311,6 +311,7 @@ export class WazuhReportingCtrl {
           tables,
           section,
           indexPatternTitle,
+          scaOptions,
           apiId,
         } = request.body;
         const { moduleID } = request.params;
@@ -380,6 +381,7 @@ export class WazuhReportingCtrl {
             indexPatternTitle ||
               context.wazuh_core.configuration.getSettingValue('pattern'),
             serverSideQuery,
+            { details: scaOptions?.details === true },
           );
         }
 

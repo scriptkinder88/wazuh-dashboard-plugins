@@ -1,0 +1,39 @@
+# Groups owned by Terraform (prefix baseline-): their whole agent.conf comes from
+# here. Every other group, and every other FIM rule, is managed in the dashboard.
+# Agents are usually put in these groups at enrollment (<enrollment><groups>);
+# "agents" adds existing ones by name.
+groups:
+  baseline-linux:
+    os: Linux
+    options:
+      frequency: '43200'
+    fim:
+      - kind: directories
+        path: /etc,/usr/bin,/usr/sbin,/bin,/sbin,/boot
+        attrs: { check_all: 'yes' }
+        reason: CIS - integrity of system binaries and configuration
+        ticket: CHG-0000
+        owner: SOC
+      - kind: directories
+        path: /etc/ssh,/etc/sudoers.d
+        attrs: { whodata: 'yes' }
+        reason: CIS - who changes access configuration
+        owner: SOC
+      - kind: ignore
+        path: .log$|.swp$
+        attrs: { type: sregex }
+        reason: log rotation and editor swap files
+        owner: SOC
+  baseline-windows:
+    os: Windows
+    fim:
+      - kind: directories
+        path: "%WINDIR%\\System32\\drivers\\etc"
+        attrs: { whodata: 'yes' }
+        reason: CIS - hosts and network configuration
+        owner: SOC
+      - kind: windows_registry
+        path: HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run
+        attrs: { arch: both }
+        reason: CIS - autostart entries
+        owner: SOC
