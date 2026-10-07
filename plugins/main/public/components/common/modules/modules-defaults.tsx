@@ -95,6 +95,7 @@ import {
 } from '../../overview/it-hygiene';
 import { InventoryFIM } from '../../overview/fim';
 import { MainFim } from '../../agents/fim';
+import { FimManagement } from '../../agents/fim/manager';
 
 const renderDiscoverTab = (props: WazuhDiscoverProps) => {
   return {
@@ -142,6 +143,13 @@ export const ModulesDefaults = {
         name: 'Inventory',
         buttons: [ButtonExploreAgent],
         component: MainFim,
+      },
+      {
+        // FIM rules of groups and single servers, edited in agent.conf
+        id: 'manage',
+        name: 'Manage',
+        buttons: [],
+        component: FimManagement,
       },
       renderDiscoverTab({
         moduleId: 'fim',
