@@ -22,6 +22,7 @@ import ast
 import csv
 import glob
 import hashlib
+import io
 import json
 import os
 import re
@@ -31,6 +32,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("CISCAT_INSTALL_ROOT", "/")  # tests install into a fake root
@@ -46,6 +48,8 @@ MANAGED_BIN = [
 ]
 # files earlier versions installed into /opt/ciscat/bin and nothing reads any more
 OBSOLETE_BIN = ["maps/os-benchmark-map.json"]
+ORCH_CONF = "/opt/ciscat/etc/ciscat-orchestrator.conf"
+DEFAULT_PASS_FILE = "/opt/ciscat/etc/.ciscat_api_pass"
 MANAGED_AGENT = ["ciscat-assessment.ps1", "ciscat-assessment.cmd"]
 CRON_FILE = "/etc/cron.d/ciscat-scheduler"
 CRON_LINE = ("*/5 * * * * root /usr/bin/python3 /opt/ciscat/bin/ciscat-scheduler.py "
@@ -87,6 +91,11 @@ def own_wazuh(path, mode):
             os.chown(path, pwd.getpwnam("wazuh").pw_uid, grp.getgrnam("wazuh").gr_gid)
         except KeyError:
             pass
+
+
+def read_file(path, binary=False):
+    with open(path, "rb") if binary else open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def run(cmd, check=False, **kw):
@@ -144,7 +153,6 @@ def make_backup(crontab_text):
             data = crontab_text.encode()
             info = tarfile.TarInfo("crontab-root.txt")
             info.size = len(data)
-            import io
             tar.addfile(info, io.BytesIO(data))
     os.chmod(path, 0o600)
     return path
@@ -204,7 +212,7 @@ def rollback(path, keep_lists=True):
 def read_crontab():
     fake = os.environ.get("CISCAT_CRONTAB_FILE")
     if fake:
-        return open(fake).read() if os.path.exists(fake) else ""
+        return read_file(fake) if os.path.exists(fake) else ""
     if not shutil.which("crontab"):
         return None
     rc, out = run(["crontab", "-l"])
@@ -302,6 +310,20 @@ def install_files(payload):
     return installed
 
 
+def api_pass_file():
+    """The password file named by api_pass_file in ciscat-orchestrator.conf (as ciscat-fleet.py
+    reads it), else the default one."""
+    path = DEFAULT_PASS_FILE
+    if os.path.isfile(P(ORCH_CONF)):
+        with open(P(ORCH_CONF), encoding="utf-8") as f:
+            for line in f:
+                if "=" in line and not line.lstrip().startswith("#"):
+                    k, v = line.rstrip("\n").split("=", 1)
+                    if k.strip() == "api_pass_file" and v.strip():
+                        path = v.strip()
+    return P(path)
+
+
 def install_rule(payload):
     """Installs the rule with a free id. Returns the id when the file changed, else None."""
     dst = P("/var/ossec/etc/rules/ciscat_rules.xml")
@@ -324,9 +346,9 @@ def install_rule(payload):
     rule_id = current if current in free else free[0]  # keep the id already in place
     with open(os.path.join(payload, "rules", "ciscat_rules.xml"), encoding="utf-8") as fh:
         content = re.sub(r'(<rule\s[^>]*\bid=")\d+(")', r"\g<1>{0}\2".format(rule_id), fh.read(), count=1)
-    if os.path.exists(dst) and open(dst, encoding="utf-8").read() == content:
+    if os.path.exists(dst) and read_file(dst) == content:
         return None
-    previous = open(dst, "rb").read() if os.path.exists(dst) else None
+    previous = read_file(dst, binary=True) if os.path.exists(dst) else None
     with open(dst, "w", encoding="utf-8") as fh:
         fh.write(content)
     own_wazuh(dst, 0o660)
@@ -372,7 +394,7 @@ def install_cron():
     path = P(CRON_FILE)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     content = "# CIS-CAT bridge scheduler (tools/ciscat-bridge)\n" + CRON_LINE
-    if os.path.exists(path) and open(path).read() == content:
+    if os.path.exists(path) and read_file(path) == content:
         return False
     with open(path, "w") as f:
         f.write(content)
@@ -454,18 +476,17 @@ def install_master(payload, args, version, crontab_text):
     if install_cron():
         say("scheduler cron installed: " + CRON_FILE)
 
-    pfile = P("/opt/ciscat/etc/.ciscat_api_pass")
-    if not os.path.exists(P("/opt/ciscat/etc/ciscat-orchestrator.conf")) or not os.path.exists(pfile):
-        say("WARNING: API credentials missing: create /opt/ciscat/etc/ciscat-orchestrator.conf "
-            "(api_user, api_pass_file) and the password file (chmod 600)")
+    pfile = api_pass_file()
+    if not os.path.exists(P(ORCH_CONF)) or not os.path.exists(pfile):
+        say("WARNING: API credentials missing: create {0} (api_user, api_pass_file) and the "
+            "password file (chmod 600)".format(ORCH_CONF))
     elif os.stat(pfile).st_mode & 0o077:
         os.chmod(pfile, 0o600)
-        say("password file permissions tightened to 600")
+        say("password file permissions tightened to 600: /" + os.path.relpath(pfile, ROOT))
 
 
 def unwrap_plugin_zip(path):
     """The plugin zip itself, also when it arrives inside the zip GitHub wraps artifacts in."""
-    import zipfile
     for _ in range(2):
         try:
             with zipfile.ZipFile(path) as z:
@@ -555,7 +576,7 @@ def main():
     if sys.version_info < (3, 6):
         die("python 3.6+ required")
     payload = HERE
-    version = open(args.version_file).read().strip()
+    version = read_file(args.version_file).strip()
     if args.rollback:
         rollback(args.rollback)
         return 0

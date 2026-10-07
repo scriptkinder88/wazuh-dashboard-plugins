@@ -6,6 +6,7 @@ orchestrator cron in root's crontab and /etc/cron.d) and checks install, idempot
 import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -40,8 +41,10 @@ def plugin_zip(path):
 class Installer(unittest.TestCase):
     def setUp(self):
         self.out = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.out, True)
         self.script = build.build(self.out)
         self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
         r = self.root
         for d in ("var/ossec/bin", "var/ossec/etc/rules", "var/ossec/etc/lists", "opt/ciscat/bin",
                   "opt/ciscat/etc", "opt/ciscat/tailoring/exclusions", "etc/cron.d"):
@@ -158,6 +161,27 @@ class Installer(unittest.TestCase):
             self.assertFalse(os.path.exists(self.path(rel)), rel)
         with open(self.crontab) as f:
             self.assertNotIn("disabled by ciscat-bridge", f.read())
+
+    def test_files_nothing_reads_any_more_are_removed(self):
+        os.makedirs(self.path("opt/ciscat/bin/maps"))
+        with open(self.path("opt/ciscat/bin/maps/os-benchmark-map.json"), "w") as f:
+            f.write("{}")
+        out = self.install()
+        self.assertIn("maps/os-benchmark-map.json (removed)", out)
+        self.assertFalse(os.path.exists(self.path("opt/ciscat/bin/maps/os-benchmark-map.json")))
+        self.assertTrue(os.path.exists(self.path("opt/ciscat/bin/ciscat_xccdf.py")))
+
+    def test_password_file_named_in_the_conf_is_tightened(self):
+        other = self.path("opt/ciscat/etc/site.pass")
+        with open(other, "w") as f:
+            f.write("secret\n")
+        os.chmod(other, 0o644)
+        with open(self.path("opt/ciscat/etc/ciscat-orchestrator.conf"), "w") as f:
+            f.write("api_user=wazuh\napi_pass_file=/opt/ciscat/etc/site.pass\n")
+        out = self.install()
+        self.assertIn("tightened to 600: /opt/ciscat/etc/site.pass", out)
+        self.assertEqual(os.stat(other).st_mode & 0o777, 0o600)
+        self.assertNotIn("API credentials missing", out)
 
     def test_rollback_keeps_the_dashboard_lists(self):
         lists = self.path("var/ossec/etc/lists")
