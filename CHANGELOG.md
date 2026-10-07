@@ -2,10 +2,12 @@
 
 ### Added
 
-| Issue                                                                 | Comment                            |
-| --------------------------------------------------------------------- | ---------------------------------- |
-|                                                                       | Support for Wazuh 5.0.1            |
-| [#2090](https://github.com/wazuh/wazuh-dashboard-plugins/issues/2090) | Add multi-server SCA PDF reporting |
+| Issue                                                                 | Comment                                                                                            |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+|                                                                       | Support for Wazuh 5.0.1                                                                            |
+| [#2090](https://github.com/wazuh/wazuh-dashboard-plugins/issues/2090) | Add multi-server SCA PDF reporting                                                                 |
+| [#2090](https://github.com/wazuh/wazuh-dashboard-plugins/issues/2090) | Add a server-side SCA PDF report with CIS benchmark families and a CIS column to the SCA inventory |
+|                                                                       | Add FIM rules management, a CIS-CAT tab and the CIS-CAT bridge for Wazuh 5.0                       |
 
 ## Prior versions
 

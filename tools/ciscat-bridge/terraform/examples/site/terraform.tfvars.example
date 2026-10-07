@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (not committed). No secrets here: they come from Vault.
+wazuh_major      = 5
+master_host      = "<wazuh master address>"
+ssh_user         = "root"
+installer_path   = "../../dist/ciscat-bridge-install-3.0.7.sh"
+installer_sha256 = "<first field of ciscat-bridge-install-3.0.7.sh.sha256>"
+plugin_path      = "<path of the plugin zip from the build>"
+plugin_sha256    = "<sha256sum of that zip>"
+vault_secret     = "wazuh/<environment>"

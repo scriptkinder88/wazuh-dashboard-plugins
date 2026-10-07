@@ -185,5 +185,37 @@ describe('describe-grid-test', () => {
 
       expect(column.isSortable).toBe(false);
     });
+
+    it('appends computed default columns that are not index pattern fields', () => {
+      const render = jest.fn(() => 'value');
+      const columns = run(
+        [buildField({ name: 'check.name' })],
+        [
+          { id: 'cis', displayAsText: 'CIS', computed: true, render },
+          { id: 'missing.field' },
+          { id: 'not.computed', render },
+        ],
+      );
+
+      expect(columns.map(column => column.id)).toEqual(['check.name', 'cis']);
+      expect(columns[1]).toMatchObject({
+        id: 'cis',
+        name: 'cis',
+        displayAsText: 'CIS',
+        isSortable: false,
+        render,
+      });
+      expect(columns[1].cellActions).toBeUndefined();
+    });
+
+    it('keeps an index pattern field when a computed column has its id', () => {
+      const columns = run(
+        [buildField({ name: 'cis' })],
+        [{ id: 'cis', computed: true, render: () => '-' }],
+      );
+
+      expect(columns).toHaveLength(1);
+      expect(columns[0].isSortable).toBe(true);
+    });
   });
 });
