@@ -1480,6 +1480,8 @@ export const PLUGIN_SETTINGS: { [key: string]: TPluginSetting } = {
 #       username: wazuh-wui
 #       # Host / API password
 #       password: wazuh-wui
+#       # Optional absolute path to the CA certificate used to verify the API TLS certificate
+#       ca: /etc/wazuh-dashboard/certs/root-ca.pem
 #       # Use RBAC or not. If set to true, the username must be "wazuh-wui".
 #       run_as: true
 #   - env-2:
@@ -1495,6 +1497,7 @@ hosts:
       port: 55000
       username: wazuh-wui
       password: wazuh-wui
+      # ca: /etc/wazuh-dashboard/certs/root-ca.pem
       run_as: true`,
         transformFrom: value => {
           return value.map(hostData => {
@@ -1593,6 +1596,18 @@ hosts:
             SettingsValidator.isString,
             SettingsValidator.isNotEmptyString,
           ),
+        },
+        ca: {
+          title: 'CA certificate path',
+          description:
+            'Optional absolute path to a PEM CA certificate used to verify the API TLS certificate. System trusted certificates are used when empty.',
+          type: EpluginSettingType.text,
+          defaultValue: '',
+          isConfigurableFromSettings: true,
+          validateUIForm: function (value) {
+            return this.validate(value);
+          },
+          validate: SettingsValidator.isString,
         },
         run_as: {
           title: 'Run as',
