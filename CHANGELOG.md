@@ -21,6 +21,7 @@ All notable changes to the Wazuh app project will be documented in this file.
 - Fixed FIM rule changes restarting agents of unchanged groups, the change preview closing while it is applied, and the FIM history growing without limit; restoring a saved version now asks to check its diff
 - Fixed the FIM rules and CIS-CAT tabs showing editing actions to users without the permissions to change them
 - Fixed FIM rule changes failing once the FIM history existed, and rules with "&" in a path or option that could not be changed
+- Updated dompurify to 3.4.16, and form-data, ws and lodash pulled by jsdom to their fixed versions (known advisories)
 
 ## Wazuh v4.14.6 - OpenSearch Dashboards 2.19.5 - Revision 02
 
