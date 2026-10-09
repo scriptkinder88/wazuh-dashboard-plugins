@@ -81,6 +81,32 @@ class Installer(unittest.TestCase):
     def path(self, rel):
         return os.path.join(self.root, rel)
 
+    def test_active_response_commands_are_checked_not_changed(self):
+        import ciscat_install
+        conf = os.path.join(self.root, "var/ossec/etc/ossec.conf")
+        with open(conf, "w") as f:
+            f.write("""<ossec_config>
+  <!-- <command><name>ciscat-assessment</name><executable>x</executable></command> -->
+  <command><name>ciscat-bootstrap-linux</name><executable>ciscat-bootstrap.sh</executable>
+  </command>
+  <active-response><command>ciscat-bootstrap-linux</command></active-response>
+  <command><name>ciscat-refresh-linux</name><executable>ciscat-refresh.sh</executable></command>
+  <active-response><command>ciscat-refresh-linux</command></active-response>
+  <command><name>ciscat-assessment</name><executable>ciscat-assessment.exe</executable></command>
+</ossec_config>""")
+        before = open(conf).read()
+        ciscat_install.ROOT = self.root
+        try:
+            problems, fix = ciscat_install.check_ar_commands()
+        finally:
+            ciscat_install.ROOT = "/"
+        self.assertEqual(problems, [
+            "command ciscat-assessment runs ciscat-assessment.exe, expected ciscat-assessment.cmd",
+            "no <active-response> block uses the command ciscat-assessment"])
+        self.assertIn("<executable>ciscat-assessment.cmd</executable>", fix)
+        self.assertNotIn("ciscat-refresh-linux", fix)
+        self.assertEqual(open(conf).read(), before)
+
     def test_every_master_script_is_shipped(self):
         import ciscat_install
         bin_dir = os.path.join(HERE, "..", "bin")

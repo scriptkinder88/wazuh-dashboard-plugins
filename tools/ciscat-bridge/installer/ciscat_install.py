@@ -476,6 +476,14 @@ def install_master(payload, args, version, crontab_text):
     if install_cron():
         say("scheduler cron installed: " + CRON_FILE)
 
+    problems, fix = check_ar_commands()
+    if problems:
+        say("WARNING: Active Response in ossec.conf: " + "; ".join(problems))
+        say("  the agents run the bridge only with these blocks (fix the existing ones, then "
+            "restart wazuh-manager):\n" + fix)
+    else:
+        say("Active Response commands: ok")
+
     pfile = api_pass_file()
     if not os.path.exists(P(ORCH_CONF)) or not os.path.exists(pfile):
         say("WARNING: API credentials missing: create {0} (api_user, api_pass_file) and the "
@@ -483,6 +491,53 @@ def install_master(payload, args, version, crontab_text):
     elif os.stat(pfile).st_mode & 0o077:
         os.chmod(pfile, 0o600)
         say("password file permissions tightened to 600: /" + os.path.relpath(pfile, ROOT))
+
+
+# Active Response commands the bridge sends: <command> name -> executable on the agents
+AR_COMMANDS = {
+    "ciscat-bootstrap-linux": "ciscat-bootstrap.sh",
+    "ciscat-refresh-linux": "ciscat-refresh.sh",
+    "ciscat-assessment": "ciscat-assessment.cmd",
+}
+AR_SNIPPET = """  <command>
+    <name>{name}</name>
+    <executable>{exe}</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+  <active-response>
+    <disabled>no</disabled>
+    <command>{name}</command>
+    <location>local</location>
+  </active-response>"""
+
+
+def check_ar_commands():
+    """The <command> and <active-response> blocks the bridge needs in the master's ossec.conf.
+    Reported, never changed: the manager configuration stays the administrator's."""
+    try:
+        with open(P("/var/ossec/etc/ossec.conf"), encoding="utf-8", errors="replace") as f:
+            text = re.sub(r"<!--.*?-->", "", f.read(), flags=re.S)
+    except OSError:
+        return ["ossec.conf not readable"], ""
+    commands = {}
+    for block in re.findall(r"<command>(.*?)</command>", text, re.S):
+        name = re.search(r"<name>\s*([^<]*?)\s*</name>", block)
+        exe = re.search(r"<executable>\s*([^<]*?)\s*</executable>", block)
+        if name:
+            commands[name.group(1)] = exe.group(1) if exe else ""
+    used = set(re.findall(r"<active-response>(?:(?!</active-response>).)*?<command>\s*([^<]*?)"
+                          r"\s*</command>", text, re.S))
+    problems, fix = [], []
+    for name, exe in AR_COMMANDS.items():
+        if name not in commands:
+            problems.append("command {0} missing".format(name))
+        elif commands[name] != exe:
+            problems.append("command {0} runs {1}, expected {2}".format(name, commands[name], exe))
+        if name not in used:
+            problems.append("no <active-response> block uses the command {0}".format(name))
+        if name not in commands or commands[name] != exe or name not in used:
+            fix.append(AR_SNIPPET.format(name=name, exe=exe))
+    return problems, "\n".join(fix)
 
 
 def unwrap_plugin_zip(path):
