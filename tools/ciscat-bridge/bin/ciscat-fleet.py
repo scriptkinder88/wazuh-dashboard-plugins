@@ -95,7 +95,7 @@ DEFAULT_OS_LIBRARY = {
         "profiles": [["l1_ms", "L1"]],
         "policy_id": "cis_win2025_tailored_l1_ms",
         "policy_name": "CIS Microsoft Windows Server 2025 - TAILORED Level_1 Member Server (os-windows_server_2025)",
-        "flat_path": "C:\\Program Files (x86)\\ciscat\\results\\cis_win2025_v2.0.0.ciscat-flat",
+        "flat_path": "C:\\CIS\\results\\cis_win2025_v2.0.0.ciscat-flat",
         "ar_bootstrap": "!ciscat-bootstrap0",
         "ar_assessment": "!ciscat-assessment0",
     },
@@ -139,7 +139,13 @@ PATHS = {
     "work_dir": "/opt/ciscat/work",
     "lists_dir": store.LISTS_DIR,
     "run_dir": "/opt/ciscat/run",
+    # agent scripts the master publishes to the Windows agents (installed by the installer)
+    "agent_dir": "/opt/ciscat/agent/active-response",
 }
+# where the Windows agent installs what the manifest lists (C:\CIS: Assessor and bridge files)
+WINDOWS_BENCH = "C:\\CIS\\Assessor\\benchmarks\\"
+WINDOWS_BIN = "C:\\CIS\\bin\\"
+WINDOWS_SCRIPTS = ("ciscat-assessment.ps1", "ciscat-csv-to-flat.ps1")
 if os.environ.get("CISCAT_PATHS_JSON"):  # tests
     PATHS.update(json.loads(os.environ["CISCAT_PATHS_JSON"]))
 
@@ -171,6 +177,11 @@ def load_os_library():
     for key, cfg in lib.items():
         if cfg.get("family") == "linux":
             cfg["flat_path"] = linux_results(key, cfg["profiles"][0][0])
+        elif cfg.get("family") == "windows":
+            # results in C:\CIS\results on every Windows agent, whatever an older library says
+            name = cfg.get("flat_path", "").replace("/", "\\").split("\\")[-1] or \
+                "cis_{0}.ciscat-flat".format(key)
+            cfg["flat_path"] = discover.WINDOWS_RESULTS + name
     return lib, notes
 
 
@@ -488,7 +499,10 @@ def publish_linux(os_key, cfg, art):
 
 
 def publish_windows(os_key, cfg, art, exc_csv):
-    """Publishes the files, then the manifest that lists them. Returns the missing sources."""
+    """Publishes the files, then the manifest that lists them (name;sha256;dest). The agent's
+    ciscat-bootstrap.ps1 installs those with a destination (benchmark files into the Assessor's
+    benchmarks folder, the assessment and conversion scripts into C:\\CIS\\bin); the parameters
+    and the tailoring are read from the shared folder. Returns the missing sources."""
     gdir = os.path.join(PATHS["shared_dir"], cfg["group"])
     os.makedirs(gdir, exist_ok=True)
     custom = cfg["base"] + "-custom.xml"
@@ -505,25 +519,36 @@ def publish_windows(os_key, cfg, art, exc_csv):
         "FlatName={0}\n".format(flat[:-len(".ciscat-flat")] if flat.endswith(".ciscat-flat")
                                 else flat),
         "CustomXccdf={0}\n".format(custom)]))
+    entries = [(custom, WINDOWS_BENCH + custom), (tailoring, ""), (params, "")]
     # OVAL and CPE companions under their original names: the XCCDF checks reference them by href,
     # and the agent's CIS-CAT may not ship this benchmark (a newer version, a STIG)
     pfx = cfg["benchmark"][:-len("-xccdf.xml")]
-    companions = []
     for suf in ("-oval.xml", "-cpe-oval.xml", "-cpe-dictionary.xml"):
         src = os.path.join(PATHS["benchmarks_dir"], pfx + suf)
         if os.path.isfile(src):
             copy_atomic(src, os.path.join(gdir, pfx + suf))
-            companions.append(pfx + suf)
-    lines = ["# ciscat-manifest ({0}): name;sha256 (generated on the manager)".format(os_key)]
-    for name in [custom, tailoring, params] + companions:
-        lines.append("{0};{1}".format(name, sha256(os.path.join(gdir, name))))
+            entries.append((pfx + suf, WINDOWS_BENCH + pfx + suf))
+    missing = []
+    for script in WINDOWS_SCRIPTS:
+        src = os.path.join(PATHS["agent_dir"], script)
+        if not os.path.isfile(src):
+            print("    MISSING: {0}".format(src))
+            missing.append(script)
+            continue
+        copy_atomic(src, os.path.join(gdir, script))
+        entries.append((script, WINDOWS_BIN + script))
+    lines = ["# ciscat-manifest ({0}), generated {1}".format(
+        os_key, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())), "# name;sha256;dest"]
+    for name, dest in entries:
+        lines.append("{0};{1};{2}".format(name, sha256(os.path.join(gdir, name)), dest))
     manifest = OS_MANIFEST.format(os_key)
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
-    print("    published: custom + {0} + params + {1} companion(s) + manifest".format(
-        tailoring, len(companions)))
+    print("    published: custom + {0} + params + {1} companion(s) + {2} script(s) + manifest".format(
+        tailoring, len(entries) - 3 - (len(WINDOWS_SCRIPTS) - len(missing)),
+        len(WINDOWS_SCRIPTS) - len(missing)))
     own_dir(gdir)
     # a Windows benchmark may come without OVAL/CPE files (the agent's CIS-CAT bundle has them)
-    return [], [custom, tailoring, params, manifest] + companions
+    return missing, [name for name, _ in entries] + [manifest]
 
 
 def policy_enabled(group, policy_file):

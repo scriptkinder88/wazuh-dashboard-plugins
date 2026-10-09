@@ -50,7 +50,10 @@ MANAGED_BIN = [
 OBSOLETE_BIN = ["maps/os-benchmark-map.json"]
 ORCH_CONF = "/opt/ciscat/etc/ciscat-orchestrator.conf"
 DEFAULT_PASS_FILE = "/opt/ciscat/etc/.ciscat_api_pass"
-MANAGED_AGENT = ["ciscat-assessment.ps1", "ciscat-assessment.cmd"]
+# Windows agent scripts: the launcher and its bootstrap are installed by hand on the agents, the
+# assessment and conversion scripts are published by the master in the Windows OS groups
+MANAGED_AGENT = ["ciscat-assessment.cmd", "ciscat-bootstrap.ps1", "ciscat-assessment.ps1",
+                 "ciscat-csv-to-flat.ps1"]
 CRON_FILE = "/etc/cron.d/ciscat-scheduler"
 CRON_LINE = ("*/5 * * * * root /usr/bin/python3 /opt/ciscat/bin/ciscat-scheduler.py "
              ">>/opt/ciscat/log/ciscat-scheduler.log 2>&1\n")

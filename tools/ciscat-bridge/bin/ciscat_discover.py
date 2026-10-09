@@ -50,7 +50,8 @@ DEFAULT_AR = {
     "linux": {"ar_bootstrap": "!ciscat-bootstrap-linux0", "ar_refresh": "!ciscat-refresh-linux0"},
     "windows": {"ar_bootstrap": "!ciscat-bootstrap0", "ar_assessment": "!ciscat-assessment0"},
 }
-WINDOWS_RESULTS = "C:\\Program Files (x86)\\ciscat\\results\\"
+# results of the bridge on Windows agents (the Assessor is in C:\\CIS\\Assessor)
+WINDOWS_RESULTS = "C:\\CIS\\results\\"
 # per OS: several benchmarks can run on one agent
 LINUX_RESULTS = "/var/lib/wazuh-ciscat/reports-cache/{0}/{1}/results.txt"
 

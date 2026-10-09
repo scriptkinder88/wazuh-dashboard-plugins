@@ -3,6 +3,7 @@ the combo groups it owns, the apply lock, missing benchmark files, API tokens an
 import fcntl
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
@@ -12,6 +13,7 @@ import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+AGENT_DIR = os.path.join(HERE, "..", "agent", "active-response")
 BIN = os.path.join(HERE, "..", "bin")
 FLEET = os.path.join(BIN, "ciscat-fleet.py")
 sys.path.insert(0, BIN)
@@ -75,7 +77,8 @@ class FleetApply(unittest.TestCase):
         })
         self.addCleanup(lambda: self.fake.server.shutdown())
         self.env = dict(os.environ, CISCAT_ETC_DIR=self.etc,
-                        CISCAT_PATHS_JSON=json.dumps(self.paths), CISCAT_API_URL=self.fake.serve(),
+                        CISCAT_PATHS_JSON=json.dumps(dict(self.paths, agent_dir=AGENT_DIR)),
+                        CISCAT_API_URL=self.fake.serve(),
                         WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
 
     def library(self, lib):
@@ -300,6 +303,17 @@ class FleetApply(unittest.TestCase):
         # one Windows OS in the group: older Windows scripts get its parameters
         with open(os.path.join(rhel_dir, "ciscat-params.txt")) as f:
             self.assertIn("FlatName=win\n", f.read())
+        # the Windows agent installs the benchmark and the scripts under C:\CIS from the manifest
+        with open(os.path.join(rhel_dir, "ciscat-manifest-win.csv")) as f:
+            manifest = f.read()
+        for name, dest in (("win-custom-custom.xml", "C:\\CIS\\Assessor\\benchmarks\\win-custom-custom.xml"),
+                           ("ciscat-assessment.ps1", "C:\\CIS\\bin\\ciscat-assessment.ps1"),
+                           ("ciscat-csv-to-flat.ps1", "C:\\CIS\\bin\\ciscat-csv-to-flat.ps1")):
+            self.assertRegex(manifest, "(?m)^{0};[0-9a-f]{{64}};{1}$".format(
+                re.escape(name), re.escape(dest)))
+        self.assertRegex(manifest, "(?m)^ciscat-params-win.txt;[0-9a-f]{64};$")
+        with open(os.path.join(self.paths["shared_dir"], "ciscat-win-base", "cis_win_l1.yml")) as f:
+            self.assertIn("f:C:\\CIS\\results\\win.ciscat-flat", f.read())
         # Linux agents of the group get both Linux policies; the Windows one goes to none of them
         self.assertIn("ciscat-aks-base", self.fake.agents["001"]["group"])
         self.assertIn("ciscat-rhel7-base", self.fake.agents["001"]["group"])

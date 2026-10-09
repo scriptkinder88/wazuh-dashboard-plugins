@@ -8,7 +8,7 @@ CIS-CAT Pro and the CIS benchmarks are licensed. They are not part of this repos
 installer:
 
 - **The Assessor** is provisioned on each agent: `/opt/ciscat/Assessor` on Linux,
-  `C:\Program Files (x86)\ciscat` on Windows.
+  `C:\CIS\Assessor` on Windows.
 - **The benchmarks** stay in `/opt/ciscat/benchmarks` on the master.
 
 Every CIS benchmark in that folder is an OS of the bridge, one per product and version: copy a
@@ -51,7 +51,7 @@ agent: Active Response → Assessor → flatten file → SCA policy → results 
   names, the benchmark's OVAL and CPE files (`-oval.xml`, `-cpe-oval.xml`,
   `-cpe-dictionary.xml`): the XCCDF checks reference them by file name. The agent copies them
   into the Assessor's `benchmarks` folder (`/opt/ciscat/Assessor/benchmarks`, or
-  `C:\Program Files (x86)\ciscat\benchmarks`) before the assessment, so an agent does not need
+  `C:\CIS\Assessor\benchmarks`) before the assessment, so an agent does not need
   the benchmark in its own CIS-CAT bundle.
 - **Exclusions:** the scope is `os`, `global`, `host` (agent name) or `app_group` (Wazuh group).
   Every exclusion records a reason, a ticket, an owner, who made it and when.
@@ -152,17 +152,20 @@ Assessor's `benchmarks` folder, `/var/lib/wazuh-ciscat` and `active-response/bin
 `ciscat-refresh.sh` runs each benchmark of `/var/lib/wazuh-ciscat/conf.d/<os>.conf` (read as
 `KEY="value"` data, never sourced), with its results in `reports-cache/<os>/<profile>/`, one
 assessment at a time; it drops the settings of a benchmark whose group the agent left. On
-Windows, `ciscat-assessment.ps1` runs each `ciscat-params-<os>.txt` of the shared folder.
+Windows, `ciscat-bootstrap.ps1` installs the files of every manifest, after checking their
+SHA-256, only into `C:\CIS\Assessor\benchmarks` and `C:\CIS\bin` (the assessment and conversion
+scripts come from the master too), then `C:\CIS\bin\ciscat-assessment.ps1` runs each
+`ciscat-params-<os>.txt` of the shared folder.
 
 **Agent layout** (CIS-CAT Pro is provisioned on each agent, the bridge never distributes it):
 
-|                         | Linux and other Unix-like                                                                              | Windows                                                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Assessor                | `/opt/ciscat/Assessor/Assessor-CLI.sh`                                                                 | `C:\Program Files (x86)\ciscat\Assessor-CLI.bat`                                                                       |
-| Assessor setting        | `exit.on.invalid.signature=false` in `config/assessor-cli.properties` (the custom XCCDF is not signed) | same                                                                                                                   |
-| Provisioned by hand     | `/var/ossec/active-response/bin/ciscat-bootstrap.sh` (root:wazuh 0750)                                 | `ciscat-assessment.cmd` and `.ps1` in `ossec-agent\active-response\bin`, `CISCAT-CsvToFlat.ps1` in the Assessor folder |
-| Installed by the bridge | `ciscat-refresh.sh`, benchmarks, `/var/lib/wazuh-ciscat/conf.d`                                        | benchmarks (copied by the script)                                                                                      |
-| Results                 | `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>/results.txt`                                       | `C:\Program Files (x86)\ciscat\results\<name>.ciscat-flat`                                                             |
+|                              | Linux and other Unix-like                                                                              | Windows                                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Assessor                     | `/opt/ciscat/Assessor/Assessor-CLI.sh`                                                                 | `C:\CIS\Assessor\Assessor-CLI.bat`                                                                                  |
+| Assessor setting             | `exit.on.invalid.signature=false` in `config/assessor-cli.properties` (the custom XCCDF is not signed) | same                                                                                                                |
+| Installed by hand, once      | `/var/ossec/active-response/bin/ciscat-bootstrap.sh` (root:wazuh 0750)                                 | `ciscat-assessment.cmd` and `ciscat-bootstrap.ps1` in `ossec-agent\active-response\bin`                             |
+| From the master, at each run | `ciscat-refresh.sh`, benchmark files, `/var/lib/wazuh-ciscat/conf.d`                                   | benchmark files (`C:\CIS\Assessor\benchmarks`), `ciscat-assessment.ps1` and `ciscat-csv-to-flat.ps1` (`C:\CIS\bin`) |
+| Results                      | `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>/results.txt`                                       | `C:\CIS\results\<name>.ciscat-flat`                                                                                 |
 
 The master's `ossec.conf` maps the Active Response commands (`<command>` and `<active-response>`
 blocks; the installer reports missing or wrong ones): `ciscat-bootstrap-linux` →
@@ -191,7 +194,11 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   send the Active Response command names configured on the master (no `!` script names, which
   bypassed the master's mapping and failed silently on Windows), and the agent scripts read the
   alert line and run the assessment detached, so the agent's Active Response is never held for
-  the length of an assessment. Linux `ciscat-refresh.sh` splays only with `--splay`.
+  the length of an assessment. Linux `ciscat-refresh.sh` splays only with `--splay`. Windows
+  layout under `C:\CIS`: the Assessor in `C:\CIS\Assessor`, results in `C:\CIS\results`, and
+  the assessment and conversion scripts published by the master and installed by
+  `ciscat-bootstrap.ps1` (SHA-256 checked) in `C:\CIS\bin`; only the launcher and the bootstrap
+  are installed by hand.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

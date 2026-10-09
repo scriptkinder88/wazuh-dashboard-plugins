@@ -16,6 +16,7 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+AGENT_DIR = os.path.join(HERE, "..", "agent", "active-response")
 BIN = os.path.join(HERE, "..", "bin")
 sys.path.insert(0, BIN)
 sys.path.insert(0, HERE)
@@ -79,7 +80,8 @@ class FleetIntegration(unittest.TestCase):
             "003": {"name": "db-01", "status": "disconnected", "group": ["os-rhel7", "app-sap"]},
             "004": {"name": "win-01", "status": "active", "group": ["os-windows_server_2025"]},
         })
-        self.env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_PATHS_JSON=json.dumps(p),
+        self.env = dict(os.environ, CISCAT_ETC_DIR=etc,
+                        CISCAT_PATHS_JSON=json.dumps(dict(p, agent_dir=AGENT_DIR)),
                         CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
 
     def tearDown(self):

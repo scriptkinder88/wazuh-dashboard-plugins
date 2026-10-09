@@ -81,7 +81,8 @@ class Discover(unittest.TestCase):
         win = lib["windows_server_2022_v3_0_0"]
         self.assertEqual((win["family"], win["role"], win["ar_assessment"]),
                          ("windows", "Member_Server", "!ciscat-assessment0"))
-        self.assertTrue(win["flat_path"].endswith("\\cis_windows_server_2022_v3_0_0.ciscat-flat"))
+        self.assertEqual(win["flat_path"],
+                         "C:\\CIS\\results\\cis_windows_server_2022_v3_0_0.ciscat-flat")
         self.assertTrue(win["active"] and win["discovered"])
         self.assertIn("rhel9_v2_0_0: new OS from CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v2.0.0-xccdf.xml "
                       "(role Server)", notes)

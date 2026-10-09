@@ -1,36 +1,28 @@
 <#
   ciscat-assessment.ps1  (AGENT side, Windows)
 
-  Invoked by Active Response via the ciscat-assessment.cmd launcher (AR on Windows
-  cannot run .ps1 directly). Performs the full agent-side assessment:
-    1. move the pushed files (custom XCCDF + benchmark + OVAL) from the Wazuh shared
-       folder to the CIS-CAT benchmarks/ folder
-    2. run CIS-CAT with the tailored profile
-    3. flatten the latest CSV report into results/
-  Steps 2 and 3 run for every benchmark of the agent (one ciscat-params-<os>.txt per OS group).
-  It does NOT copy the SCA policy (that is loaded from shared/ by the agent config).
+  Published by the manager in the OS group and installed in C:\CIS\bin by ciscat-bootstrap.ps1,
+  which runs it (Active Response, as SYSTEM) once the benchmark files are in place. For every
+  benchmark of the agent (one ciscat-params-<os>.txt per OS group, in the shared folder):
+    1. run CIS-CAT Pro (C:\CIS\Assessor) with the tailored profile of the custom benchmark
+    2. flatten the CSV report of this run into C:\CIS\results\<name>.ciscat-flat, which the SCA
+       policy of the OS reads.
 
   DEFENSIVE BY DESIGN: verifies every precondition before acting, logs every step to
-  active-responses.log, and stops cleanly on any problem (no half state). This matters
-  because Active Response runs this as SYSTEM, a different context from an interactive user.
-
-  All log lines are prefixed so they are greppable in:
-    C:\Program Files (x86)\ossec-agent\active-response\active-responses.log
+  active-responses.log, and stops cleanly on any problem (no half state).
 #>
 
 param(
-    [string]$Ciscat   = "C:\Program Files (x86)\ciscat",
+    [string]$Root = "C:\CIS",
     [string]$SharedDir = "C:\Program Files (x86)\ossec-agent\shared",
+    [string]$LogFile = "C:\Program Files (x86)\ossec-agent\active-response\active-responses.log",
     [string]$Profile  = "xccdf_org.cisecurity.benchmarks_profile_TAILORED_Level_1_-_Member_Server",
     [string]$FlatName = "cis_win2025_v2.0.0",
-    # the custom benchmark file name as pushed into shared/ (must match what the manager dropped)
-    [string]$CustomXccdf = "",
-    # used by ciscat-assessment.cmd: start this script again as a separate process and return
-    [switch]$Detach
+    # the custom benchmark file name as published by the manager
+    [string]$CustomXccdf = ""
 )
 
 $ErrorActionPreference = "Stop"
-$LogFile = "C:\Program Files (x86)\ossec-agent\active-response\active-responses.log"
 
 function Log($msg) {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
@@ -46,35 +38,18 @@ function Fail($msg) {
     exit 1
 }
 
-# Under Active Response the launcher must return at once (wazuh-execd waits for it): the
-# assessment runs in a new process started by Start-Process, which inherits none of the
-# launcher's handles. The parameters given here are passed on.
-if ($Detach) {
-    $argv = @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
-    foreach ($name in "Ciscat", "SharedDir", "Profile", "FlatName", "CustomXccdf") {
-        if ($PSBoundParameters.ContainsKey($name)) { $argv += @("-$name", "`"$($PSBoundParameters[$name])`"") }
-    }
-    try {
-        $p = Start-Process -FilePath "powershell.exe" -ArgumentList $argv -WindowStyle Hidden -PassThru
-        Log "assessment started in the background (process $($p.Id))"
-        exit 0
-    } catch {
-        Log "ERROR: could not start the assessment: $($_.Exception.Message)"
-        exit 1
-    }
-}
-
 Log "=== start (running as $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)) ==="
 
-# One assessment at a time on this agent (two runs would share the Assessor's report folder).
+# One assessment at a time on this agent (two runs would share the Assessor's report folder). The
+# mutex is the one ciscat-bootstrap.ps1 already holds when it runs this script in its process.
 $lock = New-Object System.Threading.Mutex($false, "Global\ciscat-assessment")
 $owned = $false
 try { $owned = $lock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 if (-not $owned) { Fail "another CIS-CAT assessment is running on this agent; this run is skipped" }
 
 # Benchmarks of this agent: one ciscat-params-<os>.txt per OS group it belongs to (Key=Value
-# lines published by the manager), or the single ciscat-params.txt of an older manager. They
-# run one after the other. Parameters given on the command line run that one benchmark only.
+# lines published by the manager). They run one after the other. Parameters given on the command
+# line run that one benchmark only.
 $defaults = @{ Profile = $Profile; FlatName = $FlatName; CustomXccdf = $CustomXccdf }
 
 function Read-Params($file) {
@@ -115,11 +90,12 @@ if ($given) {
 }
 
 # --- Precondition checks (verify before acting) ---
+$Ciscat = Join-Path $Root "Assessor"
 $assessor = Join-Path $Ciscat "Assessor-CLI.bat"
 $benchDir = Join-Path $Ciscat "benchmarks"
 $reportDir = Join-Path $Ciscat "reports"
-$resultDir = Join-Path $Ciscat "results"
-$flatScript = Join-Path $Ciscat "CISCAT-CsvToFlat.ps1"
+$resultDir = Join-Path $Root "results"
+$flatScript = Join-Path $Root "bin\ciscat-csv-to-flat.ps1"
 
 # CIS-CAT Pro itself is licensed software provisioned on each agent, never
 # distributed by the manager. Without it, stop here: withdraw the previous
@@ -141,30 +117,6 @@ foreach ($d in @($reportDir, $resultDir)) {
         Log "creating missing folder: $d"
         New-Item -ItemType Directory -Force -Path $d | Out-Null
     }
-}
-
-# --- Step 1: copy pushed content from shared/ to benchmarks/ ---
-# The manager pushes into shared/ the custom XCCDF (*-custom.xml) and the benchmark's OVAL and
-# CPE files (*-oval.xml, *-cpe-oval.xml, *-cpe-dictionary.xml). Only those are copied: shared/
-# also holds the files of the agent's other groups.
-if (Test-Path $SharedDir) {
-    $xmls = Get-ChildItem -Path $SharedDir -Filter *.xml -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '(-custom|-oval|-cpe-dictionary)\.xml$' }
-    if ($xmls) {
-        foreach ($f in $xmls) {
-            $dest = Join-Path $benchDir $f.Name
-            try {
-                Copy-Item -Path $f.FullName -Destination $dest -Force
-                Log "copied to benchmarks: $($f.Name)"
-            } catch {
-                Fail "could not copy $($f.Name) to benchmarks: $($_.Exception.Message)"
-            }
-        }
-    } else {
-        Log "no .xml found in shared/ (assuming benchmarks already in place)"
-    }
-} else {
-    Log "shared dir not found ($SharedDir); assuming benchmarks already in place"
 }
 
 # --- Steps 2 and 3, per benchmark: run CIS-CAT with the tailored profile, flatten its report ---
