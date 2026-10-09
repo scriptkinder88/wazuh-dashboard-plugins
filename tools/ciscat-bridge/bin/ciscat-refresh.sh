@@ -2,7 +2,12 @@
 # ============================================================================
 # ciscat-refresh.sh - run CIS-CAT Pro Assessor with the tailored custom XCCDF
 # and flatten the results for the Wazuh SCA policy. Pure shell (RHEL 7 has no
-# Python 3). Config comes from /var/lib/wazuh-ciscat/refresh.conf (group-sync).
+# Python 3). Each benchmark of the agent has its settings in
+# /var/lib/wazuh-ciscat/conf.d/<os>.conf (installed by ciscat-bootstrap.sh from
+# its OS group) and its results in reports-cache/<os>/<profile>/results.txt;
+# they run one after the other. A conf.d file whose OS group the agent left is
+# removed and its results withdrawn. Without conf.d, the single refresh.conf of
+# older managers is used (results in reports-cache/<profile>/results.txt).
 #
 # Pilot findings baked in (do not remove):
 #  - JAVA_TOOL_OPTIONS VFORK: Java 21 spawn helper fails on the RHEL 7 kernel
@@ -26,6 +31,8 @@ trap '' PIPE
 CISCAT_PATH="${CISCAT_PATH:-/opt/ciscat/Assessor}"
 DATA_DIR="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
 CONF="${DATA_DIR}/refresh.conf"
+CONF_DIR="${DATA_DIR}/conf.d"
+AGENT_SHARED="${CISCAT_AGENT_SHARED:-/var/ossec/etc/shared}"
 CACHE_DIR="${DATA_DIR}/reports-cache"
 LOG_DIR="${DATA_DIR}/logs"
 AR_LOG="${CISCAT_AR_LOG:-/var/ossec/logs/active-responses.log}"
@@ -79,36 +86,68 @@ flatten_arf() {
 # results so SCA stops reporting them as current (the policy requires the
 # flatten file), and log the message the manager rule ciscat_rules.xml alerts on.
 if [ ! -x "${CISCAT_PATH}/Assessor-CLI.sh" ]; then
-    for old in "$CACHE_DIR"/*/results.txt; do
+    for old in "$CACHE_DIR"/*/results.txt "$CACHE_DIR"/*/*/results.txt; do
         [ -f "$old" ] && mv -f "$old" "${old}.stale" 2>/dev/null
     done
     fail "CIS-CAT Pro not found on $(hostname): ${CISCAT_PATH}/Assessor-CLI.sh is missing. Assessment stopped; previous results withdrawn from SCA."
 fi
 
-[ -r "$CONF" ] || fail "config not found: $CONF"
-# refresh.conf comes from the manager: it is read as data (KEY="value" lines, known keys only),
-# never sourced, so nothing in it runs as root here.
-BENCHMARK_FILE=""; PROFILE_LIST=""; SPLAY_MAX_SEC=0
-while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in ''|\#*) continue ;; esac
-    key=${line%%=*}
-    val=${line#*=}
-    case "$val" in
-        \"*\") val=${val#\"}; val=${val%\"} ;;
-        *) fail "refresh.conf: value of ${key} is not quoted" ;;
-    esac
-    case "$val" in *\"*) fail "refresh.conf: quote inside the value of ${key}" ;; esac
-    case "$key" in
-        BENCHMARK_FILE) BENCHMARK_FILE=$val ;;
-        PROFILE_LIST)   PROFILE_LIST=$val ;;
-        SPLAY_MAX_SEC)  SPLAY_MAX_SEC=$val ;;
-        *) log "refresh.conf: unknown key ignored: ${key}" ;;
-    esac
-done < "$CONF"
-[ -n "$BENCHMARK_FILE" ] || fail "refresh.conf: BENCHMARK_FILE missing"
-[ -n "$PROFILE_LIST" ] || fail "refresh.conf: PROFILE_LIST missing"
-case "$BENCHMARK_FILE" in */*|..*) fail "refresh.conf: BENCHMARK_FILE must be a file name" ;; esac
-case "$SPLAY_MAX_SEC" in ''|*[!0-9]*) fail "refresh.conf: SPLAY_MAX_SEC must be a number" ;; esac
+# read_conf <file>: the settings of one benchmark. The file comes from the manager: it is read
+# as data (KEY="value" lines, known keys only), never sourced, so nothing in it runs as root.
+read_conf() {
+    BENCHMARK_FILE=""; PROFILE_LIST=""; SPLAY_MAX_SEC=0
+    name=$(basename "$1")
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ''|\#*) continue ;; esac
+        key=${line%%=*}
+        val=${line#*=}
+        case "$val" in
+            \"*\") val=${val#\"}; val=${val%\"} ;;
+            *) fail "${name}: value of ${key} is not quoted" ;;
+        esac
+        case "$val" in *\"*) fail "${name}: quote inside the value of ${key}" ;; esac
+        case "$key" in
+            BENCHMARK_FILE) BENCHMARK_FILE=$val ;;
+            PROFILE_LIST)   PROFILE_LIST=$val ;;
+            SPLAY_MAX_SEC)  SPLAY_MAX_SEC=$val ;;
+            *) log "${name}: unknown key ignored: ${key}" ;;
+        esac
+    done < "$1"
+    [ -n "$BENCHMARK_FILE" ] || fail "${name}: BENCHMARK_FILE missing"
+    [ -n "$PROFILE_LIST" ] || fail "${name}: PROFILE_LIST missing"
+    case "$BENCHMARK_FILE" in */*|..*) fail "${name}: BENCHMARK_FILE must be a file name" ;; esac
+    case "$SPLAY_MAX_SEC" in ''|*[!0-9]*) fail "${name}: SPLAY_MAX_SEC must be a number" ;; esac
+}
+
+# The benchmarks of this agent: conf.d/<os>.conf whose OS group still sends its settings.
+KEYS=""
+for c in "$CONF_DIR"/*.conf; do
+    [ -f "$c" ] || continue
+    k=$(basename "$c" .conf)
+    case "$k" in ''|*[!a-z0-9_]*) log "ignored (not an OS key): $c"; continue ;; esac
+    if [ -f "${AGENT_SHARED}/ciscat-refresh-${k}.conf" ]; then
+        KEYS="$KEYS $k"
+    else
+        rm -f "$c"
+        for old in "$CACHE_DIR/$k"/*/results.txt; do
+            [ -f "$old" ] && mv -f "$old" "${old}.stale" 2>/dev/null
+        done
+        log "benchmark ${k} no longer applies to this agent: settings removed, results withdrawn"
+    fi
+done
+if [ -z "$KEYS" ]; then
+    [ -r "$CONF" ] || fail "no benchmark for this agent: no ${CONF_DIR}/*.conf and no ${CONF}"
+    KEYS="-"  # the single refresh.conf of an older manager
+fi
+conf_of() { if [ "$1" = "-" ]; then echo "$CONF"; else echo "${CONF_DIR}/$1.conf"; fi; }
+
+# every settings file is checked before any assessment starts; the longest splay applies
+splay=0
+for k in $KEYS; do
+    read_conf "$(conf_of "$k")"
+    [ "$SPLAY_MAX_SEC" -gt "$splay" ] && splay=$SPLAY_MAX_SEC
+done
+SPLAY_MAX_SEC=$splay
 
 # Splay policy: an Active Response trigger is on-demand by definition, so it
 # NEVER splays (execd invokes us via the *-linux0 symlink, detectable from $0).
@@ -129,9 +168,6 @@ if command -v flock >/dev/null 2>&1; then
     flock -n 9 || fail "another CIS-CAT assessment is running on $(hostname); this run is skipped"
 fi
 
-bench_path="${CISCAT_PATH}/benchmarks/${BENCHMARK_FILE}"
-[ -r "$bench_path" ] || fail "benchmark not found: $bench_path"
-
 # Fleet-wide script: the Java 21 spawn helper fails only on EL7-era kernels
 # (3.10.x) with exit 127 "Failed to exec spawn helper". Apply the documented
 # VFORK fallback ONLY there; modern kernels (Debian 12, RHEL 8+) use the
@@ -141,65 +177,85 @@ case "$(uname -r)" in
 esac
 
 exit_code=0
-# PROFILE_LIST entries are ';'-separated because profile NAMES contain spaces
-# (e.g. "TAILORED L1 - Server (host)"); default word-splitting would break them.
-old_ifs=$IFS
-IFS=';'
-for entry in $PROFILE_LIST; do
-    IFS=$old_ifs
-    [ -n "$entry" ] || continue
-    P_KEY=${entry%%|*}
-    P_NAME=${entry#*|}
-    profile_dir="${CACHE_DIR}/${P_KEY}"
-    mkdir -p "$profile_dir" 2>/dev/null
-
-    # Purge Assessor temp leftovers (exponential-growth trap) and old reports.
-    rm -rf "${CISCAT_PATH}/scripts"/ccpa-temp-* "${CISCAT_PATH}"/ccpa-temp-* 2>/dev/null
-    rm -f "${CISCAT_PATH}/reports"/*-ARF.xml 2>/dev/null
-
-    log "Running CIS-CAT profile: ${P_NAME}"
-    ( cd "$CISCAT_PATH" && ./Assessor-CLI.sh -b "benchmarks/${BENCHMARK_FILE}" \
-        -p "$P_NAME" -nts >> "$RUN_LOG" 2>&1 )
-    rc=$?
-    [ "$rc" -ne 0 ] && { log "WARNING: Assessor exited ${rc} for profile: ${P_NAME}"; exit_code=1; }
-
-    # The Assessor writes <hostname>-...-ARF.xml into its reports dir.
-    report=$(ls -1t "${CISCAT_PATH}/reports"/*-ARF.xml 2>/dev/null | head -1)
-    if [ -z "$report" ]; then
-        log "ERROR: no ARF report produced for profile: ${P_NAME}"
+for k in $KEYS; do
+    read_conf "$(conf_of "$k")"
+    if [ "$k" = "-" ]; then
+        results_dir=$CACHE_DIR
+    else
+        results_dir="${CACHE_DIR}/${k}"
+        log "benchmark: ${k}"
+    fi
+    bench_path="${CISCAT_PATH}/benchmarks/${BENCHMARK_FILE}"
+    if [ ! -r "$bench_path" ]; then
+        log "ERROR: benchmark not found: $bench_path"
         exit_code=1
         continue
     fi
-
-    # Flatten: ARF rule-result idref + result -> "N.N.N:result" (lowercase).
-    # Same short-rule-id format as on Windows; the SCA policy matches
-    # lines like ^1\.1\.1\.2:pass$
-    flat_tmp="${profile_dir}/.results.txt.tmp"
-    if ! flatten_arf "$report" "$flat_tmp"; then
-        log "ERROR: ARF report not understood (a rule-result without exactly one result): ${report}"
-        rm -f "$flat_tmp"
-        exit_code=1
-        continue
-    fi
-
-    n=$(grep -c ':' "$flat_tmp" 2>/dev/null)
-    n=${n:-0}
-    if [ "$n" -eq 0 ]; then
-        log "ERROR: flatten produced 0 lines for profile: ${P_NAME}"
-        rm -f "$flat_tmp"
-        exit_code=1
-        continue
-    fi
-    mv -f "$flat_tmp" "${profile_dir}/results.txt"
-    chmod 640 "${profile_dir}/results.txt" 2>/dev/null
-    log "flatten OK: ${n} results -> ${profile_dir}/results.txt"
-
-    # Keep the raw report for audit, then purge Assessor temp again.
-    cp -f "$report" "${profile_dir}/last-ARF.xml" 2>/dev/null
-    rm -rf "${CISCAT_PATH}/scripts"/ccpa-temp-* "${CISCAT_PATH}"/ccpa-temp-* 2>/dev/null
+    # PROFILE_LIST entries are ';'-separated because profile NAMES contain spaces
+    # (e.g. "TAILORED L1 - Server (host)"); default word-splitting would break them.
+    old_ifs=$IFS
     IFS=';'
+    for entry in $PROFILE_LIST; do
+        IFS=$old_ifs
+        [ -n "$entry" ] || continue
+        P_KEY=${entry%%|*}
+        P_NAME=${entry#*|}
+        case "$P_KEY" in
+            ''|*/*|..*)
+                log "ERROR: profile key is not a folder name: ${P_KEY}"
+                exit_code=1; IFS=';'; continue ;;
+        esac
+        profile_dir="${results_dir}/${P_KEY}"
+        mkdir -p "$profile_dir" 2>/dev/null
+
+        # Purge Assessor temp leftovers (exponential-growth trap) and old reports.
+        rm -rf "${CISCAT_PATH}/scripts"/ccpa-temp-* "${CISCAT_PATH}"/ccpa-temp-* 2>/dev/null
+        rm -f "${CISCAT_PATH}/reports"/*-ARF.xml 2>/dev/null
+
+        log "Running CIS-CAT profile: ${P_NAME}"
+        ( cd "$CISCAT_PATH" && ./Assessor-CLI.sh -b "benchmarks/${BENCHMARK_FILE}" \
+            -p "$P_NAME" -nts >> "$RUN_LOG" 2>&1 )
+        rc=$?
+        [ "$rc" -ne 0 ] && { log "WARNING: Assessor exited ${rc} for profile: ${P_NAME}"; exit_code=1; }
+
+        # The Assessor writes <hostname>-...-ARF.xml into its reports dir.
+        report=$(ls -1t "${CISCAT_PATH}/reports"/*-ARF.xml 2>/dev/null | head -1)
+        if [ -z "$report" ]; then
+            log "ERROR: no ARF report produced for profile: ${P_NAME}"
+            exit_code=1
+            continue
+        fi
+
+        # Flatten: ARF rule-result idref + result -> "N.N.N:result" (lowercase).
+        # Same short-rule-id format as on Windows; the SCA policy matches
+        # lines like ^1\.1\.1\.2:pass$
+        flat_tmp="${profile_dir}/.results.txt.tmp"
+        if ! flatten_arf "$report" "$flat_tmp"; then
+            log "ERROR: ARF report not understood (a rule-result without exactly one result): ${report}"
+            rm -f "$flat_tmp"
+            exit_code=1
+            continue
+        fi
+
+        n=$(grep -c ':' "$flat_tmp" 2>/dev/null)
+        n=${n:-0}
+        if [ "$n" -eq 0 ]; then
+            log "ERROR: flatten produced 0 lines for profile: ${P_NAME}"
+            rm -f "$flat_tmp"
+            exit_code=1
+            continue
+        fi
+        mv -f "$flat_tmp" "${profile_dir}/results.txt"
+        chmod 640 "${profile_dir}/results.txt" 2>/dev/null
+        log "flatten OK: ${n} results -> ${profile_dir}/results.txt"
+
+        # Keep the raw report for audit, then purge Assessor temp again.
+        cp -f "$report" "${profile_dir}/last-ARF.xml" 2>/dev/null
+        rm -rf "${CISCAT_PATH}/scripts"/ccpa-temp-* "${CISCAT_PATH}"/ccpa-temp-* 2>/dev/null
+        IFS=';'
+    done
+    IFS=$old_ifs
 done
-IFS=$old_ifs
 
 log "refresh completed (exit ${exit_code})"
 exit "$exit_code"

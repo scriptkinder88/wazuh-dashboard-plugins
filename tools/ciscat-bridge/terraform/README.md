@@ -49,7 +49,7 @@ module "wazuh_ciscat" {
 
   wazuh_major  = 4
   master       = { host = "<master address>", user = "root" }
-  installer    = { path = "ciscat-bridge-install-2.2.9.sh", sha256 = "<from the .sha256 file>" }
+  installer    = { path = "ciscat-bridge-install-2.3.0.sh", sha256 = "<from the .sha256 file>" }
   plugin       = { path = "<plugin zip from the build>", sha256 = "<sha256sum of the zip>" }
   api_password = data.vault_kv_secret_v2.wazuh.data["api_password"]
 

@@ -6,11 +6,13 @@
 # integrity via the SHA256 manifest before copying each file to its
 # destination. Python-free: works on legacy RHEL 7 (and any Linux).
 #
-# Model: the manager publishes files + ciscat-manifest.csv into the shared
-# folder of the OS group (os-<os>). Wazuh merges the group config; the
-# individual files land in the agent's shared dir. This script reads the manifest,
-# checks each file's sha256, and installs it to the 'dest' path recorded in
-# the manifest. Only files that verify are installed; a mismatch is refused.
+# Model: the manager publishes, for each OS (benchmark) of a group, its files and
+# ciscat-manifest-<os>.csv into the shared folder of the group. Wazuh merges
+# the files of the agent's groups into its shared dir, so an agent with several
+# benchmarks gets one manifest each. This script reads every manifest (or the
+# group-wide ciscat-manifest.csv of older managers), checks each file's sha256,
+# and installs it to the 'dest' path recorded in the manifest. Only files that
+# verify are installed; a mismatch is refused.
 #
 # Manifest format (one file per line, after two comment lines):
 #   name;sha256;dest
@@ -65,10 +67,15 @@ dest_allowed() {
 log "invoked (bootstrap start)"
 
 # The agent unpacks the files of its groups into the shared folder itself.
-MANIFEST="${AGENT_SHARED}/ciscat-manifest.csv"
-[ -f "$MANIFEST" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
-SRC_DIR=$(dirname "$MANIFEST")
-log "using manifest: $MANIFEST"
+SRC_DIR="$AGENT_SHARED"
+MANIFESTS=""
+for m in "$AGENT_SHARED"/ciscat-manifest-*.csv; do
+    [ -f "$m" ] && MANIFESTS="$MANIFESTS $m"
+done
+[ -n "$MANIFESTS" ] || MANIFESTS="${AGENT_SHARED}/ciscat-manifest.csv"
+for m in $MANIFESTS; do
+    [ -f "$m" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
+done
 
 mkdir -p "$DATA_ROOT" 2>/dev/null
 chmod 700 "$DATA_ROOT" 2>/dev/null
@@ -77,6 +84,8 @@ installed=0
 refused=0
 missing=0
 
+install_manifest() {
+log "using manifest: $1"
 # Read the manifest, skipping comment lines (#) and the header.
 while IFS=';' read -r name expected dest; do
     # skip comments / blanks / header
@@ -146,7 +155,12 @@ while IFS=';' read -r name expected dest; do
     esac
     log "installed: $name -> $dest"
     installed=$((installed + 1))
-done < "$MANIFEST"
+done < "$1"
+}
+
+for m in $MANIFESTS; do
+    install_manifest "$m"
+done
 
 log "bootstrap done: installed=${installed} refused=${refused} missing=${missing}"
 

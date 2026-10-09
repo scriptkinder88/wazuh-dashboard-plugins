@@ -13,6 +13,7 @@ All notable changes to the Wazuh app project will be documented in this file.
 - Changed multi-server SCA PDF collection to read indexed SCA events through OpenSearch, matching the PCI DSS reporting model and avoiding per-agent SCA API rate limits
 - Verify reconstructed indexed SCA checks against the latest scan `total_checks` and withhold scores when index history is incomplete or unverified
 - Added sanitization in markdown component [#8713](https://github.com/wazuh/wazuh-dashboard-plugins/pull/8713)
+- Added CIS-CAT runs and schedules on chosen agents, lists of agents and OS or custom agent groups, a "No group" choice for a benchmark, and a warning when several benchmarks apply to one group
 
 ### Fixed
 

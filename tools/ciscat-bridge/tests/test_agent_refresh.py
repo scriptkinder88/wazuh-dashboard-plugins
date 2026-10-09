@@ -67,6 +67,41 @@ class Refresh(unittest.TestCase):
         with open(os.path.join(self.cache, "results.txt")) as f:
             return f.read()
 
+    def benchmarks(self, *keys, sent=None):
+        """conf.d settings of the given OSes; `sent`: those whose group still sends them."""
+        self.shared = os.path.join(self.d, "shared")
+        os.makedirs(self.shared, exist_ok=True)
+        os.makedirs(os.path.join(self.data, "conf.d"), exist_ok=True)
+        self.env["CISCAT_AGENT_SHARED"] = self.shared
+        for k in keys:
+            with open(os.path.join(self.data, "conf.d", k + ".conf"), "w") as f:
+                f.write(CONF)
+        for k in (keys if sent is None else sent):
+            open(os.path.join(self.shared, "ciscat-refresh-{0}.conf".format(k)), "w").close()
+
+    def test_every_benchmark_of_the_agent_runs_with_its_own_results(self):
+        self.benchmarks("rhel7", "aks")
+        rc, log = self.run_refresh(arf(rule_result("1.1", "pass")))
+        self.assertEqual(rc, 0, log)
+        for k in ("aks", "rhel7"):
+            self.assertIn("benchmark: " + k, log)
+            with open(os.path.join(self.data, "reports-cache", k, "l1_server", "results.txt")) as f:
+                self.assertEqual(f.read(), "1.1:pass\n")
+        # the single refresh.conf of an older manager is not used next to conf.d
+        self.assertFalse(os.path.exists(os.path.join(self.cache, "results.txt")))
+
+    def test_a_benchmark_the_agent_left_is_removed_and_its_results_withdrawn(self):
+        self.benchmarks("rhel7", "aks", sent=["rhel7"])
+        old = os.path.join(self.data, "reports-cache", "aks", "l1_server")
+        os.makedirs(old)
+        with open(os.path.join(old, "results.txt"), "w") as f:
+            f.write("1.1:pass\n")
+        rc, log = self.run_refresh(arf(rule_result("1.1", "pass")))
+        self.assertEqual(rc, 0, log)
+        self.assertIn("benchmark aks no longer applies to this agent", log)
+        self.assertEqual(os.listdir(os.path.join(self.data, "conf.d")), ["rhel7.conf"])
+        self.assertEqual(os.listdir(old), ["results.txt.stale"])
+
     def test_flatten_pairs_each_rule_with_its_result(self):
         rc, log = self.run_refresh(arf(rule_result("1.1.2", "PASS"),
                                        rule_result("1.1.10", "fail", attrs='role="full" '),

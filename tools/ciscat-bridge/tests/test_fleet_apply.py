@@ -157,10 +157,14 @@ class FleetApply(unittest.TestCase):
         os_dir = os.path.join(self.paths["shared_dir"], "os-rhel7")
         files = os.listdir(os_dir)
         self.assertFalse([f for f in files if f.startswith(".")], files)
-        with open(os.path.join(os_dir, "ciscat-manifest.csv")) as f:
+        with open(os.path.join(os_dir, "ciscat-manifest-rhel7.csv")) as f:
             manifest = f.read()
-        for name in ("rhel7-custom-xccdf.xml", "refresh.conf", PREFIX + "-oval.xml"):
+        for name in ("rhel7-custom-xccdf.xml", "ciscat-refresh-rhel7.conf", PREFIX + "-oval.xml"):
             self.assertIn(name + ";", manifest)
+        self.assertIn(";/var/lib/wazuh-ciscat/conf.d/rhel7.conf", manifest)
+        # the group-wide manifest of agent scripts older than 2.3.0 lists the same files
+        with open(os.path.join(os_dir, "ciscat-manifest.csv")) as f:
+            self.assertIn("ciscat-refresh-rhel7.conf;", f.read())
         with open(os.path.join(self.paths["shared_dir"], "ciscat-rhel7-base",
                                "cis_rhel7_tailored_l1_server.yml")) as f:
             policy = f.read()
@@ -190,6 +194,124 @@ class FleetApply(unittest.TestCase):
                          ["001", "001", "002", "002"])
         st = self.status()["job-j1"]
         self.assertEqual((st["state"], st["sent"], st["skipped"]), ("ok", 2, ["003"]))
+
+    def mixed_fleet(self):
+        """A Windows OS next to rhel7, and agents in custom groups."""
+        self.library({"rhel7": entry(),
+                      "win": entry(family="windows", group="os-win", base="win-custom",
+                                   policy_id="cis_win_l1", ar_bootstrap="!ciscat-bootstrap0",
+                                   ar_refresh=None, ar_assessment="!ciscat-assessment0")})
+        for aid, name, groups, platform in (
+                ("004", "win-01", ["os-win", "test"], "windows"),
+                ("005", "lnx-in-win", ["os-win", "test"], "ubuntu"),
+                ("006", "both", ["os-rhel7", "os-win", "test"], "windows"),
+                ("007", "no-os", ["test"], "rhel")):
+            self.fake.agents[aid] = {"name": name, "status": "active", "group": groups,
+                                     "os": {"platform": platform}}
+            self.fake.groups |= set(groups)
+        self.fake.agents["001"]["os"] = {"platform": "rhel"}
+
+    def reached(self):
+        out = sorted((cmd, aid) for cmd, ids in self.fake.ar for aid in ids)
+        self.fake.ar.clear()
+        return out
+
+    def test_trigger_on_chosen_agents(self):
+        self.mixed_fleet()
+        self.fleet("trigger", "--agents", "004,001,999", "--wave-pause", "0", "--job", "r1")
+        # Windows: the assessment only (its script copies the group files itself)
+        self.assertEqual(self.reached(), [
+            ("!ciscat-assessment0", "004"), ("!ciscat-bootstrap-linux0", "001"),
+            ("!ciscat-refresh-linux0", "001")])
+        st = self.status()["job-r1"]
+        self.assertEqual((st["state"], st["sent"], st["agents"], st["targets"]),
+                         ("ok", 2, ["001", "004", "999"], []))
+        self.assertEqual(st["skipped_reasons"], {"999": "unknown agent"})
+
+    def test_trigger_on_a_custom_group_runs_each_agent_with_its_os(self):
+        self.mixed_fleet()
+        self.fleet("trigger", "--groups", "test,missing", "--wave-pause", "0", "--job", "r2")
+        self.assertEqual(self.reached(), [("!ciscat-assessment0", "004"),
+                                          ("!ciscat-assessment0", "006")])
+        reasons = self.status()["job-r2"]["skipped_reasons"]
+        self.assertEqual(reasons["005"], "platform ubuntu does not match win")
+        self.assertEqual(reasons["007"], "in no group of an active CIS-CAT OS")
+        self.assertNotIn("006", reasons)  # windows: reached for its Windows benchmark
+        self.assertEqual(self.status()["job-r2"]["notes"], ["group missing does not exist"])
+
+    def test_trigger_on_an_os_skips_agents_of_another_platform(self):
+        self.mixed_fleet()
+        self.fleet("trigger", "--targets", "win", "--wave-pause", "0", "--job", "r3")
+        self.assertEqual(sorted({a for _, a in self.reached()}), ["004", "006"])
+        self.assertEqual(self.status()["job-r3"]["skipped"], ["005"])
+
+    def test_trigger_refuses_the_bridge_groups_and_mixed_scopes(self):
+        out = self.fleet("trigger", "--groups", "ciscat-rhel7-base", rc=1)
+        self.assertIn("managed by the bridge", out)
+        out = self.fleet("trigger", "--agents", "000", rc=1)
+        self.assertIn("000 is the manager", out)
+        self.assertEqual(self.fake.ar, [])
+
+    def test_apply_gives_no_policy_to_agents_of_another_platform(self):
+        self.companions()
+        self.fake.agents["005"] = {"name": "win-in-rhel", "status": "active",
+                                   "group": ["os-rhel7"], "os": {"platform": "windows"}}
+        out = self.fleet("apply")
+        self.assertIn("005 win-in-rhel: platform windows, not a linux benchmark", out)
+        self.assertNotIn("ciscat-rhel7-base", self.fake.agents["005"]["group"])
+        self.assertIn("ciscat-rhel7-base", self.fake.agents["001"]["group"])
+        apply = self.status()["apply"]
+        self.assertEqual(apply["per_os"]["rhel7"]["wrong_platform"], ["005"])
+        self.assertIn("rhel7: 1 agent(s) of another platform in os-rhel7", " ".join(apply["errors"]))
+
+    def test_several_oses_share_a_group_and_old_files_are_withdrawn(self):
+        self.companions()
+        aks = entry(group="os-aks", base="aks-custom", policy_id="cis_aks_l1")
+        win = entry(family="windows", group="os-rhel7", base="win-custom", policy_id="cis_win_l1",
+                    group_source="dashboard", flat_path="C:\\r\\win.ciscat-flat")
+        self.fake.agents["008"] = {"name": "aks-01", "status": "active", "group": ["os-aks"]}
+        self.fake.groups.add("os-aks")
+        aks_dir = os.path.join(self.paths["shared_dir"], "os-aks")
+        rhel_dir = os.path.join(self.paths["shared_dir"], "os-rhel7")
+        os.makedirs(aks_dir, exist_ok=True)
+        with open(os.path.join(rhel_dir, "refresh.conf"), "w") as f:
+            f.write("written by a bridge older than 2.3.0")
+        self.library({"rhel7": entry(), "aks": aks})
+        self.fleet("apply")
+        self.assertIn("aks-custom-xccdf.xml", os.listdir(aks_dir))
+        self.assertNotIn("refresh.conf", os.listdir(rhel_dir))  # replaced by the per-OS conf
+        with open(os.path.join(aks_dir, "operator-notes.txt"), "w") as f:
+            f.write("not published by the bridge")
+        # aks moves to the rhel7 group, and a Windows benchmark is added there too: allowed, each
+        # OS keeps its own files; the aks files leave os-aks (files the bridge did not publish stay)
+        self.library({"rhel7": entry(), "aks": dict(aks, group="os-rhel7",
+                                                    group_source="dashboard"), "win": win})
+        out = self.fleet("apply")
+        self.assertIn("group os-rhel7 also gets aks, win", out)
+        self.assertEqual(sorted(os.listdir(aks_dir)), ["operator-notes.txt"])
+        files = os.listdir(rhel_dir)
+        for name in ("rhel7-custom-xccdf.xml", "aks-custom-xccdf.xml", "ciscat-refresh-rhel7.conf",
+                     "ciscat-refresh-aks.conf", "ciscat-params-win.txt", "ciscat-manifest-win.csv"):
+            self.assertIn(name, files)
+        with open(os.path.join(rhel_dir, "ciscat-manifest.csv")) as f:
+            legacy = f.read()
+        self.assertIn("ciscat-refresh-aks.conf;", legacy)
+        self.assertIn("ciscat-refresh-rhel7.conf;", legacy)
+        # one Windows OS in the group: older Windows scripts get its parameters
+        with open(os.path.join(rhel_dir, "ciscat-params.txt")) as f:
+            self.assertIn("FlatName=win\n", f.read())
+        # Linux agents of the group get both Linux policies; the Windows one goes to none of them
+        self.assertIn("ciscat-aks-base", self.fake.agents["001"]["group"])
+        self.assertIn("ciscat-rhel7-base", self.fake.agents["001"]["group"])
+        self.assertNotIn("ciscat-aks-base", self.fake.agents["008"]["group"])
+        # back to the library: the Windows benchmark leaves, and with it the legacy parameters
+        self.library({"rhel7": entry(), "aks": aks})
+        self.fleet("apply")
+        files = os.listdir(rhel_dir)
+        self.assertNotIn("ciscat-params-win.txt", files)
+        self.assertNotIn("ciscat-params.txt", files)
+        self.assertNotIn("aks-custom-xccdf.xml", files)
+        self.assertIn("aks-custom-xccdf.xml", os.listdir(aks_dir))
 
     def test_trigger_without_assessment_command_fails_cleanly(self):
         lib = entry()

@@ -28,7 +28,8 @@ def build():
     for rec in ({"group": "linux-prod", "updated_by": " alice ", "updated_at": "2026-10-01T12:00:00Z"},
                 {"group": "os-rhel9_v2.0.0", "extra": 1}):
         out["targets"].append({"input": rec, "normalized": s.validate_target(rec)})
-    out["invalid_targets"] = [{"group": ""}, {"group": "two words"}, {"group": 5}, {}]
+    out["invalid_targets"] = [{"group": ""}, {"group": "two words"}, {"group": 5}, {},
+                              {"group": "ciscat-rhel7-base"}, {"group": ".."}]
     for rec in out["invalid_targets"]:
         try:
             s.validate_target(rec)
@@ -42,7 +43,10 @@ def build():
     for rec in ({"type": "once", "at": "2026-10-31T22:00", "targets": ["rhel7"]},
                 {"type": "monthly", "day": -3, "time": "23:30", "wave_size": 20},
                 {"type": "weekly", "weekday": 0, "time": "01:15", "targets": ["*"],
-                 "label": "Monday night"}):
+                 "label": "Monday night"},
+                {"type": "once", "at": "2026-11-02T08:00", "agents": ["017", "003", "003"],
+                 "targets": []},
+                {"type": "weekly", "weekday": 4, "time": "20:00", "groups": ["web-prod", "os-rhel7"]}):
         out["jobs"].append({"input": rec, "normalized": s.validate_job(rec)})
     out["invalid_exclusions"] = [
         {"os_key": "rhel7", "scope": "group", "scope_value": "x", "rule": "1.1"},
@@ -56,6 +60,12 @@ def build():
         {"type": "monthly", "day": 0, "time": "01:00"}, {"type": "monthly", "day": -29, "time": "01:00"},
         {"type": "weekly", "weekday": 7, "time": "01:00"}, {"type": "weekly", "weekday": 1, "time": "24:00"},
         {"type": "once", "at": "2026-10-31T22:00", "wave_size": 0},
+        {"type": "once", "at": "2026-10-31T22:00", "agents": ["000"]},
+        {"type": "once", "at": "2026-10-31T22:00", "agents": ["3"]},
+        {"type": "once", "at": "2026-10-31T22:00", "groups": ["ciscat-rhel7-base"]},
+        {"type": "once", "at": "2026-10-31T22:00", "agents": ["003"], "groups": ["web"]},
+        {"type": "once", "at": "2026-10-31T22:00", "targets": []},
+        {"type": "once", "at": "2026-10-31T22:00", "groups": [".."]},
     ]
     for rec in out["invalid_exclusions"]:
         try:

@@ -65,7 +65,13 @@ The master rejects a record whose key does not match it.
 
 Common fields:
 
-- `targets`: os keys, or `["*"]` for every active OS;
+- who the run reaches, exactly one of (`ciscat_store.validate_run_scope`):
+  - `targets`: os keys, or `["*"]` for every active OS (the default when none is given);
+  - `agents`: agent ids (3 to 8 digits, not `000`), at most 1000;
+  - `groups`: Wazuh group names, an OS group or a custom one, not a `ciscat-*` group, at most 64.
+  The two others are empty lists (`targets: []` keeps masters older than 2.3.0 from reading the
+  record as every active OS: they refuse it). Each agent runs the benchmarks of its groups that
+  match its platform (Windows, or Linux and other Unix-like);
 - `wave_size` (default 50);
 - `wave_pause_s` (default 300);
 - `enabled`, `label`, `created_by`, `created_at`.
@@ -77,7 +83,8 @@ removes old processed requests. Two actions exist:
 
 - `{"action": "apply"}` asks the master to regenerate and publish the policies from the current
   exclusions.
-- `{"action": "run", "targets", "wave_size", "wave_pause_s", "label"}` is "Run now". It starts
+- `{"action": "run", "targets", "agents", "groups", "wave_size", "wave_pause_s", "label"}` is
+  "Run now". It starts
   right away, after any pending apply, without a time, so the browser and master time zones do
   not matter. Its status is `job-<request key>`.
 
@@ -86,8 +93,8 @@ removes old processed requests. Two actions exist:
 | Key             | Record                                                                                                                                |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `scheduler`     | `last_tick` (`last_tick_ts` in epoch seconds), `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read |
-| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded)           |
-| `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped`, `missed`                                                                |
+| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded, wrong_platform) |
+| `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped` (agent ids), `skipped_reasons` (id → reason, first 100), `notes`, `targets`, `agents`, `groups`, `missed` |
 | `requests`      | `processed`: request keys already handled and still in `ciscat-requests`                                                              |
 
 **Coverage** (`ciscat-history`, written by the master once a day, the last 400 days):
@@ -113,7 +120,8 @@ apply whatever their role.
 
 **Target group** (`ciscat-targets`, key = os key): `group` (the Wazuh group whose agents get the
 benchmark), `updated_by`, `updated_at`. It replaces the group of the OS library at the next apply
-and activates the OS (even one set `"active": false` in `os-library.json`).
+and activates the OS (even one set `"active": false` in `os-library.json`). A `ciscat-*` group is
+refused (those groups belong to the bridge). Several OSes may have the same group.
 
 ## Scheduling
 

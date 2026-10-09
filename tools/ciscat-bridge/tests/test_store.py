@@ -137,6 +137,28 @@ class Jobs(unittest.TestCase):
             with self.assertRaises(s.StoreError, msg=rec):
                 s.validate_job(rec)
 
+    def test_run_scope_is_os_keys_agents_or_groups(self):
+        base = {"type": "weekly", "weekday": 1, "time": "01:00"}
+        job = s.validate_job(dict(base, agents=["017", "003", "003"]))
+        self.assertEqual((job["targets"], job["agents"], job["groups"]), ([], ["003", "017"], []))
+        job = s.validate_job(dict(base, groups=["web-prod", "os-rhel7"], targets=[]))
+        self.assertEqual((job["targets"], job["groups"]), ([], ["os-rhel7", "web-prod"]))
+        job = s.validate_job(base)
+        self.assertEqual((job["targets"], job["agents"], job["groups"]), (["*"], [], []))
+        for bad in ({"agents": ["000"]}, {"agents": ["3"]}, {"agents": ["003; id"]},
+                    {"agents": "003"}, {"groups": ["ciscat-rhel7-base"]}, {"groups": ["a b"]},
+                    {"agents": ["003"], "groups": ["x"]}, {"agents": ["003"], "targets": ["*"]},
+                    {"targets": []},
+                    {"agents": ["{0:03d}".format(i) for i in range(1, 1003)]}):
+            with self.assertRaises(s.StoreError, msg=bad):
+                s.validate_job(dict(base, **bad))
+        run = s.validate_request({"action": "run", "agents": ["003"]})
+        self.assertEqual((run["targets"], run["agents"], run["groups"]), ([], ["003"], []))
+
+    def test_bridge_groups_are_not_targets(self):
+        with self.assertRaises(s.StoreError):
+            s.validate_target({"group": "ciscat-windows_server_2025-base"})
+
     def test_requests(self):
         self.assertEqual(s.validate_request({"action": "apply"})["action"], "apply")
         with self.assertRaises(s.StoreError):

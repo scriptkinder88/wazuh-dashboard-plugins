@@ -4,7 +4,7 @@
  * manager's local time; the scheduler publishes its time zone.
  */
 /* eslint-disable camelcase */ // record fields are the snake_case wire format
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   EuiBasicTable,
   EuiConfirmModal,
@@ -24,10 +24,15 @@ import {
 } from '../../../../../common/ciscat/store';
 import { getToasts } from '../../../../kibana-services';
 import { describeJob, describeTargets } from './lib/composer';
-import { addRequest, writeList } from './lib/lists-api';
+import {
+  addRequest,
+  fetchGroupNames,
+  fetchRunAgents,
+  writeList,
+} from './lib/lists-api';
 import { SCHEDULER_INTERVAL_MINUTES, masterTime } from './lib/status';
 import { STATE_COLOR, formatDate, validJobs } from './lib/schedule';
-import { JobFlyout } from './job-flyout';
+import { JobFlyout, RunAgent } from './job-flyout';
 import { messages } from './messages';
 import type { CiscatData } from './ciscat-management';
 
@@ -45,6 +50,26 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
   const osKeys = Object.keys(data.oskeys)
     .filter(k => data.oskeys[k].active)
     .sort();
+  const osGroups = Array.from(
+    new Set(
+      osKeys.map(k => String(data.oskeys[k].group || '')).filter(Boolean),
+    ),
+  ).sort();
+  // agents and groups a run can be sent to, read when a flyout opens
+  const [agents, setAgents] = useState<RunAgent[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
+  const flyoutOpen = Boolean(editing) || runNow;
+  useEffect(() => {
+    if (!flyoutOpen) {
+      return;
+    }
+    fetchRunAgents()
+      .then(setAgents)
+      .catch(() => setAgents([]));
+    fetchGroupNames()
+      .then(setGroups)
+      .catch(() => setGroups([]));
+  }, [flyoutOpen]);
   const scheduler = data.status.scheduler || {};
   const offset = scheduler.utc_offset;
 
@@ -86,7 +111,7 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
     },
     {
       name: messages.columnTargets(),
-      render: ({ job }: (typeof items)[number]) => describeTargets(job.targets),
+      render: ({ job }: (typeof items)[number]) => describeTargets(job),
     },
     {
       name: messages.columnWaves(),
@@ -206,6 +231,9 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
         <JobFlyout
           initial={editing.job}
           osKeys={osKeys}
+          osGroups={osGroups}
+          groups={groups}
+          agents={agents}
           onClose={() => setEditing(undefined)}
           onSave={async job => {
             const stamped = {
@@ -228,6 +256,9 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
         <JobFlyout
           runNow
           osKeys={osKeys}
+          osGroups={osGroups}
+          groups={groups}
+          agents={agents}
           onClose={() => setRunNow(false)}
           onSave={async job => {
             try {
@@ -236,6 +267,8 @@ export const SchedulePanel = ({ data, user, onSaved }: Props) => {
                 {
                   action: 'run',
                   targets: job.targets,
+                  agents: job.agents,
+                  groups: job.groups,
                   wave_size: job.wave_size,
                   wave_pause_s: job.wave_pause_s,
                   label: job.label || messages.runNow(),

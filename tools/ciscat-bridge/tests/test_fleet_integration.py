@@ -216,7 +216,7 @@ class FleetDiscovery(FleetIntegration):
         gdir = os.path.join(self.paths["shared_dir"], "os-" + u)
         with open(os.path.join(gdir, "ciscat-manifest.csv")) as f:
             self.assertIn(u + "-custom-xccdf.xml", f.read())
-        with open(os.path.join(gdir, "refresh.conf")) as f:
+        with open(os.path.join(gdir, "ciscat-refresh-{0}.conf".format(u))) as f:
             self.assertIn('PROFILE_LIST="l1_server|TAILORED L1 - Server (os-{0})"'.format(u), f.read())
         # the combo groups load the policy, since nothing else does for a discovered OS
         with open(os.path.join(self.paths["shared_dir"], "ciscat-{0}-base".format(u), "agent.conf")) as f:
@@ -300,6 +300,7 @@ class FleetStig(FleetIntegration):
         rules = {r.replace("\\", "") for r in self.policy_rules(
             "ciscat-{0}-base".format(k), "cis_{0}_tailored_l1_stig".format(k))}
         self.assertEqual(rules, (cat1 | cat2_only) - {excluded})
-        with open(os.path.join(self.paths["shared_dir"], "os-" + k, "refresh.conf")) as f:
+        with open(os.path.join(self.paths["shared_dir"], "os-" + k,
+                               "ciscat-refresh-{0}.conf".format(k))) as f:
             self.assertIn('PROFILE_LIST="l1_stig|TAILORED L1 - STIG (os-{0})"'.format(k), f.read())
 

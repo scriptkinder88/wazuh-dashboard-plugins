@@ -53,6 +53,22 @@ class Bootstrap(unittest.TestCase):
         self.assertTrue(os.path.isfile(bench))
         self.assertEqual(os.stat(os.path.join(self.ar_bin, "ciscat-refresh.sh")).st_mode & 0o777, 0o750)
 
+    def test_every_benchmark_manifest_is_installed(self):
+        conf_d = os.path.join(self.data, "conf.d")
+        for key in ("rhel7", "aks"):
+            self.lines = []
+            self.publish("ciscat-refresh-{0}.conf".format(key),
+                         os.path.join(conf_d, key + ".conf"), key.encode())
+            with open(os.path.join(self.shared, "ciscat-manifest-{0}.csv".format(key)), "w") as f:
+                f.write("# ciscat-manifest ({0})\n# name;sha256;dest\n".format(key) +
+                        "\n".join(self.lines) + "\n")
+        # the group-wide manifest of older managers is not read next to the per-OS ones
+        rc, out = self.run_bootstrap("# old\nmissing.xml;00;" +
+                                     os.path.join(self.data, "x") + "\n")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("installed=2 refused=0 missing=0", out)
+        self.assertEqual(sorted(os.listdir(conf_d)), ["aks.conf", "rhel7.conf"])
+
     def test_manifest_is_read_from_the_shared_folder_only(self):
         os.makedirs(os.path.join(self.shared, "os-rhel7"))
         with open(os.path.join(self.shared, "os-rhel7", "ciscat-manifest.csv"), "w") as f:

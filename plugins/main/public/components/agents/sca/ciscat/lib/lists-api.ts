@@ -9,6 +9,7 @@ import {
   writeList,
 } from '../../../../../services/list-files';
 import { CISCAT_LISTS } from '../../../../../../common/ciscat/store';
+import { fetchAllAgents } from '../../../../../services/wazuh-inventory';
 
 export type { LoadedList } from '../../../../../services/list-files';
 export {
@@ -19,6 +20,18 @@ export {
   fetchAgentNames,
   fetchGroupNames,
 } from '../../../../../services/wazuh-inventory';
+
+/** Every agent but the manager, for the agents a run is sent to. */
+export const fetchRunAgents = async () =>
+  (
+    await fetchAllAgents<{
+      id: string;
+      name?: string;
+      os?: { platform?: string };
+    }>(['id', 'name', 'os.platform'])
+  )
+    .map(a => ({ id: a.id, name: a.name || a.id, platform: a.os?.platform }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 export { fetchCurrentUserName } from '../../../../../services/dashboard-user';
 
 const CISCAT_PREFIX = 'ciscat-';

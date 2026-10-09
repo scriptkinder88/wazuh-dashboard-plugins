@@ -24,8 +24,48 @@ import {
   EuiSwitch,
   EuiTitle,
 } from '@elastic/eui';
-import { Job, validateJob } from '../../../../../common/ciscat/store';
+import {
+  AGENT_ID_RE,
+  Job,
+  MANAGED_GROUP_PREFIX,
+  validateJob,
+} from '../../../../../common/ciscat/store';
 import { messages } from './messages';
+
+/** An agent the run can be sent to. */
+export interface RunAgent {
+  id: string;
+  name: string;
+  platform?: string;
+}
+
+type Scope = 'os' | 'groups' | 'agents';
+type Option = { label: string; value?: string; isGroupLabelOption?: boolean };
+
+const agentLabel = (a: RunAgent) =>
+  `${a.id} · ${a.name}${a.platform ? ` (${a.platform})` : ''}`;
+
+/**
+ * Agent ids of a pasted list of ids or names (commas, semicolons or spaces);
+ * the entries that match no agent are returned apart.
+ */
+export const parseAgentList = (text: string, agents: RunAgent[]) => {
+  const byName = new Map(agents.map(a => [a.name.toLowerCase(), a.id]));
+  const known = new Set(agents.map(a => a.id));
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  for (const entry of text.split(/[\s,;]+/).filter(Boolean)) {
+    const id = AGENT_ID_RE.test(entry)
+      ? entry
+      : byName.get(entry.toLowerCase());
+    if (id && id !== '000' && (known.has(id) || !agents.length)) {
+      ids.push(id);
+    } else {
+      unknown.push(entry);
+    }
+  }
+  return { ids, unknown };
+};
 
 const WEEKDAYS = [
   messages.monday,
@@ -41,6 +81,10 @@ interface JobFlyoutProps {
   initial?: Job;
   runNow?: boolean;
   osKeys: string[];
+  /** Groups of the active OSes, then every Wazuh group. */
+  osGroups?: string[];
+  groups?: string[];
+  agents?: RunAgent[];
   onClose: () => void;
   onSave: (job: Job) => void;
 }
@@ -51,6 +95,9 @@ export const JobFlyout = ({
   initial,
   runNow,
   osKeys,
+  osGroups = [],
+  groups = [],
+  agents = [],
   onClose,
   onSave,
 }: JobFlyoutProps) => {
@@ -70,6 +117,23 @@ export const JobFlyout = ({
       label: t === '*' ? allOs : t,
     })),
   );
+  const [scope, setScope] = useState<Scope>(() => {
+    if (initial?.agents?.length) {
+      return 'agents';
+    }
+    return initial?.groups?.length ? 'groups' : 'os';
+  });
+  const [chosenGroups, setChosenGroups] = useState<Option[]>(
+    (initial?.groups || []).map(g => ({ label: g })),
+  );
+  const agentById = new Map(agents.map(a => [a.id, a]));
+  const agentOption = (id: string): Option => {
+    const agent = agentById.get(id);
+    return { label: agent ? agentLabel(agent) : id, value: id };
+  };
+  const [chosenAgents, setChosenAgents] = useState<Option[]>(
+    (initial?.agents || []).map(agentOption),
+  );
   const [waveSize, setWaveSize] = useState(initial?.wave_size ?? 50);
   const [pauseMin, setPauseMin] = useState(
     Math.round((initial?.wave_pause_s ?? 300) / 60),
@@ -77,16 +141,60 @@ export const JobFlyout = ({
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const [error, setError] = useState('');
 
+  const ownGroups = new Set(osGroups);
+  const customGroups = groups.filter(
+    g => !ownGroups.has(g) && !g.startsWith(MANAGED_GROUP_PREFIX),
+  );
+  const groupOptions: Option[] = [
+    ...(osGroups.length
+      ? [{ label: messages.osGroupsLabel(), isGroupLabelOption: true }]
+      : []),
+    ...osGroups.map(label => ({ label })),
+    ...(customGroups.length
+      ? [{ label: messages.customGroupsLabel(), isGroupLabelOption: true }]
+      : []),
+    ...customGroups.map(label => ({ label })),
+  ];
+
+  const addPastedAgents = (text: string) => {
+    const { ids, unknown } = parseAgentList(text, agents);
+    const have = new Set(chosenAgents.map(o => o.value));
+    setChosenAgents([
+      ...chosenAgents,
+      ...ids.filter(id => !have.has(id)).map(agentOption),
+    ]);
+    setError(unknown.length ? messages.unknownAgents(unknown.join(', ')) : '');
+  };
+
+  const runScope = () => {
+    if (scope === 'agents') {
+      return { targets: [], agents: chosenAgents.map(o => o.value || o.label) };
+    }
+    if (scope === 'groups') {
+      return { targets: [], groups: chosenGroups.map(o => o.label) };
+    }
+    const chosen = targets.map(t => (t.label === allOs ? '*' : t.label));
+    return { targets: chosen.includes('*') ? ['*'] : chosen };
+  };
+
   const submit = () => {
     try {
-      const chosen = targets.map(t => (t.label === allOs ? '*' : t.label));
+      const picked = runScope();
+      if (
+        ![picked.targets, picked.agents || [], picked.groups || []].some(
+          list => list.length,
+        )
+      ) {
+        setError(messages.nothingSelected());
+        return;
+      }
       const job = validateJob({
         type: runNow ? 'once' : type,
         at: runNow ? '2000-01-01T00:00' : `${date}T${time}`,
         time,
         day: fromEnd ? -day : day,
         weekday,
-        targets: chosen.includes('*') ? ['*'] : chosen,
+        ...picked,
         wave_size: Number(waveSize),
         wave_pause_s: Number(pauseMin) * 60,
         enabled,
@@ -191,13 +299,63 @@ export const JobFlyout = ({
               />
             </EuiFormRow>
           )}
-          <EuiFormRow label={messages.operatingSystems()}>
-            <EuiComboBox
-              options={[{ label: allOs }, ...osKeys.map(label => ({ label }))]}
-              selectedOptions={targets}
-              onChange={setTargets}
+          <EuiFormRow label={messages.runOn()}>
+            <EuiRadioGroup
+              idSelected={`ciscat-scope-${scope}`}
+              onChange={id => {
+                setScope(id.replace('ciscat-scope-', '') as Scope);
+                setError('');
+              }}
+              options={[
+                { id: 'ciscat-scope-os', label: messages.runScopeOs() },
+                { id: 'ciscat-scope-groups', label: messages.scopeGroups() },
+                { id: 'ciscat-scope-agents', label: messages.scopeAgents() },
+              ]}
             />
           </EuiFormRow>
+          {scope === 'os' && (
+            <EuiFormRow label={messages.operatingSystems()}>
+              <EuiComboBox
+                options={[
+                  { label: allOs },
+                  ...osKeys.map(label => ({ label })),
+                ]}
+                selectedOptions={targets}
+                onChange={setTargets}
+                data-test-subj='ciscat-run-os'
+              />
+            </EuiFormRow>
+          )}
+          {scope === 'groups' && (
+            <EuiFormRow
+              label={messages.runGroups()}
+              helpText={messages.agentGroupsHelp()}
+            >
+              <EuiComboBox
+                options={groupOptions}
+                selectedOptions={chosenGroups}
+                onChange={setChosenGroups}
+                data-test-subj='ciscat-run-groups'
+              />
+            </EuiFormRow>
+          )}
+          {scope === 'agents' && (
+            <EuiFormRow
+              label={messages.runAgents()}
+              helpText={messages.agentsHelp()}
+            >
+              <EuiComboBox
+                options={agents.map(a => ({
+                  label: agentLabel(a),
+                  value: a.id,
+                }))}
+                selectedOptions={chosenAgents}
+                onChange={options => setChosenAgents(options as Option[])}
+                onCreateOption={addPastedAgents}
+                data-test-subj='ciscat-run-agents'
+              />
+            </EuiFormRow>
+          )}
           <EuiFormRow label={messages.agentsPerWave()}>
             <EuiFieldNumber
               min={1}

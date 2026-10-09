@@ -102,6 +102,19 @@ class Scheduler(unittest.TestCase):
         self.tick("2026-10-01T10:15:00")
         self.assertEqual(len(self.wait_calls(2)), 2)  # not again
 
+    def test_jobs_on_agents_or_groups_pass_them_to_the_trigger(self):
+        on_agents = store.validate_job({"type": "once", "at": "2026-10-01T10:07",
+                                        "agents": ["017", "003"], "targets": []})
+        on_groups = store.validate_job({"type": "once", "at": "2026-10-01T10:07",
+                                        "groups": ["web-prod", "os-rhel7"]})
+        store.write_list(store.SCHEDULE, {"jaaaaaaaaaaaa": on_agents,
+                                          "jbbbbbbbbbbbb": on_groups}, self.lists)
+        self.tick("2026-10-01T10:05:00")
+        self.tick("2026-10-01T10:10:00")
+        triggers = sorted(c[:3] for c in self.wait_calls(3) if c[0] == "trigger")
+        self.assertEqual(triggers, [["trigger", "--agents", "003,017"],
+                                    ["trigger", "--groups", "os-rhel7,web-prod"]])
+
     def test_pending_applies_run_once(self):
         reqs = {"r1700000000000aaaa": {"action": "apply", "requested_by": "alice"},
                 "r1700000000001bbbb": {"action": "apply", "requested_by": "bob"},

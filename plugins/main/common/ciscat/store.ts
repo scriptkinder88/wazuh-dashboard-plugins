@@ -61,7 +61,10 @@ export interface Job {
   time?: string;
   day?: number;
   weekday?: number;
+  /** One of targets (os keys, or ['*']), agents (agent ids) or groups is set. */
   targets: string[];
+  agents: string[];
+  groups: string[];
   wave_size: number;
   wave_pause_s: number;
   enabled: boolean;
@@ -73,7 +76,13 @@ export interface Job {
 export const OS_KEY_RE = /^[a-z0-9_]{1,64}$/;
 const RULE_RE = /^[0-9]+(?:\.[0-9]+){0,9}$/;
 const ROLE_RE = /^[A-Za-z0-9_ -]{0,64}$/;
-export const NAME_RE = /^[A-Za-z0-9._-]{1,255}$/;
+// not "." or "..": group names are joined to folders on the master
+export const NAME_RE = /^(?!\.+$)[A-Za-z0-9._-]{1,255}$/;
+export const AGENT_ID_RE = /^[0-9]{3,8}$/;
+/** Groups the bridge creates and owns (ciscat-<os>-<combo>): never chosen by hand. */
+export const MANAGED_GROUP_PREFIX = 'ciscat-';
+export const MAX_RUN_AGENTS = 1000;
+export const MAX_RUN_GROUPS = 64;
 const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const AT_RE =
   /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([01][0-9]|2[0-3]):([0-5][0-9])$/;
@@ -210,6 +219,75 @@ const validDate = (at: string) => {
   );
 };
 
+const nameList = (
+  rec: ListRecord,
+  field: string,
+  limit: number,
+  pattern: RegExp,
+  what: string,
+): string[] => {
+  const value = rec[field] ?? [];
+  if (!Array.isArray(value) || value.length > limit) {
+    throw new StoreError(`${field}: list of at most ${limit} ${what} expected`);
+  }
+  for (const v of value) {
+    if (!(typeof v === 'string' && pattern.test(v))) {
+      throw new StoreError(`${field}: ${what} expected`);
+    }
+  }
+  return Array.from(new Set(value as string[])).sort();
+};
+
+/**
+ * Which agents a job or a run applies to: exactly one of targets (os keys,
+ * or ['*'] for every active OS), agents (agent ids) or groups (an OS group or
+ * any custom one). A record with none of them runs every active OS.
+ */
+export const validateRunScope = (
+  rec: ListRecord,
+): Pick<Job, 'targets' | 'agents' | 'groups'> => {
+  const agents = nameList(
+    rec,
+    'agents',
+    MAX_RUN_AGENTS,
+    AGENT_ID_RE,
+    'agent ids',
+  );
+  if (agents.includes('000')) {
+    throw new StoreError('agents: 000 is the manager');
+  }
+  const groups = nameList(
+    rec,
+    'groups',
+    MAX_RUN_GROUPS,
+    NAME_RE,
+    'Wazuh group names',
+  );
+  if (groups.some(g => g.startsWith(MANAGED_GROUP_PREFIX))) {
+    throw new StoreError(
+      'groups: the ciscat-* groups are managed by the bridge',
+    );
+  }
+  const targets = (rec.targets ??
+    (agents.length || groups.length ? [] : ['*'])) as unknown[];
+  if (!Array.isArray(targets) || targets.length > 64) {
+    throw new StoreError('targets: list of os keys expected');
+  }
+  for (const t of targets) {
+    if (t !== '*' && !(typeof t === 'string' && OS_KEY_RE.test(t))) {
+      throw new StoreError('targets: os keys or * expected');
+    }
+  }
+  if ([targets, agents, groups].filter(x => x.length).length !== 1) {
+    throw new StoreError('exactly one of targets, agents or groups expected');
+  }
+  return {
+    targets: Array.from(new Set(targets as string[])).sort(),
+    agents,
+    groups,
+  };
+};
+
 export const validateJob = (rec: ListRecord): Job => {
   if (!rec || typeof rec !== 'object') {
     throw new StoreError('record must be an object');
@@ -244,18 +322,7 @@ export const validateJob = (rec: ListRecord): Job => {
       out.weekday = integer(rec, 'weekday', 0, 6);
     }
   }
-  const targets = (
-    rec.targets === undefined ? ['*'] : rec.targets
-  ) as unknown[];
-  if (!Array.isArray(targets) || !targets.length || targets.length > 64) {
-    throw new StoreError('targets: non-empty list expected');
-  }
-  for (const t of targets) {
-    if (t !== '*' && !(typeof t === 'string' && OS_KEY_RE.test(t))) {
-      throw new StoreError('targets: os keys or * expected');
-    }
-  }
-  out.targets = Array.from(new Set(targets as string[])).sort();
+  Object.assign(out, validateRunScope(rec));
   out.wave_size = integer(rec, 'wave_size', 1, MAX_WAVE_SIZE, 50);
   out.wave_pause_s = integer(rec, 'wave_pause_s', 0, 86400, 300);
   const enabled = rec.enabled === undefined ? true : rec.enabled;
@@ -284,6 +351,11 @@ export const validateTarget = (rec: ListRecord): Target => {
   const group = text(rec, 'group', 255, true);
   if (!NAME_RE.test(group)) {
     throw new StoreError('group: Wazuh group name expected');
+  }
+  if (group.startsWith(MANAGED_GROUP_PREFIX)) {
+    throw new StoreError(
+      'group: the ciscat-* groups are managed by the bridge',
+    );
   }
   return {
     v: CISCAT_SCHEMA_VERSION,

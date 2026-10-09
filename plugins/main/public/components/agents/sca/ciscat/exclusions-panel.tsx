@@ -23,7 +23,10 @@ import {
 } from '@elastic/eui';
 import { WzButtonPermissions } from '../../../common/permissions/button';
 import { CISCAT_WRITE_PERMISSIONS } from './lib/permissions';
-import { benchListName } from '../../../../../common/ciscat/store';
+import {
+  MANAGED_GROUP_PREFIX,
+  benchListName,
+} from '../../../../../common/ciscat/store';
 import { getToasts } from '../../../../kibana-services';
 import {
   Bench,
@@ -35,6 +38,7 @@ import {
 } from './lib/composer';
 import { fetchGroupNames, readList } from './lib/lists-api';
 import {
+  NO_TARGET,
   PartialSaveError,
   osTitle,
   saveExclusions,
@@ -136,6 +140,23 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
     (page.index + 1) * page.size,
   );
 
+  // other benchmarks that apply to the group chosen for this one
+  const sharesGroup = (k: string) =>
+    k !== osKey &&
+    Boolean(targets[osKey]) &&
+    targets[k] === targets[osKey] &&
+    Boolean(data.oskeys[k]?.active || data.targets.records[k]);
+  const sharedWith = Object.keys(targets).filter(sharesGroup).sort();
+  const noGroup = { label: messages.noTargetGroup(), value: NO_TARGET };
+  const chosenGroup = () => {
+    if (targets[osKey] === NO_TARGET) {
+      return [noGroup];
+    }
+    return targets[osKey]
+      ? [{ label: targets[osKey], value: targets[osKey] }]
+      : [];
+  };
+
   const removeExclusion = (key: string) => {
     const next = { ...draft };
     delete next[key];
@@ -221,13 +242,17 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             <EuiComboBox
               singleSelection={{ asPlainText: true }}
               isClearable={false}
-              options={groups.map(g => ({ label: g }))}
-              selectedOptions={
-                targets[osKey] ? [{ label: targets[osKey] }] : []
-              }
+              options={[
+                noGroup,
+                // the bridge's own groups are never a benchmark's group
+                ...groups
+                  .filter(g => !g.startsWith(MANAGED_GROUP_PREFIX))
+                  .map(g => ({ label: g, value: g })),
+              ]}
+              selectedOptions={chosenGroup()}
               onChange={sel => {
                 if (sel[0]) {
-                  setTargets({ ...targets, [osKey]: sel[0].label });
+                  setTargets({ ...targets, [osKey]: sel[0].value ?? '' });
                   setDirty(true);
                 }
               }}
@@ -278,6 +303,18 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
           </EuiFormRow>
         </EuiFlexItem>
       </EuiFlexGroup>
+      {sharedWith.length > 0 && (
+        <>
+          <EuiSpacer size='s' />
+          <EuiCallOut
+            color='warning'
+            iconType='alert'
+            size='s'
+            title={messages.groupShared(targets[osKey], sharedWith.join(', '))}
+            data-test-subj='ciscat-group-shared'
+          />
+        </>
+      )}
       <EuiSpacer size='m' />
       <EuiFlexGroup gutterSize='l' responsive={false}>
         <EuiFlexItem grow={false}>

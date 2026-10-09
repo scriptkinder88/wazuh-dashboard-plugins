@@ -177,6 +177,18 @@ export const messages = {
     i18n.translate('wazuh.ciscat.exclusions.appliesToGroup', {
       defaultMessage: 'Applies to group',
     }),
+  noTargetGroup: () =>
+    i18n.translate('wazuh.ciscat.exclusions.noTargetGroup', {
+      defaultMessage: 'No group (not applied from here)',
+    }),
+  groupShared: (group: string, others: string) =>
+    i18n.translate('wazuh.ciscat.exclusions.groupShared', {
+      defaultMessage:
+        'Group {group} is also the group of {others}: its agents will run ' +
+        'every one of these benchmarks. A benchmark only runs on the agents ' +
+        'of its platform (Windows, or Linux and other Unix-like systems).',
+      values: { group, others },
+    }),
   appliesToGroupHelp: () =>
     i18n.translate('wazuh.ciscat.exclusions.appliesToGroupHelp', {
       defaultMessage:
@@ -532,6 +544,55 @@ export const messages = {
   allActiveOs: () =>
     i18n.translate('wazuh.ciscat.job.allActiveOs', {
       defaultMessage: 'All active OS',
+    }),
+  runOn: () =>
+    i18n.translate('wazuh.ciscat.job.runOn', { defaultMessage: 'Run on' }),
+  runScopeOs: () =>
+    i18n.translate('wazuh.ciscat.job.scopeOs', {
+      defaultMessage: 'Operating systems',
+    }),
+  scopeGroups: () =>
+    i18n.translate('wazuh.ciscat.job.scopeGroups', {
+      defaultMessage: 'Agent groups',
+    }),
+  scopeAgents: () =>
+    i18n.translate('wazuh.ciscat.job.scopeAgents', {
+      defaultMessage: 'Agents',
+    }),
+  runGroups: () =>
+    i18n.translate('wazuh.ciscat.job.agentGroups', {
+      defaultMessage: 'Groups',
+    }),
+  agentGroupsHelp: () =>
+    i18n.translate('wazuh.ciscat.job.agentGroupsHelp', {
+      defaultMessage:
+        'An OS group or any custom group. Each agent runs the benchmark of ' +
+        'its OS group.',
+    }),
+  osGroupsLabel: () =>
+    i18n.translate('wazuh.ciscat.job.osGroupsLabel', {
+      defaultMessage: 'OS groups',
+    }),
+  customGroupsLabel: () =>
+    i18n.translate('wazuh.ciscat.job.customGroupsLabel', {
+      defaultMessage: 'Custom groups',
+    }),
+  runAgents: () =>
+    i18n.translate('wazuh.ciscat.job.agents', { defaultMessage: 'Agents' }),
+  agentsHelp: () =>
+    i18n.translate('wazuh.ciscat.job.agentsHelp', {
+      defaultMessage:
+        'Pick agents, or paste a list of IDs or names separated by commas ' +
+        'or spaces. Each agent runs the benchmark of its OS group.',
+    }),
+  unknownAgents: (names: string) =>
+    i18n.translate('wazuh.ciscat.job.unknownAgents', {
+      defaultMessage: 'Unknown agents: {names}',
+      values: { names },
+    }),
+  nothingSelected: () =>
+    i18n.translate('wazuh.ciscat.job.nothingSelected', {
+      defaultMessage: 'Choose at least one operating system, group or agent',
     }),
   agentsPerWave: () =>
     i18n.translate('wazuh.ciscat.job.agentsPerWave', {

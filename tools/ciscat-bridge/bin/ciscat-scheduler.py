@@ -60,9 +60,16 @@ def start_trigger(key, job, record):
     and are never overwritten by this tick."""
     store.update_records(store.STATUS, {"job-" + key: record}, LISTS_DIR, RUN_DIR)
     os.makedirs(LOG_DIR, exist_ok=True)
-    cmd = [sys.executable, FLEET, "trigger", "--targets", ",".join(job["targets"]),
-           "--wave-size", str(job["wave_size"]), "--wave-pause", str(job["wave_pause_s"]),
-           "--job", key]
+    # one of the three is set (validated): chosen agents, chosen groups, or OSes
+    if job.get("agents"):
+        scope = ["--agents", ",".join(job["agents"])]
+    elif job.get("groups"):
+        scope = ["--groups", ",".join(job["groups"])]
+    else:
+        scope = ["--targets", ",".join(job["targets"])]
+    cmd = [sys.executable, FLEET, "trigger"] + scope + [
+        "--wave-size", str(job["wave_size"]), "--wave-pause", str(job["wave_pause_s"]),
+        "--job", key]
     with open(os.path.join(LOG_DIR, "ciscat-job-{0}.log".format(key)), "a") as out:
         subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                          start_new_session=True, close_fds=True)

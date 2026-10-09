@@ -144,6 +144,8 @@ describe('CIS-CAT exclusion composer', () => {
     const base = {
       v: 1,
       targets: ['*'],
+      agents: [],
+      groups: [],
       wave_size: 50,
       wave_pause_s: 300,
       enabled: true,
@@ -166,9 +168,19 @@ describe('CIS-CAT exclusion composer', () => {
     expect(
       describeJob({ ...base, type: 'weekly', weekday: 6, time: '23:59' }),
     ).toBe('Every Sunday at 23:59');
-    expect(describeTargets(['*'])).toBe('All active OS');
-    expect(describeTargets(['rhel7', 'windows_server_2025'])).toBe(
+    expect(describeTargets({ targets: ['*'] })).toBe('All active OS');
+    expect(describeTargets({ targets: ['rhel7', 'windows_server_2025'] })).toBe(
       'rhel7, windows_server_2025',
     );
+    expect(describeTargets({ targets: [], agents: ['003'] })).toBe('Agent 003');
+    expect(
+      describeTargets({
+        targets: [],
+        agents: ['001', '002', '003', '004', '005', '006', '007'],
+      }),
+    ).toBe('Agents 001, 002, 003, 004, 005 and 2 more');
+    expect(
+      describeTargets({ targets: [], groups: ['os-rhel7', 'web-prod'] }),
+    ).toBe('Groups os-rhel7, web-prod');
   });
 });

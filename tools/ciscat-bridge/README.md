@@ -126,18 +126,58 @@ The API certificate is not verified by default (the local manager API, self-sign
 ```
 ciscat-fleet.py sync|plan|apply|report
 ciscat-fleet.py trigger --targets rhel7,windows_server_2025 --wave-size 50 --wave-pause 300
+ciscat-fleet.py trigger --agents 003,017          # chosen agents
+ciscat-fleet.py trigger --groups web-prod,os-rhel7  # agents of OS or custom groups
 ciscat-scheduler.py            # what cron runs every 5 minutes
 ```
 
 Logs are in `/opt/ciscat/log/`: the scheduler log, and one log per job. Only one `apply` runs at a
 time: a second one (by hand, from the installer or the scheduler) waits for it.
 
-On the agents, `ciscat-bootstrap.sh` installs the manifest's files only into the Assessor's
-`benchmarks` folder, `/var/lib/wazuh-ciscat` and `active-response/bin/ciscat-refresh.sh`;
-`ciscat-refresh.sh` reads `refresh.conf` as `KEY="value"` data (it is not sourced) and runs one
-assessment at a time.
+A run (scheduled or "Run now") reaches the agents of chosen OSes, chosen agents (one or a list),
+or the agents of chosen groups (an OS group or any custom group). Each agent is reached once and
+runs every benchmark of its groups. **A benchmark only goes to agents of its platform**: a Windows
+benchmark never runs on, nor gives its policy to, a Linux or other Unix-like agent, and the
+reverse; an agent that never connected (platform not known yet) gets nothing. Agents not reached
+are listed in the job status with the reason.
+
+Several benchmarks can apply to one group (for example two versions of a benchmark, or a custom
+one next to the CIS one): each publishes its own files there (`ciscat-refresh-<os>.conf` or
+`ciscat-params-<os>.txt`, and `ciscat-manifest-<os>.csv`). When a benchmark moves to another
+group or stops being applied, the files it published in its old group are removed
+(`/opt/ciscat/run/published.json` records them).
+
+On the agents, `ciscat-bootstrap.sh` installs the files of every manifest only into the
+Assessor's `benchmarks` folder, `/var/lib/wazuh-ciscat` and `active-response/bin/ciscat-refresh.sh`.
+`ciscat-refresh.sh` runs each benchmark of `/var/lib/wazuh-ciscat/conf.d/<os>.conf` (read as
+`KEY="value"` data, never sourced), with its results in `reports-cache/<os>/<profile>/`, one
+assessment at a time; it drops the settings of a benchmark whose group the agent left. On
+Windows, `ciscat-assessment.ps1` runs each `ciscat-params-<os>.txt` of the shared folder.
+
+**Agent layout** (CIS-CAT Pro is provisioned on each agent, the bridge never distributes it):
+
+| | Linux and other Unix-like | Windows |
+| --- | --- | --- |
+| Assessor | `/opt/ciscat/Assessor/Assessor-CLI.sh` | `C:\Program Files (x86)\ciscat\Assessor-CLI.bat` |
+| Assessor setting | `exit.on.invalid.signature=false` in `config/assessor-cli.properties` (the custom XCCDF is not signed) | same |
+| Provisioned by hand | `/var/ossec/active-response/bin/ciscat-bootstrap.sh` (root:wazuh 0750) | `ciscat-assessment.cmd` and `.ps1` in `ossec-agent\active-response\bin`, `CISCAT-CsvToFlat.ps1` in the Assessor folder |
+| Installed by the bridge | `ciscat-refresh.sh`, benchmarks, `/var/lib/wazuh-ciscat/conf.d` | benchmarks (copied by the script) |
+| Results | `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>/results.txt` | `C:\Program Files (x86)\ciscat\results\<name>.ciscat-flat` |
+
+The master's `ossec.conf` maps the Active Response commands: `ciscat-bootstrap-linux` →
+`ciscat-bootstrap.sh`, `ciscat-refresh-linux` → `ciscat-refresh.sh`, `ciscat-assessment` →
+`ciscat-assessment.cmd`. Windows agents get no bootstrap command.
 
 ## Changes
+
+- **2.3.0:** runs on chosen agents, lists of agents and OS or custom groups, from the dashboard
+  and `trigger --agents/--groups`; the job status gives the reason for each agent not reached.
+  A benchmark only goes to agents of its platform (Windows, or Linux and other Unix-like), for
+  runs and policies alike. Several benchmarks can share a group: per-OS settings and manifests,
+  Linux results per OS (`reports-cache/<os>/<profile>`), every benchmark of an agent runs in turn
+  (Linux and Windows scripts; older agent scripts keep working through the group-wide files).
+  Files a benchmark published in a group it left are removed. The `ciscat-*` groups of the
+  bridge cannot be chosen as a benchmark's group. Windows runs get no bootstrap command.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

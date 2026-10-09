@@ -25,6 +25,13 @@ export const validExclusions = (records: CiscatData['exclusions']['records']) =>
     return acc;
   }, {} as KeyedExclusions);
 
+/**
+ * Group of an OS set to "no group": its ciscat-targets record goes, and the
+ * OS is back to the master's library (a benchmark found in the benchmarks
+ * folder is then not applied).
+ */
+export const NO_TARGET = '';
+
 /** Group each OS applies to: chosen here (ciscat-targets) or the master's default. */
 export const savedTargets = (data: CiscatData): Record<string, string> =>
   Object.fromEntries(
@@ -69,11 +76,17 @@ export const saveExclusions = async ({
   await writeList(CISCAT_LISTS.exclusions, draft, data.exclusions.raw);
   try {
     const saved = savedTargets(data);
-    if (Object.keys(targets).some(k => targets[k] !== saved[k])) {
+    const changed = (k: string) =>
+      targets[k] === NO_TARGET
+        ? Boolean(data.targets.records[k])
+        : targets[k] !== saved[k];
+    if (Object.keys(targets).some(changed)) {
       const records = { ...data.targets.records };
       delete records._empty;
       Object.entries(targets).forEach(([k, group]) => {
-        if (group !== saved[k]) {
+        if (group === NO_TARGET) {
+          delete records[k];
+        } else if (changed(k)) {
           records[k] = {
             ...validateTarget({
               group,

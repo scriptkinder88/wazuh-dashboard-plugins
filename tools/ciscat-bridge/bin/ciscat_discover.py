@@ -51,7 +51,8 @@ DEFAULT_AR = {
     "windows": {"ar_bootstrap": "!ciscat-bootstrap0", "ar_assessment": "!ciscat-assessment0"},
 }
 WINDOWS_RESULTS = "C:\\Program Files (x86)\\ciscat\\results\\"
-LINUX_RESULTS = "/var/lib/wazuh-ciscat/reports-cache/{0}/results.txt"
+# per OS: several benchmarks can run on one agent
+LINUX_RESULTS = "/var/lib/wazuh-ciscat/reports-cache/{0}/{1}/results.txt"
 
 
 def parse_name(filename):
@@ -180,7 +181,7 @@ def _new_entry(os_key, product, version, filename, role, family, ar, base_profil
     }
     if family == "linux":
         entry.update(base=os_key + "-custom", companion_prefix=filename[:-len("-xccdf.xml")],
-                     flat_path=LINUX_RESULTS.format(pkey))
+                     flat_path=LINUX_RESULTS.format(os_key, pkey))
     else:
         entry.update(base="cis_{0}_tailored_{1}".format(os_key, pkey),
                      flat_path="{0}cis_{1}.ciscat-flat".format(WINDOWS_RESULTS, os_key))

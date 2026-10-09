@@ -15,7 +15,8 @@ Actions:
   sync      publish benchmark sheets + OS list for the dashboard (ciscat-bench-*, ciscat-oskeys)
   plan      dry-run of apply
   apply     regenerate custom XCCDF + policies, publish groups, assign agents to combos
-  trigger   bootstrap + assessment on the agents of the target OSes, in waves
+  trigger   bootstrap + assessment in waves, on the agents of the target OSes, on chosen agents
+            (--agents) or on the agents of chosen groups (--groups: OS or custom groups)
   history   coverage of the day per OS (ciscat-history), run daily by the scheduler
   baseline  groups owned by infrastructure code (Terraform): create them, write their agent.conf,
             add the listed agents (--file baseline.json)
@@ -50,11 +51,19 @@ import ciscat_xccdf as xccdf  # noqa: E402
 import csv_to_custom_xccdf as tailor  # noqa: E402
 import xccdf_to_sca_policy as gen  # noqa: E402
 
-VERSION = "2.2.9"
+VERSION = "2.3.0"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
 COMBO_PREFIX = "ciscat-"
+# files of one OS in a group it may share with other OSes
+LINUX_CONF = "ciscat-refresh-{0}.conf"         # -> /var/lib/wazuh-ciscat/conf.d/<os>.conf
+WINDOWS_PARAMS = "ciscat-params-{0}.txt"
+OS_MANIFEST = "ciscat-manifest-{0}.csv"
+# group-wide files read by agent scripts older than 2.3.0
+LEGACY_MANIFEST = "ciscat-manifest.csv"
+LEGACY_PARAMS = "ciscat-params.txt"
+LEGACY_REFRESH_CONF = "refresh.conf"
 AR_GAP = int(os.environ.get("CISCAT_AR_GAP", "15"))
 # API tokens expire after 900 s by default: a new one is taken when the current one is older
 TOKEN_MAX_AGE = int(os.environ.get("CISCAT_TOKEN_MAX_AGE", "600"))
@@ -156,7 +165,17 @@ def load_os_library():
     records, _ = store.read_list(store.TARGETS, PATHS["lists_dir"])
     targets, errors = store.validate_targets(records)
     notes += ["ciscat-targets: " + e for e in errors]
-    return discover.apply_targets(lib, targets), notes
+    lib = discover.apply_targets(lib, targets)
+    # Linux results are kept per OS on the agent (several benchmarks can apply to one agent):
+    # the path is the bridge's, whatever an older os-library.json says
+    for key, cfg in lib.items():
+        if cfg.get("family") == "linux":
+            cfg["flat_path"] = linux_results(key, cfg["profiles"][0][0])
+    return lib, notes
+
+
+def linux_results(os_key, profile_key):
+    return discover.LINUX_RESULTS.format(os_key, profile_key)
 
 
 # filled by main(): importing this module reads nothing
@@ -247,25 +266,65 @@ def fresh_token():
     return _TOKEN["value"]
 
 
-def group_agents(token, group, active_only=True, verbose=True):
-    """[(id, name, [groups])] of a group, paginated."""
+AGENT_FIELDS = "id,name,status,group,os.platform"
+
+
+def agent_record(a):
+    return {"id": a["id"], "name": a.get("name", "?"), "status": a.get("status"),
+            "groups": a.get("group") or [],
+            "platform": str((a.get("os") or {}).get("platform") or "").lower()}
+
+
+def paged(token, endpoint):
+    """Every affected item of a GET endpoint (it has no limit/offset yet)."""
     out, offset = [], 0
+    sep = "&" if "?" in endpoint else "?"
     while True:
-        data = api_json("GET", "/groups/{0}/agents?limit=500&offset={1}&select=id,name,status,group"
-                        .format(urllib.parse.quote(group), offset), token)
+        data = api_json("GET", "{0}{1}limit=500&offset={2}".format(endpoint, sep, offset), token)
         items = data.get("affected_items", [])
-        for a in items:
-            if a["id"] == "000":
-                continue
-            if active_only and a.get("status") != "active":
-                if verbose:
-                    print("  [skip] {0} {1}: status={2}".format(a["id"], a.get("name", "?"),
-                                                                a.get("status")))
-                continue
-            out.append((a["id"], a.get("name", "?"), a.get("group") or []))
+        out += items
         offset += len(items)
         if not items or offset >= data.get("total_affected_items", 0):
             return out
+
+
+def group_agent_records(token, group):
+    """Every agent of a group, the manager aside: [{id, name, status, groups, platform}]."""
+    items = paged(token, "/groups/{0}/agents?select={1}".format(urllib.parse.quote(group),
+                                                                 AGENT_FIELDS))
+    return [agent_record(a) for a in items if a["id"] != "000"]
+
+
+def agent_records(token, ids):
+    """{id: record} of the given agents (unknown ids are left out)."""
+    out = {}
+    for i in range(0, len(ids), 250):
+        items = paged(token, "/agents?agents_list={0}&select={1}".format(
+            ",".join(ids[i:i + 250]), AGENT_FIELDS))
+        out.update({a["id"]: agent_record(a) for a in items if a["id"] in ids})
+    return out
+
+
+def wrong_platform(cfg, platform):
+    """True unless the agent is known to be of the benchmark's platform: a Windows benchmark
+    never goes to a Linux or other Unix-like agent, nor the reverse (the assessment would fail,
+    and the agent would get a policy of another OS). An agent that never connected has no
+    platform yet: it gets nothing until it has one."""
+    if not platform:
+        return True
+    return (platform == "windows") != (cfg.get("family") == "windows")
+
+
+def group_agents(token, group, active_only=True, verbose=True):
+    """[(id, name, [groups])] of a group."""
+    out = []
+    for a in group_agent_records(token, group):
+        if active_only and a["status"] != "active":
+            if verbose:
+                print("  [skip] {0} {1}: status={2}".format(a["id"], a["name"], a["status"]))
+            continue
+        out.append((a["id"], a["name"], a["groups"]))
+    return out
 
 
 def existing_groups(token):
@@ -400,29 +459,32 @@ def publish_linux(os_key, cfg, art):
         entries.append((src, pfx + suf, dest_bench + "/" + pfx + suf))
     entries.append((os.path.join(BIN_DIR, "ciscat-refresh.sh"), "ciscat-refresh.sh",
                     "/var/ossec/active-response/bin/ciscat-refresh.sh"))
-    # per-OS refresh.conf generated on the fly (group-generic profile name)
+    # the OS's refresh settings, one file per OS so several OSes can share an agent
     pkey, level = cfg["profiles"][0]
     rconf = os.path.join(art["work"], "refresh.conf")
     with open(rconf, "w") as f:
         f.write('BENCHMARK_FILE="{0}-xccdf.xml"\n'.format(base))
         f.write('PROFILE_LIST="{0}|{1}"\n'.format(pkey, profile_name(os_key, level, cfg["role"])))
         f.write('SPLAY_MAX_SEC="1800"\n')
-    entries.append((rconf, "refresh.conf", "/var/lib/wazuh-ciscat/refresh.conf"))
+    entries.append((rconf, LINUX_CONF.format(os_key),
+                    "/var/lib/wazuh-ciscat/conf.d/{0}.conf".format(os_key)))
 
     lines = ["# ciscat-manifest ({0}, plain XML), generated {1}".format(
         os_key, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())), "# name;sha256;dest"]
-    missing = []
+    manifest = OS_MANIFEST.format(os_key)
+    missing, names = [], [manifest]
     for src, name, dest in entries:
         if not os.path.isfile(src):
             print("    MISSING: {0}".format(src))
             missing.append(os.path.basename(src))
             continue
         copy_atomic(src, os.path.join(gdir, name))
+        names.append(name)
         lines.append("{0};{1};{2}".format(name, sha256(os.path.join(gdir, name)), dest))
         print("    published: {0}".format(name))
-    write_atomic(os.path.join(gdir, "ciscat-manifest.csv"), "\n".join(lines) + "\n")
+    write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     own_dir(gdir)
-    return sorted(set(missing))
+    return sorted(set(missing)), names
 
 
 def publish_windows(os_key, cfg, art, exc_csv):
@@ -437,7 +499,8 @@ def publish_windows(os_key, cfg, art, exc_csv):
     # for every Windows OS)
     _, level = cfg["profiles"][0]
     flat = cfg["flat_path"].replace("/", "\\").split("\\")[-1]
-    write_atomic(os.path.join(gdir, "ciscat-params.txt"), "".join([
+    params = WINDOWS_PARAMS.format(os_key)
+    write_atomic(os.path.join(gdir, params), "".join([
         "Profile={0}\n".format(profile_id(level, cfg["role"])),
         "FlatName={0}\n".format(flat[:-len(".ciscat-flat")] if flat.endswith(".ciscat-flat")
                                 else flat),
@@ -451,15 +514,16 @@ def publish_windows(os_key, cfg, art, exc_csv):
         if os.path.isfile(src):
             copy_atomic(src, os.path.join(gdir, pfx + suf))
             companions.append(pfx + suf)
-    lines = ["# ciscat-manifest: name;sha256 (generated on the manager)"]
-    for name in [tailoring, "ciscat-params.txt"] + companions:
+    lines = ["# ciscat-manifest ({0}): name;sha256 (generated on the manager)".format(os_key)]
+    for name in [custom, tailoring, params] + companions:
         lines.append("{0};{1}".format(name, sha256(os.path.join(gdir, name))))
-    write_atomic(os.path.join(gdir, "ciscat-manifest.csv"), "\n".join(lines) + "\n")
+    manifest = OS_MANIFEST.format(os_key)
+    write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     print("    published: custom + {0} + params + {1} companion(s) + manifest".format(
         tailoring, len(companions)))
     own_dir(gdir)
     # a Windows benchmark may come without OVAL/CPE files (the agent's CIS-CAT bundle has them)
-    return []
+    return [], [custom, tailoring, params, manifest] + companions
 
 
 def policy_enabled(group, policy_file):
@@ -489,7 +553,15 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
     n_exc = sum(1 for r in exclusions.values() if r["os_key"] == os_key)
     print("  exclusions: {0}  benchmark: {1}".format(n_exc, cfg["benchmark"]))
 
-    agents = group_agents(token, cfg["group"], active_only=False, verbose=False)
+    agents, other = [], []
+    for a in group_agent_records(token, cfg["group"]):
+        if wrong_platform(cfg, a["platform"]):
+            other.append(a)
+        else:
+            agents.append((a["id"], a["name"], a["groups"]))
+    for a in other:
+        print("  [skip] {0} {1}: platform {2}, not a {3} benchmark: no policy".format(
+            a["id"], a["name"], a["platform"] or "not known yet", cfg.get("family")))
     combos = {}  # combo -> {"keys": [...], "agents": [(id, name, groups)]}
     for aid, name, groups in agents:
         keys = agent_combo_keys(exclusions, os_key, name, groups)
@@ -501,6 +573,8 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
         print("  combo {0}: {1} agent(s), {2} host/app exclusion(s)".format(
             combo_group(os_key, cid), len(c["agents"]), len(c["keys"])))
     summary = {"agents": len(agents), "combos": len(combos), "exclusions": n_exc}
+    if other:
+        summary["wrong_platform"] = sorted(a["id"] for a in other)
     if not apply_:
         print("  [dry-run] would regenerate the custom XCCDF, {0} policy(ies) and group assignments"
               .format(len(combos)))
@@ -571,9 +645,10 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
         print("    removed unused groups: {0}".format(", ".join(stale)))
     # 6. OS group: custom + companions, no policy any more
     if cfg["family"] == "linux":
-        summary["missing"] = publish_linux(os_key, cfg, art)
+        summary["missing"], published = publish_linux(os_key, cfg, art)
     else:
-        summary["missing"] = publish_windows(os_key, cfg, art, exc_csv)
+        summary["missing"], published = publish_windows(os_key, cfg, art, exc_csv)
+    summary["published"] = {"group": cfg["group"], "files": sorted(set(published))}
     old = os.path.join(PATHS["shared_dir"], cfg["group"], policy_file)
     if os.path.exists(old):
         os.remove(old)
@@ -652,6 +727,88 @@ def retire_combos(os_key, groups, token, apply_):
     print("    removed groups of an OS no longer applied: {0}".format(", ".join(combos)))
 
 
+PUBLISHED_FILE = "published.json"
+
+
+def read_published():
+    """{os_key: {"group", "files"}}: what each OS last published in its group."""
+    try:
+        with open(os.path.join(PATHS["run_dir"], PUBLISHED_FILE), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def withdraw_published(published, applied):
+    """Removes, from the group an OS published in before, the files of an OS that is not applied
+    there any more (moved to another group, switched off, or in conflict). A file another OS
+    still applied in that group also publishes stays: that OS rewrites it."""
+    keep = {(rec["group"], f) for k, rec in published.items() if applied.get(k) == rec["group"]
+            for f in rec["files"]}
+    for os_key in sorted(published):
+        rec = published[os_key]
+        if applied.get(os_key) == rec["group"]:
+            continue
+        if not store.NAME_RE.match(rec.get("group", "")):
+            del published[os_key]
+            continue
+        gdir = os.path.join(PATHS["shared_dir"], rec["group"])
+        gone = []
+        for name in rec["files"]:
+            path = os.path.join(gdir, name)
+            if os.path.basename(name) != name or (rec["group"], name) in keep:
+                continue
+            if os.path.isfile(path):
+                os.remove(path)
+                gone.append(name)
+        if gone:
+            print("[{0}] withdrawn from {1}: {2}".format(os_key, rec["group"], ", ".join(gone)))
+        del published[os_key]
+
+
+def write_group_legacy(published, groups_seen):
+    """Group-wide files for agent scripts older than 2.3.0, which read one manifest and one set
+    of Windows parameters per agent: the manifest lists the files of every OS of the group, and
+    the parameters are written only when the group has a single Windows OS (with several, an
+    old script could not tell them apart). Groups no OS publishes in any more lose them."""
+    by_group = {}
+    for os_key, rec in published.items():
+        by_group.setdefault(rec["group"], []).append(os_key)
+    for group in sorted(set(groups_seen) | set(by_group)):
+        gdir = os.path.join(PATHS["shared_dir"], group)
+        if not os.path.isdir(gdir):
+            continue
+        keys = sorted(by_group.get(group, []))
+        legacy = {}
+        lines = []
+        for k in keys:
+            try:
+                with open(os.path.join(gdir, OS_MANIFEST.format(k)), encoding="utf-8") as f:
+                    lines += [ln for ln in f.read().splitlines() if ln and not ln.startswith("#")]
+            except OSError:
+                pass
+        if lines:
+            legacy[LEGACY_MANIFEST] = "# ciscat-manifest ({0})\n# name;sha256;dest\n{1}\n".format(
+                ", ".join(keys), "\n".join(lines))
+        windows = [k for k in keys if OS_LIBRARY.get(k, {}).get("family") == "windows"]
+        if len(windows) == 1:
+            with open(os.path.join(gdir, WINDOWS_PARAMS.format(windows[0])), encoding="utf-8") as f:
+                legacy[LEGACY_PARAMS] = f.read()
+        for name in (LEGACY_MANIFEST, LEGACY_PARAMS, LEGACY_REFRESH_CONF):
+            path = os.path.join(gdir, name)
+            if name in legacy:
+                write_atomic(path, legacy[name])
+            elif os.path.isfile(path):
+                os.remove(path)  # refresh.conf: the per-OS conf replaced it in 2.3.0
+        own_dir(gdir)
+
+
+def write_published(published):
+    write_atomic(os.path.join(PATHS["run_dir"], PUBLISHED_FILE),
+                 json.dumps(published, indent=1, sort_keys=True) + "\n")
+
+
 def act_plan_apply(apply_, restart=False, request=None):
     lock = apply_lock() if apply_ else None
     try:
@@ -671,6 +828,15 @@ def plan_apply(apply_, restart, request):
     if apply_:
         update_status("apply", status)
     groups = existing_groups(token)
+    applied = {k: c["group"] for k, c in OS_LIBRARY.items() if c["active"] and c["group"] in groups}
+    published = read_published()
+    # groups whose bridge files may change: those of before and those of now
+    groups_seen = {rec["group"] for rec in published.values()} | set(applied.values())
+    if apply_:
+        # files left in a group by an OS that is applied elsewhere now go first, so the OS that
+        # stays in that group publishes its own on a clean folder
+        withdraw_published(published, applied)
+        write_published(published)
     for os_key, cfg in OS_LIBRARY.items():
         print("[{0}] group={1} active={2}".format(os_key, cfg["group"], cfg["active"]))
         if not cfg["active"]:
@@ -683,6 +849,10 @@ def plan_apply(apply_, restart, request):
             status["per_os"][os_key] = {"agents": 0, "skipped": "no group " + cfg["group"]}
             retire_combos(os_key, groups, token, apply_)
             continue
+        sharing = sorted(k for k, g in applied.items() if g == cfg["group"] and k != os_key)
+        if sharing:
+            print("  note: group {0} also gets {1}; its agents run every benchmark of their "
+                  "groups".format(cfg["group"], ", ".join(sharing)))
         try:
             status["per_os"][os_key] = summary = apply_os(os_key, cfg, exclusions, token, apply_)
         except Exception as e:
@@ -690,10 +860,20 @@ def plan_apply(apply_, restart, request):
             status["errors"].append("{0}: {1}".format(os_key, e))
             failed = True
             continue
+        if summary.get("published"):
+            published[os_key] = summary.pop("published")
+            write_published(published)
+        if summary.get("wrong_platform"):
+            status["errors"].append("{0}: {1} agent(s) of another platform in {2}, not assessed: "
+                                    "{3}".format(os_key, len(summary["wrong_platform"]),
+                                                 cfg["group"],
+                                                 ", ".join(summary["wrong_platform"][:20])))
         if summary.get("missing"):
             status["errors"].append("{0}: benchmark files missing on the master, not published: "
                                     "{1}".format(os_key, ", ".join(summary["missing"])))
             failed = True
+    if apply_:
+        write_group_legacy(published, groups_seen)
     # rejected exclusion records are reported but do not fail the apply
     status["errors"] += errors[:50]
     status["state"] = "error" if failed else "ok"
@@ -708,30 +888,93 @@ def plan_apply(apply_, restart, request):
     return 0 if status["state"] == "ok" else 1
 
 
+def resolve_run(token, targets=None, agents=None, groups=None):
+    """Who a run reaches: ({os_key: [agent ids]}, {agent id: reason not reached}, [notes]).
+
+    targets: os keys (or "*"): the agents of their OS groups, as before.
+    agents / groups: the chosen agents, or the agents of the chosen groups (an OS group or any
+    custom one).
+    An agent is reached once, with the commands of its platform: its script then runs every
+    benchmark of its groups. Agents that are not connected, that are in no group of an active
+    OS of their platform (a Windows benchmark never runs on a Linux or other Unix-like agent,
+    nor the reverse) are not reached and are reported."""
+    active = {k: c for k, c in OS_LIBRARY.items() if c["active"]}
+    existing = existing_groups(token)
+    os_of_group = {}
+    for k, c in active.items():
+        os_of_group.setdefault(c["group"], []).append(k)
+    candidates, skipped, notes = [], {}, []
+    if agents:
+        found = agent_records(token, agents)
+        for aid in agents:
+            if aid in found:
+                candidates.append((found[aid], None))
+            else:
+                skipped[aid] = "unknown agent"
+    elif groups:
+        for g in groups:
+            if g not in existing:
+                notes.append("group {0} does not exist".format(g))
+                continue
+            candidates += [(a, None) for a in group_agent_records(token, g)]
+    else:
+        for os_key in sorted(active):
+            if targets and "*" not in targets and os_key not in targets:
+                continue
+            if active[os_key]["group"] in existing:
+                candidates += [(a, os_key) for a in
+                               group_agent_records(token, active[os_key]["group"])]
+    plan, reached = {}, set()
+    for a, os_key in candidates:
+        aid = a["id"]
+        if aid == "000" or aid in reached:
+            continue
+        if a["status"] != "active":
+            skipped[aid] = "status " + str(a["status"])
+            continue
+        keys = [os_key] if os_key else sorted(
+            {k for g in a["groups"] for k in os_of_group.get(g, [])})
+        if not keys:
+            skipped[aid] = "in no group of an active CIS-CAT OS"
+            continue
+        fitting = [k for k in keys if not wrong_platform(active[k], a["platform"])]
+        if not fitting:
+            skipped[aid] = "platform {0} does not match {1}".format(
+                a["platform"] or "not known yet", ", ".join(keys))
+            continue
+        plan.setdefault(fitting[0], []).append(aid)
+        reached.add(aid)
+    # an agent skipped for one target OS and reached through another one is not reported
+    return plan, {k: v for k, v in skipped.items() if k not in reached}, notes
+
+
 def act_trigger(targets=None, wave_size=store.DEFAULT_WAVE_SIZE,
-                wave_pause=store.DEFAULT_WAVE_PAUSE_S, job=None):
+                wave_pause=store.DEFAULT_WAVE_PAUSE_S, job=None, agents=None, groups=None):
     started = now_iso()
     get_token()
     result = {"state": "running", "last_run": started, "sent": 0, "failed": 0, "skipped": [],
-              "targets": targets or ["*"]}
+              "targets": targets or ([] if agents or groups else ["*"]),
+              "agents": agents or [], "groups": groups or []}
     if job:
         update_status("job-" + job, result)
-    groups = existing_groups(fresh_token())
-    for os_key, cfg in OS_LIBRARY.items():
-        if not cfg["active"] or (targets and "*" not in targets and os_key not in targets):
-            continue
-        if cfg["group"] not in groups:
-            continue
-        members = group_members(fresh_token(), cfg["group"])
-        ids = [aid for aid, status in members if status == "active"]
-        for aid, status in members:
-            if status != "active":
-                print("  [skip] {0}: status={1}".format(aid, status))
-                result["skipped"].append(aid)
-        if not ids:
-            print("[{0}] no active agents in {1}".format(os_key, cfg["group"])); continue
+    plan, skipped, notes = resolve_run(fresh_token(), targets, agents, groups)
+    for note in notes:
+        print("  [skip] " + note)
+    for aid in sorted(skipped):
+        print("  [skip] {0}: {1}".format(aid, skipped[aid]))
+    result["skipped"] = sorted(skipped)
+    # the reasons of the first ones, so the dashboard can tell why an agent was not reached
+    result["skipped_reasons"] = {k: skipped[k] for k in sorted(skipped)[:100]}
+    if notes:
+        result["notes"] = notes
+    if not plan:
+        print("no agent to reach")
+    for os_key in sorted(plan):
+        cfg, ids = OS_LIBRARY[os_key], plan[os_key]
         second = cfg.get("ar_refresh") or cfg.get("ar_assessment")
-        if not cfg.get("ar_bootstrap") or not second:
+        # on Windows the assessment script copies the group files itself: no bootstrap
+        bootstrap = None if cfg.get("family") == "windows" else cfg.get("ar_bootstrap")
+        if (not bootstrap and cfg.get("family") != "windows") or not second:
             print("  ERROR [{0}]: no ar_bootstrap/ar_refresh/ar_assessment command in the OS "
                   "library".format(os_key))
             result["failed"] += len(ids)
@@ -741,9 +984,10 @@ def act_trigger(targets=None, wave_size=store.DEFAULT_WAVE_SIZE,
         for n, wave in enumerate(waves, 1):
             lst = ",".join(wave)
             try:
-                api_json("PUT", "/active-response?agents_list=" + lst, fresh_token(),
-                         {"command": cfg["ar_bootstrap"]})
-                time.sleep(AR_GAP)  # let bootstrap install the package first
+                if bootstrap:
+                    api_json("PUT", "/active-response?agents_list=" + lst, fresh_token(),
+                             {"command": bootstrap})
+                    time.sleep(AR_GAP)  # let bootstrap install the package first
                 r = api_json("PUT", "/active-response?agents_list=" + lst, fresh_token(),
                              {"command": second})
                 result["sent"] += r.get("total_affected_items", 0)
@@ -970,6 +1214,9 @@ def main():
     ap.add_argument("--user", help="Wazuh API user (default: api_user in the conf, else wazuh)")
     ap.add_argument("--restart", action="store_true", help="restart wazuh-manager after apply (testing only)")
     ap.add_argument("--targets", default="*", help="trigger: os keys, comma separated, or *")
+    ap.add_argument("--agents", help="trigger: agent ids, comma separated (instead of --targets)")
+    ap.add_argument("--groups", help="trigger: Wazuh groups, comma separated: OS groups or custom "
+                    "ones (instead of --targets)")
     ap.add_argument("--wave-size", type=int, default=store.DEFAULT_WAVE_SIZE,
                     help="trigger: agents per wave (default %(default)s, as in the schedules)")
     ap.add_argument("--wave-pause", type=int, default=store.DEFAULT_WAVE_PAUSE_S,
@@ -994,8 +1241,16 @@ def main():
     if args.action == "trigger":
         if args.wave_size < 1 or args.wave_pause < 0:
             sys.exit("--wave-size must be >= 1 and --wave-pause >= 0")
-        targets = [t.strip() for t in args.targets.split(",") if t.strip()]
-        return act_trigger(targets, args.wave_size, args.wave_pause, args.job)
+        split = lambda v: [t.strip() for t in (v or "").split(",") if t.strip()]  # noqa: E731
+        scope = {"agents": split(args.agents), "groups": split(args.groups)}
+        if not scope["agents"] and not scope["groups"]:
+            scope["targets"] = split(args.targets)
+        try:
+            scope = store.validate_run_scope(scope)
+        except store.StoreError as e:
+            sys.exit("trigger: {0}".format(e))
+        return act_trigger(scope["targets"], args.wave_size, args.wave_pause, args.job,
+                           agents=scope["agents"], groups=scope["groups"])
     if args.action == "baseline":
         if not args.file:
             sys.exit("baseline needs --file")

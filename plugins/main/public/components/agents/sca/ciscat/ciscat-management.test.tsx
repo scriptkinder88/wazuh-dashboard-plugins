@@ -99,7 +99,13 @@ jest.mock('./lib/lists-api', () => {
       await write('ciscat-requests', { ...current.records, [key]: request });
     },
     fetchAgentNames: () => Promise.resolve(['web-01', 'web-02']),
-    fetchGroupNames: () => Promise.resolve(['app-sap', 'os-rhel7']),
+    fetchGroupNames: () =>
+      Promise.resolve(['app-sap', 'ciscat-rhel7-base', 'os-rhel7']),
+    fetchRunAgents: () =>
+      Promise.resolve([
+        { id: '001', name: 'web-01', platform: 'rhel' },
+        { id: '003', name: 'play-cb-wxi001', platform: 'windows' },
+      ]),
     fetchCurrentUserName: () => Promise.resolve('alice'),
   };
 });
@@ -276,6 +282,32 @@ describe('CIS-CAT management tab', () => {
     );
   });
 
+  it('sets a benchmark back to no group and warns about a shared group', async () => {
+    files['ciscat-oskeys'] = renderList({
+      ...parseList(files['ciscat-oskeys']).records,
+      win: { v: 1, active: true, available: false, group: 'os-win' },
+    });
+    files['ciscat-targets'] = renderList({ rhel7: { v: 1, group: 'os-win' } });
+    render(<CiscatManagement />);
+    await screen.findByTestId('ciscat-rules');
+    expect(
+      (await screen.findByTestId('ciscat-group-shared')).textContent,
+    ).toContain('Group os-win is also the group of win');
+    const box = screen.getByTestId('ciscat-target-group');
+    fireEvent.click(within(box).getByTestId('comboBoxToggleListButton'));
+    expect(
+      screen.queryByRole('option', { name: 'ciscat-rhel7-base' }),
+    ).toBeNull();
+    fireEvent.click(
+      await screen.findByRole('option', {
+        name: 'No group (not applied from here)',
+      }),
+    );
+    expect(screen.queryByTestId('ciscat-group-shared')).toBeNull();
+    fireEvent.click(screen.getByTestId('ciscat-save'));
+    await waitFor(() => expect(lastWrite('ciscat-targets')).toEqual({}));
+  });
+
   it('refuses an exclusion without a reason', async () => {
     render(<CiscatManagement />);
     await screen.findByTestId('ciscat-rules');
@@ -338,6 +370,79 @@ describe('CIS-CAT management tab', () => {
     });
     // nothing is scheduled: the run is a one-off request
     expect(lastWrite('ciscat-schedule')).toEqual({});
+  });
+
+  it('runs now on a pasted list of agents', async () => {
+    render(<CiscatManagement />);
+    fireEvent.click(await screen.findByTestId('ciscat-tab-schedule'));
+    fireEvent.click(await screen.findByTestId('ciscat-run-now'));
+    fireEvent.click(await screen.findByLabelText('Agents'));
+    const box = await screen.findByTestId('ciscat-run-agents');
+    const input = within(box).getByRole('textbox');
+    // ids and names, the agents are read when the flyout opens
+    await waitFor(() => {
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: '003, WEB-01 nope' } });
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+      expect(within(box).getByText('001 · web-01 (rhel)')).toBeTruthy();
+    });
+    expect(
+      within(box).getByText('003 · play-cb-wxi001 (windows)'),
+    ).toBeTruthy();
+    expect(screen.getByText('Unknown agents: nope')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('ciscat-save-job'));
+    await waitFor(() =>
+      expect(Object.values(lastWrite('ciscat-requests'))).toEqual([
+        expect.objectContaining({
+          action: 'run',
+          targets: [],
+          agents: ['001', '003'],
+          groups: [],
+        }),
+      ]),
+    );
+  });
+
+  it('refuses a run without agents', async () => {
+    render(<CiscatManagement />);
+    fireEvent.click(await screen.findByTestId('ciscat-tab-schedule'));
+    fireEvent.click(await screen.findByTestId('ciscat-run-now'));
+    fireEvent.click(await screen.findByLabelText('Agents'));
+    fireEvent.click(screen.getByTestId('ciscat-save-job'));
+    expect(
+      await screen.findByText(
+        'Choose at least one operating system, group or agent',
+      ),
+    ).toBeTruthy();
+    expect(writes).toEqual([]);
+  });
+
+  it('schedules a run on a custom group', async () => {
+    render(<CiscatManagement />);
+    fireEvent.click(await screen.findByTestId('ciscat-tab-schedule'));
+    fireEvent.click(screen.getByTestId('ciscat-new-schedule'));
+    fireEvent.click(await screen.findByLabelText('Agent groups'));
+    const box = await screen.findByTestId('ciscat-run-groups');
+    fireEvent.click(within(box).getByTestId('comboBoxToggleListButton'));
+    expect(
+      await screen.findByRole('option', { name: 'os-rhel7' }),
+    ).toBeTruthy();
+    // the bridge's own groups are not offered
+    expect(
+      screen.queryByRole('option', { name: 'ciscat-rhel7-base' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('option', { name: 'app-sap' }));
+    fireEvent.click(screen.getByTestId('ciscat-save-job'));
+    await waitFor(() =>
+      expect(Object.values(lastWrite('ciscat-schedule'))).toEqual([
+        expect.objectContaining({
+          targets: [],
+          groups: ['app-sap'],
+          agents: [],
+        }),
+      ]),
+    );
+    expect(await screen.findByText('Group app-sap')).toBeTruthy();
   });
 
   it('shows the coverage trend per benchmark', async () => {
