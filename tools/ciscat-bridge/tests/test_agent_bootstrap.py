@@ -36,8 +36,10 @@ class Bootstrap(unittest.TestCase):
         with open(os.path.join(self.shared, "ciscat-manifest.csv"), "w") as f:
             f.write(manifest if manifest is not None else
                     "# ciscat-manifest (test)\n# name;sha256;dest\n" + "\n".join(self.lines) + "\n")
+        # as execd does: the alert as one JSON line on stdin
         r = subprocess.run(["sh", SCRIPT], env=self.env, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, timeout=30, text=True)
+                           stderr=subprocess.STDOUT, timeout=30, text=True,
+                           input='{"command":"add","parameters":{}}\n')
         self.assertEqual(r.stdout, "")  # under execd stdout is not a terminal: nothing on it
         with open(self.ar_log) as f:
             return r.returncode, f.read()
@@ -73,8 +75,10 @@ class Bootstrap(unittest.TestCase):
         os.makedirs(os.path.join(self.shared, "os-rhel7"))
         with open(os.path.join(self.shared, "os-rhel7", "ciscat-manifest.csv"), "w") as f:
             f.write("# ciscat-manifest\n")
+        # as execd does: the alert as one JSON line on stdin
         r = subprocess.run(["sh", SCRIPT], env=self.env, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, timeout=30, text=True)
+                           stderr=subprocess.STDOUT, timeout=30, text=True,
+                           input='{"command":"add","parameters":{}}\n')
         self.assertEqual(r.returncode, 1)
         with open(self.ar_log) as f:
             self.assertIn("manifest not found in " + self.shared, f.read())

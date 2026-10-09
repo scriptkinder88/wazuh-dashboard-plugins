@@ -24,6 +24,11 @@ class FakeWazuh:
         self.confs = {}  # {group: agent.conf}
         for g in self.groups:
             os.makedirs(os.path.join(shared_dir, g), exist_ok=True)
+        # the Active Response commands the master distributes (from its ossec.conf)
+        with open(os.path.join(shared_dir, "ar.conf"), "w") as f:
+            f.write("ciscat-bootstrap-linux0 - ciscat-bootstrap.sh - 0\n"
+                    "ciscat-refresh-linux0 - ciscat-refresh.sh - 0\n"
+                    "ciscat-assessment0 - ciscat-assessment.cmd - 0\n")
 
     def handle(self, method, path, query, body):
         self.calls.append((method, path))

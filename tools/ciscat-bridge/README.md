@@ -164,9 +164,19 @@ Windows, `ciscat-assessment.ps1` runs each `ciscat-params-<os>.txt` of the share
 | Installed by the bridge | `ciscat-refresh.sh`, benchmarks, `/var/lib/wazuh-ciscat/conf.d`                                        | benchmarks (copied by the script)                                                                                      |
 | Results                 | `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>/results.txt`                                       | `C:\Program Files (x86)\ciscat\results\<name>.ciscat-flat`                                                             |
 
-The master's `ossec.conf` maps the Active Response commands: `ciscat-bootstrap-linux` →
+The master's `ossec.conf` maps the Active Response commands (`<command>` and `<active-response>`
+blocks; the installer reports missing or wrong ones): `ciscat-bootstrap-linux` →
 `ciscat-bootstrap.sh`, `ciscat-refresh-linux` → `ciscat-refresh.sh`, `ciscat-assessment` →
-`ciscat-assessment.cmd`. Windows agents get no bootstrap command.
+`ciscat-assessment.cmd`. Runs send these command names, so the agent runs what the master maps;
+a command missing from the master's `ar.conf` stops the run with an error instead of failing
+silently on the agents. Windows agents get no bootstrap command.
+
+Active Response protocol (Wazuh `os_execd`): the agent writes the alert as one JSON line on the
+script's stdin and waits for the script to exit and close its stdout, running no other Active
+Response meanwhile. The scripts read that line and return at once: `ciscat-refresh.sh` and the
+Windows launcher start the assessment as a detached process (`--foreground` and `-Detach`), and
+an assessment already running on the agent makes a new one stop (`flock` on Linux, a named mutex
+on Windows). Linux agents run only the shell scripts, Windows agents only the `.cmd` and `.ps1`.
 
 ## Changes
 
@@ -177,7 +187,11 @@ The master's `ossec.conf` maps the Active Response commands: `ciscat-bootstrap-l
   Linux results per OS (`reports-cache/<os>/<profile>`), every benchmark of an agent runs in turn
   (Linux and Windows scripts; older agent scripts keep working through the group-wide files).
   Files a benchmark published in a group it left are removed. The `ciscat-*` groups of the
-  bridge cannot be chosen as a benchmark's group. Windows runs get no bootstrap command.
+  bridge cannot be chosen as a benchmark's group. Windows runs get no bootstrap command. Runs
+  send the Active Response command names configured on the master (no `!` script names, which
+  bypassed the master's mapping and failed silently on Windows), and the agent scripts read the
+  alert line and run the assessment detached, so the agent's Active Response is never held for
+  the length of an assessment. Linux `ciscat-refresh.sh` splays only with `--splay`.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

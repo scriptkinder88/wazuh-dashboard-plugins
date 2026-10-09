@@ -27,6 +27,21 @@ set -u
 # see this). Ignore SIGPIPE and write to stdout only when it is a terminal.
 trap '' PIPE
 
+# Under execd (Active Response, no argument and stdin not a terminal): execd writes the alert as
+# one JSON line on stdin, then waits until this script exits and closes its stdout (Wazuh
+# os_execd/execd.c: fgets, then waitpid), and runs no other Active Response meanwhile. An
+# assessment takes minutes: read the line, start the assessment detached with nothing inherited,
+# and return at once.
+if [ $# -eq 0 ] && [ ! -t 0 ]; then
+    IFS= read -r _alert || true
+    if command -v setsid >/dev/null 2>&1; then
+        setsid sh "$0" --foreground </dev/null >/dev/null 2>&1 &
+    else
+        nohup sh "$0" --foreground </dev/null >/dev/null 2>&1 &
+    fi
+    exit 0
+fi
+
 # Overridable for tests only; execd runs the script with the defaults.
 CISCAT_PATH="${CISCAT_PATH:-/opt/ciscat/Assessor}"
 DATA_DIR="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
@@ -149,13 +164,9 @@ for k in $KEYS; do
 done
 SPLAY_MAX_SEC=$splay
 
-# Splay policy: an Active Response trigger is on-demand by definition, so it
-# NEVER splays (execd invokes us via the *-linux0 symlink, detectable from $0).
-# Scheduled runs (systemd timer calling ciscat-refresh.sh directly) splay per
-# SPLAY_MAX_SEC; --no-splay also skips. Same behaviour in testing and steady
-# state: trigger = immediate, schedule = splayed.
-case "$(basename "$0")" in *linux0) set -- --no-splay ;; esac
-if [ "${1:-}" != "--no-splay" ] && [ "$SPLAY_MAX_SEC" -gt 0 ] 2>/dev/null; then
+# Splay only when asked (--splay, for a local timer calling the script): runs started by the
+# master are already spread in waves, and "Run now" must start now.
+if [ "${1:-}" = "--splay" ] && [ "$SPLAY_MAX_SEC" -gt 0 ] 2>/dev/null; then
     delay=$(( $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % SPLAY_MAX_SEC ))
     log "splay: sleeping ${delay}s before assessment"
     sleep "$delay"

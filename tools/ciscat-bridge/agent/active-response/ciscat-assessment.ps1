@@ -24,7 +24,9 @@ param(
     [string]$Profile  = "xccdf_org.cisecurity.benchmarks_profile_TAILORED_Level_1_-_Member_Server",
     [string]$FlatName = "cis_win2025_v2.0.0",
     # the custom benchmark file name as pushed into shared/ (must match what the manager dropped)
-    [string]$CustomXccdf = ""
+    [string]$CustomXccdf = "",
+    # used by ciscat-assessment.cmd: start this script again as a separate process and return
+    [switch]$Detach
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,7 +46,31 @@ function Fail($msg) {
     exit 1
 }
 
+# Under Active Response the launcher must return at once (wazuh-execd waits for it): the
+# assessment runs in a new process started by Start-Process, which inherits none of the
+# launcher's handles. The parameters given here are passed on.
+if ($Detach) {
+    $argv = @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
+    foreach ($name in "Ciscat", "SharedDir", "Profile", "FlatName", "CustomXccdf") {
+        if ($PSBoundParameters.ContainsKey($name)) { $argv += @("-$name", "`"$($PSBoundParameters[$name])`"") }
+    }
+    try {
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList $argv -WindowStyle Hidden -PassThru
+        Log "assessment started in the background (process $($p.Id))"
+        exit 0
+    } catch {
+        Log "ERROR: could not start the assessment: $($_.Exception.Message)"
+        exit 1
+    }
+}
+
 Log "=== start (running as $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)) ==="
+
+# One assessment at a time on this agent (two runs would share the Assessor's report folder).
+$lock = New-Object System.Threading.Mutex($false, "Global\ciscat-assessment")
+$owned = $false
+try { $owned = $lock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+if (-not $owned) { Fail "another CIS-CAT assessment is running on this agent; this run is skipped" }
 
 # Benchmarks of this agent: one ciscat-params-<os>.txt per OS group it belongs to (Key=Value
 # lines published by the manager), or the single ciscat-params.txt of an older manager. They

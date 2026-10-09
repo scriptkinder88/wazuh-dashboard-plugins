@@ -149,8 +149,8 @@ class FleetIntegration(unittest.TestCase):
         out = self.fleet("trigger", "--targets", "rhel7", "--wave-size", "1", "--wave-pause", "0",
                          "--job", "j1")
         cmds = [c for c, _ in self.fake.ar]
-        self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 2, out)  # 001 and 002, one per wave
-        self.assertNotIn("!ciscat-assessment0", cmds)
+        self.assertEqual(cmds.count("ciscat-refresh-linux0"), 2, out)  # 001 and 002, one per wave
+        self.assertNotIn("ciscat-assessment0", cmds)
         status, _ = store.read_list(store.STATUS, self.paths["lists_dir"])
         self.assertEqual((status["job-j1"]["sent"], status["job-j1"]["skipped"]), (2, ["003"]))
 
@@ -234,8 +234,8 @@ class FleetDiscovery(FleetIntegration):
 
         out = self.fleet("trigger")
         cmds = [c for c, _ in self.fake.ar]
-        self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 1, out)  # 001 and 002 in one wave
-        self.assertEqual(cmds.count("!ciscat-assessment0"), 1, out)     # 004
+        self.assertEqual(cmds.count("ciscat-refresh-linux0"), 1, out)  # 001 and 002 in one wave
+        self.assertEqual(cmds.count("ciscat-assessment0"), 1, out)     # 004
 
         # the dashboard moves this benchmark to another group: its agents take over the combos
         store.write_list(store.TARGETS, {u: {"v": 1, "group": "linux-prod", "updated_by": "alice"}},

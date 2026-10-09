@@ -888,6 +888,23 @@ def plan_apply(apply_, restart, request):
     return 0 if status["state"] == "ok" else 1
 
 
+def ar_command(value):
+    """The Active Response command to send: its name in ar.conf. A leading "!" (older OS libraries)
+    is dropped: with it the agent runs active-response/bin/<name> as a file, bypassing ar.conf, so a
+    missing or misnamed script fails on the agent without any error on the manager, and on Windows
+    the <executable> of the master's ossec.conf (the .cmd launcher) is never used."""
+    return (value or "").lstrip("!")
+
+
+def configured_ar_commands():
+    """Names of the Active Response commands the master distributes (shared/ar.conf)."""
+    try:
+        with open(os.path.join(PATHS["shared_dir"], "ar.conf"), encoding="utf-8") as f:
+            return {line.split(" - ")[0].strip() for line in f if " - " in line}
+    except OSError:
+        return set()
+
+
 def resolve_run(token, targets=None, agents=None, groups=None):
     """Who a run reaches: ({os_key: [agent ids]}, {agent id: reason not reached}, [notes]).
 
@@ -969,15 +986,26 @@ def act_trigger(targets=None, wave_size=store.DEFAULT_WAVE_SIZE,
         result["notes"] = notes
     if not plan:
         print("no agent to reach")
+    configured = configured_ar_commands()
     for os_key in sorted(plan):
         cfg, ids = OS_LIBRARY[os_key], plan[os_key]
-        second = cfg.get("ar_refresh") or cfg.get("ar_assessment")
+        second = ar_command(cfg.get("ar_refresh") or cfg.get("ar_assessment"))
         # on Windows the assessment script copies the group files itself: no bootstrap
-        bootstrap = None if cfg.get("family") == "windows" else cfg.get("ar_bootstrap")
+        bootstrap = None if cfg.get("family") == "windows" else ar_command(cfg.get("ar_bootstrap"))
         if (not bootstrap and cfg.get("family") != "windows") or not second:
             print("  ERROR [{0}]: no ar_bootstrap/ar_refresh/ar_assessment command in the OS "
                   "library".format(os_key))
             result["failed"] += len(ids)
+            continue
+        missing = [c for c in (bootstrap, second) if c and c not in configured]
+        if missing:
+            print("  ERROR [{0}]: Active Response command(s) {1} not in the master's ar.conf: add "
+                  "their <command> and <active-response> blocks to ossec.conf (the installer prints "
+                  "them) and restart wazuh-manager".format(os_key, ", ".join(missing)))
+            result["failed"] += len(ids)
+            result.setdefault("notes", []).append("{0}: Active Response command(s) {1} not "
+                                                   "configured on the master".format(
+                                                       os_key, ", ".join(missing)))
             continue
         waves = [ids[i:i + wave_size] for i in range(0, len(ids), wave_size)]
         print("[{0}] {1} agent(s) in {2} wave(s)".format(os_key, len(ids), len(waves)))

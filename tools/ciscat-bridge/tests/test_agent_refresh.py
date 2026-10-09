@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,7 +59,7 @@ class Refresh(unittest.TestCase):
         if report is not None:
             with open(self.arf, "w") as f:
                 f.write(report)
-        r = subprocess.run(["sh", SCRIPT, "--no-splay"], env=self.env, cwd=self.d,
+        r = subprocess.run(["sh", SCRIPT, "--foreground"], env=self.env, cwd=self.d,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
         with open(self.ar_log) as f:
             return r.returncode, f.read()
@@ -101,6 +102,29 @@ class Refresh(unittest.TestCase):
         self.assertIn("benchmark aks no longer applies to this agent", log)
         self.assertEqual(os.listdir(os.path.join(self.data, "conf.d")), ["rhel7.conf"])
         self.assertEqual(os.listdir(old), ["results.txt.stale"])
+
+    def test_under_execd_the_assessment_runs_detached_and_execd_is_released(self):
+        # execd writes one JSON line on stdin, keeps the pipe open and waits for the script to
+        # exit and close its stdout: the script must return at once, the assessment goes on
+        with open(self.arf, "w") as f:
+            f.write(arf(rule_result("1.1", "pass")))
+        cli = os.path.join(self.assessor, "Assessor-CLI.sh")
+        with open(cli, "w") as f:
+            f.write("#!/bin/sh\nsleep 2\n" + FAKE_ASSESSOR.split("\n", 1)[1])
+        p = subprocess.Popen(["sh", SCRIPT], env=self.env, cwd=self.d, stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        p.stdin.write(b'{"command":"add","parameters":{}}\n')
+        p.stdin.flush()
+        start = time.monotonic()
+        out = p.stdout.read()  # EOF only when no process holds the pipe any more
+        p.wait(timeout=10)
+        self.assertLess(time.monotonic() - start, 1.5, "execd would wait for the assessment")
+        self.assertEqual((p.returncode, out), (0, b""))
+        p.stdin.close()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not os.path.exists(os.path.join(self.cache, "results.txt")):
+            time.sleep(0.2)
+        self.assertEqual(self.results(), "1.1:pass\n")
 
     def test_flatten_pairs_each_rule_with_its_result(self):
         rc, log = self.run_refresh(arf(rule_result("1.1.2", "PASS"),
@@ -178,8 +202,9 @@ class RefreshWithoutAssessor(unittest.TestCase):
         ar_log = os.path.join(d, "active-responses.log")
         env = dict(os.environ, CISCAT_PATH=os.path.join(d, "no-assessor"),
                    CISCAT_DATA_DIR=data, CISCAT_AR_LOG=ar_log)
-        r = subprocess.run(["sh", SCRIPT], env=env, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, timeout=30)
+        # the assessment as the detached run started under execd does it
+        r = subprocess.run(["sh", SCRIPT, "--foreground"], env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, timeout=30)
         self.assertEqual(r.returncode, 1)
         with open(ar_log) as f:
             log = f.read()

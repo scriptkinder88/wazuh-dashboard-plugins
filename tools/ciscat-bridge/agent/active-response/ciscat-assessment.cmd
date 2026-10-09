@@ -1,23 +1,25 @@
 @echo off
-REM ciscat-assessment.cmd  (AGENT side, Windows) - launcher
+REM ciscat-assessment.cmd  (AGENT side, Windows) - Active Response launcher
 REM
-REM Active Response on Windows cannot run .ps1 directly: it runs .cmd/.exe from
-REM active-response\bin\. This launcher is what AR invokes; it calls the real
-REM PowerShell assessment script.
+REM Active Response on Windows runs .exe or .cmd files from active-response\bin\, not .ps1: the
+REM master's ossec.conf maps the command ciscat-assessment to this file (ar.conf on the agent).
 REM
-REM AR passes the alert JSON on STDIN; we do not need it for a manual/scheduled
-REM assessment trigger, so we ignore it and just launch the script.
+REM wazuh-execd writes the alert as one JSON line on stdin, then waits until this process exits
+REM and its stdout is closed, and runs no other Active Response meanwhile (Wazuh os_execd/execd.c
+REM and shared/exec_op.c). An assessment takes minutes, so the launcher reads the line and asks
+REM the PowerShell script to start itself detached (-Detach): the assessment then runs in a
+REM process that holds none of execd's pipes, and this launcher returns at once.
 REM
 REM Logs go to active-response\active-responses.log (written by the .ps1).
 
-set SCRIPT="%~dp0ciscat-assessment.ps1"
-set LOG="C:\Program Files (x86)\ossec-agent\active-response\active-responses.log"
-
-echo %DATE% %TIME% ciscat-assessment.cmd: launcher invoked by Active Response >> %LOG%
+setlocal
+set "LOG=%~dp0..\active-responses.log"
+set /p ALERT=
+echo %DATE% %TIME% ciscat-assessment.cmd: launcher invoked by Active Response >> "%LOG%"
 
 REM -ExecutionPolicy Bypass so the script runs regardless of local policy.
 REM At scale this .ps1 should be signed with the internal PKI.
-powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File %SCRIPT%
-
-echo %DATE% %TIME% ciscat-assessment.cmd: powershell exited with code %ERRORLEVEL% >> %LOG%
-exit /b %ERRORLEVEL%
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ciscat-assessment.ps1" -Detach < NUL > NUL 2>&1
+set RC=%ERRORLEVEL%
+echo %DATE% %TIME% ciscat-assessment.cmd: launcher done, exit code %RC% >> "%LOG%"
+exit /b %RC%

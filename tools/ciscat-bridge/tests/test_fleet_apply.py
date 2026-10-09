@@ -221,8 +221,8 @@ class FleetApply(unittest.TestCase):
         self.fleet("trigger", "--agents", "004,001,999", "--wave-pause", "0", "--job", "r1")
         # Windows: the assessment only (its script copies the group files itself)
         self.assertEqual(self.reached(), [
-            ("!ciscat-assessment0", "004"), ("!ciscat-bootstrap-linux0", "001"),
-            ("!ciscat-refresh-linux0", "001")])
+            ("ciscat-assessment0", "004"), ("ciscat-bootstrap-linux0", "001"),
+            ("ciscat-refresh-linux0", "001")])
         st = self.status()["job-r1"]
         self.assertEqual((st["state"], st["sent"], st["agents"], st["targets"]),
                          ("ok", 2, ["001", "004", "999"], []))
@@ -231,8 +231,8 @@ class FleetApply(unittest.TestCase):
     def test_trigger_on_a_custom_group_runs_each_agent_with_its_os(self):
         self.mixed_fleet()
         self.fleet("trigger", "--groups", "test,missing", "--wave-pause", "0", "--job", "r2")
-        self.assertEqual(self.reached(), [("!ciscat-assessment0", "004"),
-                                          ("!ciscat-assessment0", "006")])
+        self.assertEqual(self.reached(), [("ciscat-assessment0", "004"),
+                                          ("ciscat-assessment0", "006")])
         reasons = self.status()["job-r2"]["skipped_reasons"]
         self.assertEqual(reasons["005"], "platform ubuntu does not match win")
         self.assertEqual(reasons["007"], "in no group of an active CIS-CAT OS")
