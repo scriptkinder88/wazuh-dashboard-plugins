@@ -156,13 +156,13 @@ Windows, `ciscat-assessment.ps1` runs each `ciscat-params-<os>.txt` of the share
 
 **Agent layout** (CIS-CAT Pro is provisioned on each agent, the bridge never distributes it):
 
-| | Linux and other Unix-like | Windows |
-| --- | --- | --- |
-| Assessor | `/opt/ciscat/Assessor/Assessor-CLI.sh` | `C:\Program Files (x86)\ciscat\Assessor-CLI.bat` |
-| Assessor setting | `exit.on.invalid.signature=false` in `config/assessor-cli.properties` (the custom XCCDF is not signed) | same |
-| Provisioned by hand | `/var/ossec/active-response/bin/ciscat-bootstrap.sh` (root:wazuh 0750) | `ciscat-assessment.cmd` and `.ps1` in `ossec-agent\active-response\bin`, `CISCAT-CsvToFlat.ps1` in the Assessor folder |
-| Installed by the bridge | `ciscat-refresh.sh`, benchmarks, `/var/lib/wazuh-ciscat/conf.d` | benchmarks (copied by the script) |
-| Results | `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>/results.txt` | `C:\Program Files (x86)\ciscat\results\<name>.ciscat-flat` |
+|                         | Linux and other Unix-like                                                                              | Windows                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Assessor                | `/opt/ciscat/Assessor/Assessor-CLI.sh`                                                                 | `C:\Program Files (x86)\ciscat\Assessor-CLI.bat`                                                                       |
+| Assessor setting        | `exit.on.invalid.signature=false` in `config/assessor-cli.properties` (the custom XCCDF is not signed) | same                                                                                                                   |
+| Provisioned by hand     | `/var/ossec/active-response/bin/ciscat-bootstrap.sh` (root:wazuh 0750)                                 | `ciscat-assessment.cmd` and `.ps1` in `ossec-agent\active-response\bin`, `CISCAT-CsvToFlat.ps1` in the Assessor folder |
+| Installed by the bridge | `ciscat-refresh.sh`, benchmarks, `/var/lib/wazuh-ciscat/conf.d`                                        | benchmarks (copied by the script)                                                                                      |
+| Results                 | `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>/results.txt`                                       | `C:\Program Files (x86)\ciscat\results\<name>.ciscat-flat`                                                             |
 
 The master's `ossec.conf` maps the Active Response commands: `ciscat-bootstrap-linux` →
 `ciscat-bootstrap.sh`, `ciscat-refresh-linux` → `ciscat-refresh.sh`, `ciscat-assessment` →

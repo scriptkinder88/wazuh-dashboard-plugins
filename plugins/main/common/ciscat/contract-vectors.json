@@ -147,34 +147,24 @@
       "wave_size": 0
     },
     {
-      "agents": [
-        "000"
-      ],
+      "agents": ["000"],
       "at": "2026-10-31T22:00",
       "type": "once"
     },
     {
-      "agents": [
-        "3"
-      ],
+      "agents": ["3"],
       "at": "2026-10-31T22:00",
       "type": "once"
     },
     {
       "at": "2026-10-31T22:00",
-      "groups": [
-        "ciscat-rhel7-base"
-      ],
+      "groups": ["ciscat-rhel7-base"],
       "type": "once"
     },
     {
-      "agents": [
-        "003"
-      ],
+      "agents": ["003"],
       "at": "2026-10-31T22:00",
-      "groups": [
-        "web"
-      ],
+      "groups": ["web"],
       "type": "once"
     },
     {
@@ -184,9 +174,7 @@
     },
     {
       "at": "2026-10-31T22:00",
-      "groups": [
-        ".."
-      ],
+      "groups": [".."],
       "type": "once"
     }
   ],
@@ -212,9 +200,7 @@
     {
       "input": {
         "at": "2026-10-31T22:00",
-        "targets": [
-          "rhel7"
-        ],
+        "targets": ["rhel7"],
         "type": "once"
       },
       "normalized": {
@@ -225,9 +211,7 @@
         "enabled": true,
         "groups": [],
         "label": "",
-        "targets": [
-          "rhel7"
-        ],
+        "targets": ["rhel7"],
         "type": "once",
         "v": 1,
         "wave_pause_s": 300,
@@ -249,9 +233,7 @@
         "enabled": true,
         "groups": [],
         "label": "",
-        "targets": [
-          "*"
-        ],
+        "targets": ["*"],
         "time": "23:30",
         "type": "monthly",
         "v": 1,
@@ -262,9 +244,7 @@
     {
       "input": {
         "label": "Monday night",
-        "targets": [
-          "*"
-        ],
+        "targets": ["*"],
         "time": "01:15",
         "type": "weekly",
         "weekday": 0
@@ -276,9 +256,7 @@
         "enabled": true,
         "groups": [],
         "label": "Monday night",
-        "targets": [
-          "*"
-        ],
+        "targets": ["*"],
         "time": "01:15",
         "type": "weekly",
         "v": 1,
@@ -289,20 +267,13 @@
     },
     {
       "input": {
-        "agents": [
-          "017",
-          "003",
-          "003"
-        ],
+        "agents": ["017", "003", "003"],
         "at": "2026-11-02T08:00",
         "targets": [],
         "type": "once"
       },
       "normalized": {
-        "agents": [
-          "003",
-          "017"
-        ],
+        "agents": ["003", "017"],
         "at": "2026-11-02T08:00",
         "created_at": "",
         "created_by": "",
@@ -318,10 +289,7 @@
     },
     {
       "input": {
-        "groups": [
-          "web-prod",
-          "os-rhel7"
-        ],
+        "groups": ["web-prod", "os-rhel7"],
         "time": "20:00",
         "type": "weekly",
         "weekday": 4
@@ -331,10 +299,7 @@
         "created_at": "",
         "created_by": "",
         "enabled": true,
-        "groups": [
-          "os-rhel7",
-          "web-prod"
-        ],
+        "groups": ["os-rhel7", "web-prod"],
         "label": "",
         "targets": [],
         "time": "20:00",
