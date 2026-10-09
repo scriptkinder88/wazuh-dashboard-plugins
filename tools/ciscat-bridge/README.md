@@ -198,7 +198,10 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   layout under `C:\CIS`: the Assessor in `C:\CIS\Assessor`, results in `C:\CIS\results`, and
   the assessment and conversion scripts published by the master and installed by
   `ciscat-bootstrap.ps1` (SHA-256 checked) in `C:\CIS\bin`; only the launcher and the bootstrap
-  are installed by hand.
+  are installed by hand. Every combo group gets its `agent.conf` with the SCA scan interval
+  (`CISCAT_SCA_INTERVAL`, default `1h`, instead of the agent's 12 hours) and loads the policy
+  when the manager does not already. An agent with CIS-CAT Pro but no license reports it (same
+  alert as a missing Assessor) and its old results are withdrawn.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

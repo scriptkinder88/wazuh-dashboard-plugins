@@ -107,6 +107,22 @@ if [ ! -x "${CISCAT_PATH}/Assessor-CLI.sh" ]; then
     fail "CIS-CAT Pro not found on $(hostname): ${CISCAT_PATH}/Assessor-CLI.sh is missing. Assessment stopped; previous results withdrawn from SCA."
 fi
 
+# CIS-CAT Pro needs its license: the file named by ciscat.license.filepath in its settings, else a
+# file in its license folder. Without it the Assessor would fail on every benchmark.
+license_ok() {
+    lp=$(sed -n 's/^[[:space:]]*ciscat\.license\.filepath[[:space:]]*=[[:space:]]*//p' \
+        "${CISCAT_PATH}/config/assessor-cli.properties" 2>/dev/null | tail -1 | tr -d '\r')
+    if [ -n "$lp" ]; then [ -s "$lp" ]; return; fi
+    for f in "${CISCAT_PATH}"/license/*; do [ -s "$f" ] && return 0; done
+    return 1
+}
+if ! license_ok; then
+    for old in "$CACHE_DIR"/*/results.txt "$CACHE_DIR"/*/*/results.txt; do
+        [ -f "$old" ] && mv -f "$old" "${old}.stale" 2>/dev/null
+    done
+    fail "CIS-CAT Pro not found on $(hostname): no license (${CISCAT_PATH}/license, or ciscat.license.filepath in its settings). Assessment stopped; previous results withdrawn from SCA."
+fi
+
 # read_conf <file>: the settings of one benchmark. The file comes from the manager: it is read
 # as data (KEY="value" lines, known keys only), never sourced, so nothing in it runs as root.
 read_conf() {

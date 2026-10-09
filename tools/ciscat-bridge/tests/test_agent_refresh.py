@@ -45,6 +45,9 @@ class Refresh(unittest.TestCase):
         with open(cli, "w") as f:
             f.write(FAKE_ASSESSOR)
         os.chmod(cli, 0o755)
+        os.makedirs(os.path.join(self.assessor, "license"))
+        with open(os.path.join(self.assessor, "license", "license.xml"), "w") as f:
+            f.write("<license/>")
         self.arf = os.path.join(self.d, "report.xml")
         self.ar_log = os.path.join(self.d, "active-responses.log")
         self.env = dict(os.environ, CISCAT_PATH=self.assessor, CISCAT_DATA_DIR=self.data,
@@ -125,6 +128,26 @@ class Refresh(unittest.TestCase):
         while time.monotonic() < deadline and not os.path.exists(os.path.join(self.cache, "results.txt")):
             time.sleep(0.2)
         self.assertEqual(self.results(), "1.1:pass\n")
+
+    def test_without_license_it_stops_and_withdraws_the_results(self):
+        with open(os.path.join(self.cache, "results.txt"), "w") as f:
+            f.write("1.1:pass\n")
+        os.remove(os.path.join(self.assessor, "license", "license.xml"))
+        rc, log = self.run_refresh(arf(rule_result("1.1", "pass")))
+        self.assertEqual(rc, 1)
+        self.assertIn("no license", log)
+        self.assertEqual(os.listdir(self.cache), ["results.txt.stale"])
+        with open(RULES) as f:
+            self.assertIn(re.search(r"<match>([^<]+)</match>", f.read()).group(1), log)
+        # a license file named in the Assessor settings is found there
+        os.makedirs(os.path.join(self.assessor, "config"))
+        lic = os.path.join(self.d, "elsewhere.xml")
+        with open(lic, "w") as f:
+            f.write("<license/>")
+        with open(os.path.join(self.assessor, "config", "assessor-cli.properties"), "w") as f:
+            f.write("ciscat.license.filepath={0}\n".format(lic))
+        rc, log = self.run_refresh()
+        self.assertEqual(rc, 0, log)
 
     def test_flatten_pairs_each_rule_with_its_result(self):
         rc, log = self.run_refresh(arf(rule_result("1.1.2", "PASS"),

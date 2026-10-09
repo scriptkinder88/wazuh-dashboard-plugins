@@ -560,14 +560,23 @@ def policy_enabled(group, policy_file):
         return False
 
 
-def sca_agent_conf(cfg, policy_file):
-    """agent.conf of a combo group (owned by the bridge): load the SCA policy shipped with it."""
+# How often the agents' SCA module reads the results again: an assessment's results reach the
+# dashboard at the next scan. It is the interval of the agent's whole SCA module.
+SCA_INTERVAL = os.environ.get("CISCAT_SCA_INTERVAL", "1h")
+if not re.match(r"^[1-9][0-9]{0,4}[smhdw]$", SCA_INTERVAL):
+    SCA_INTERVAL = "1h"
+
+
+def sca_agent_conf(cfg, policy_file, load_policy=True):
+    """agent.conf of a combo group (owned by the bridge): the SCA scan interval, and the SCA
+    policy shipped with the group unless the OS group's own agent.conf already loads it."""
     path = ("shared/" if cfg["family"] == "windows" else "etc/shared/") + policy_file
+    policies = ("    <policies>\n      <policy>{0}</policy>\n    </policies>\n".format(path)
+                if load_policy else "")
     return ("<!-- managed by the CIS-CAT bridge: SCA policy {0} -->\n"
             "<agent_config>\n  <sca>\n    <enabled>yes</enabled>\n"
-            "    <scan_on_start>yes</scan_on_start>\n    <policies>\n"
-            "      <policy>{1}</policy>\n    </policies>\n  </sca>\n</agent_config>\n"
-            ).format(cfg["policy_id"], path)
+            "    <scan_on_start>yes</scan_on_start>\n    <interval>{1}</interval>\n"
+            "{2}  </sca>\n</agent_config>\n").format(cfg["policy_id"], SCA_INTERVAL, policies)
 
 
 def apply_os(os_key, cfg, exclusions, token, apply_):
@@ -626,12 +635,11 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
     # 3. combo groups hold the policy (before it leaves the OS group, so agents never miss it)
     existing = existing_groups(token)
     policy_file = os.path.basename(art["policy"])
-    # OSes set up by hand keep loading the policy as they always did; a discovered OS, or one moved
-    # to another group from the dashboard, gets the policy loaded by its combo groups
-    sca_conf = None
-    if (cfg.get("discovered") or cfg.get("group_source") == "dashboard") and \
-            not policy_enabled(cfg["group"], policy_file):
-        sca_conf = sca_agent_conf(cfg, policy_file)
+    # The combo groups load the policy, unless the OS group's agent.conf already does (an OS set up
+    # by hand before the bridge), and always set the SCA interval: the results of a run are read
+    # within the interval instead of at the next default scan (12 hours)
+    sca_conf = sca_agent_conf(cfg, policy_file,
+                              load_policy=not policy_enabled(cfg["group"], policy_file))
     for cid, b in built.items():
         g = combo_group(os_key, cid)
         if g not in existing:
@@ -640,8 +648,7 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
         gdir = os.path.join(PATHS["shared_dir"], g)
         os.makedirs(gdir, exist_ok=True)
         copy_atomic(b["policy"], os.path.join(gdir, policy_file))
-        if sca_conf:
-            write_atomic(os.path.join(gdir, "agent.conf"), sca_conf)
+        write_atomic(os.path.join(gdir, "agent.conf"), sca_conf)
         own_dir(gdir)
     # 4. assignments: add the right combo group, then drop the others of this OS
     moved = 0

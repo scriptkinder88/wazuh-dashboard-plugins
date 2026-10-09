@@ -140,6 +140,23 @@ class FleetApply(unittest.TestCase):
         self.assertIn("ciscat-aks-handmade", self.fake.groups)
         self.assertIn("ciscat-rhel7-base", self.fake.groups)
 
+    def test_combo_groups_load_the_policy_and_set_the_sca_interval(self):
+        self.companions()
+        self.fleet("apply")
+        with open(os.path.join(self.paths["shared_dir"], "ciscat-rhel7-base", "agent.conf")) as f:
+            conf = f.read()
+        self.assertIn("<interval>1h</interval>", conf)
+        self.assertIn("<policy>etc/shared/cis_rhel7_tailored_l1_server.yml</policy>", conf)
+        # an OS group that loads the policy itself (set up by hand): the interval only
+        with open(os.path.join(self.paths["shared_dir"], "os-rhel7", "agent.conf"), "w") as f:
+            f.write("<agent_config><sca><policies><policy>etc/shared/"
+                    "cis_rhel7_tailored_l1_server.yml</policy></policies></sca></agent_config>")
+        self.fleet("apply")
+        with open(os.path.join(self.paths["shared_dir"], "ciscat-rhel7-base", "agent.conf")) as f:
+            conf = f.read()
+        self.assertIn("<interval>1h</interval>", conf)
+        self.assertNotIn("<policies>", conf)
+
     def test_missing_benchmark_files_fail_the_apply(self):
         out = self.fleet("apply", rc=1)
         self.assertIn("MISSING", out)

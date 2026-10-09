@@ -110,6 +110,22 @@ if (-not (Test-Path $assessor)) {
     }
     Fail "CIS-CAT Pro not found on $([Environment]::MachineName): $assessor is missing. Assessment stopped; previous results withdrawn from SCA."
 }
+# CIS-CAT Pro needs its license: the file named by ciscat.license.filepath in its settings, else a
+# file in its license folder. Without it the Assessor would fail on every benchmark.
+$licensePath = Get-Content -Path (Join-Path $Ciscat "config\assessor-cli.properties") -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match '^\s*ciscat\.license\.filepath\s*=\s*(\S.*?)\s*$' } | ForEach-Object { $Matches[1] } |
+    Select-Object -Last 1
+$licensed = if ($licensePath) { (Test-Path -LiteralPath $licensePath) -and (Get-Item -LiteralPath $licensePath).Length -gt 0 }
+            else { [bool](Get-ChildItem -Path (Join-Path $Ciscat "license") -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -gt 0 }) }
+if (-not $licensed) {
+    foreach ($run in $runs) {
+        $oldFlat = Join-Path $resultDir "$($run.FlatName).ciscat-flat"
+        if (Test-Path $oldFlat) {
+            Move-Item -Force -Path $oldFlat -Destination "$oldFlat.stale" -ErrorAction SilentlyContinue
+        }
+    }
+    Fail "CIS-CAT Pro not found on $([Environment]::MachineName): no license ($Ciscat\license, or ciscat.license.filepath in its settings). Assessment stopped; previous results withdrawn from SCA."
+}
 if (-not (Test-Path $flatScript)) { Fail "flatten script not found: $flatScript" }
 if (-not (Test-Path $benchDir))   { Fail "benchmarks folder not found: $benchDir" }
 foreach ($d in @($reportDir, $resultDir)) {
