@@ -69,9 +69,9 @@ Common fields:
   - `targets`: os keys, or `["*"]` for every active OS (the default when none is given);
   - `agents`: agent ids (3 to 8 digits, not `000`), at most 1000;
   - `groups`: Wazuh group names, an OS group or a custom one, not a `ciscat-*` group, at most 64.
-  The two others are empty lists (`targets: []` keeps masters older than 2.3.0 from reading the
-  record as every active OS: they refuse it). Each agent runs the benchmarks of its groups that
-  match its platform (Windows, or Linux and other Unix-like);
+    The two others are empty lists (`targets: []` keeps masters older than 2.3.0 from reading the
+    record as every active OS: they refuse it). Each agent runs the benchmarks of its groups that
+    match its platform (Windows, or Linux and other Unix-like);
 - `wave_size` (default 50);
 - `wave_pause_s` (default 300);
 - `enabled`, `label`, `created_by`, `created_at`.
@@ -90,12 +90,12 @@ removes old processed requests. Two actions exist:
 
 **Status** (`ciscat-status`, written by the master)
 
-| Key             | Record                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `scheduler`     | `last_tick` (`last_tick_ts` in epoch seconds), `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read |
-| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded, wrong_platform) |
+| Key             | Record                                                                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scheduler`     | `last_tick` (`last_tick_ts` in epoch seconds), `last_sync`, and the master time zone (`tz`, `utc_offset`) in which job times are read                                  |
+| `apply`         | `state` (`running`, `ok` or `error`), `request`, `started_at`, `finished_at`, `errors`, `per_os` (combos, checks, excluded, wrong_platform)                            |
 | `job-<job key>` | `state`, `last_run`, `next_run`, `sent`, `failed`, `skipped` (agent ids), `skipped_reasons` (id → reason, first 100), `notes`, `targets`, `agents`, `groups`, `missed` |
-| `requests`      | `processed`: request keys already handled and still in `ciscat-requests`                                                              |
+| `requests`      | `processed`: request keys already handled and still in `ciscat-requests`                                                                                               |
 
 **Coverage** (`ciscat-history`, written by the master once a day, the last 400 days):
 `stale_days` (35) and `os`, `{os_key: {group, expected, assessed, disconnected}}` for each active OS
