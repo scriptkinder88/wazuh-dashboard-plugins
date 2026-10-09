@@ -28,6 +28,8 @@ import { ExclusionsPanel } from './exclusions-panel';
 import { SchedulePanel } from './schedule-panel';
 import { StatusPanel } from './status-panel';
 import { CoveragePanel } from './coverage-panel';
+import { messages } from './messages';
+import { SCHEDULER_INTERVAL_MINUTES } from './lib/status';
 
 export interface CiscatData {
   oskeys: ListRecords;
@@ -41,10 +43,10 @@ export interface CiscatData {
 
 type TabId = 'exclusions' | 'schedule' | 'status';
 
-const TABS: Array<{ id: TabId; name: string }> = [
-  { id: 'exclusions', name: 'Exclusions' },
-  { id: 'schedule', name: 'Schedule' },
-  { id: 'status', name: 'Status' },
+const TABS: Array<{ id: TabId; name: () => string }> = [
+  { id: 'exclusions', name: messages.tabExclusions },
+  { id: 'schedule', name: messages.tabSchedule },
+  { id: 'status', name: messages.tabStatus },
 ];
 
 export const CiscatManagement = () => {
@@ -98,12 +100,10 @@ export const CiscatManagement = () => {
       <EuiFlexGroup alignItems='center' gutterSize='s' responsive={false}>
         <EuiFlexItem>
           <EuiTitle size='s'>
-            <h2>CIS-CAT Pro</h2>
+            <h2>{messages.title()}</h2>
           </EuiTitle>
           <EuiText size='xs' color='subdued'>
-            Exclusions and schedules for the CIS-CAT assessments run by the
-            manager. Changes are stored on the manager and applied by its
-            scheduler.
+            {messages.description()}
           </EuiText>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -113,7 +113,7 @@ export const CiscatManagement = () => {
             isLoading={loading}
             data-test-subj='ciscat-reload'
           >
-            Reload
+            {messages.reload()}
           </EuiButtonEmpty>
         </EuiFlexItem>
       </EuiFlexGroup>
@@ -132,7 +132,7 @@ export const CiscatManagement = () => {
             onClick={() => setTab(t.id)}
             data-test-subj={`ciscat-tab-${t.id}`}
           >
-            {t.name}
+            {t.name()}
           </EuiTab>
         ))}
       </EuiTabs>
@@ -141,7 +141,7 @@ export const CiscatManagement = () => {
         <EuiCallOut
           color='danger'
           iconType='alert'
-          title='Cannot read the CIS-CAT data'
+          title={messages.cannotRead()}
         >
           <p>{error}</p>
         </EuiCallOut>
@@ -151,13 +151,9 @@ export const CiscatManagement = () => {
         <EuiCallOut
           color='warning'
           iconType='iInCircle'
-          title='The CIS-CAT bridge has not published any data yet'
+          title={messages.noBridgeTitle()}
         >
-          <p>
-            Install the bridge on the manager and let its scheduler run once
-            (every 5 minutes): it publishes the benchmarks and the OS list shown
-            here.
-          </p>
+          <p>{messages.noBridge(SCHEDULER_INTERVAL_MINUTES)}</p>
         </EuiCallOut>
       )}
       {data && tab === 'exclusions' && (

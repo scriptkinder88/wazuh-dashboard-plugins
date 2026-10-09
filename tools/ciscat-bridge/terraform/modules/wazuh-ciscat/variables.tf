@@ -1,9 +1,9 @@
 variable "wazuh_major" {
-  description = "Wazuh major version of the hosts: 4 (4.14.x) or 5 (5.0.x)."
+  description = "Wazuh major version of the hosts: 4 (4.14.x). Wazuh 5.0 is not supported yet."
   type        = number
   validation {
-    condition     = contains([4, 5], var.wazuh_major)
-    error_message = "wazuh_major must be 4 or 5."
+    condition     = var.wazuh_major == 4
+    error_message = "wazuh_major must be 4: Wazuh 5.0 is not supported yet (the bridge installer has no indexer options)."
   }
 }
 
@@ -75,27 +75,6 @@ variable "api_user" {
 variable "api_password" {
   description = "Password of api_user. Written to a root-only file on the master, never on a command line."
   type        = string
-  sensitive   = true
-}
-
-variable "indexer" {
-  description = "Wazuh 5.0 only: indexer the bridge writes its data to (URL, user, PEM CA certificate)."
-  type = object({
-    url    = string
-    user   = string
-    ca_pem = optional(string)
-  })
-  default = null
-  validation {
-    condition     = var.indexer == null || (can(regex("^https://[^'\\s]+$", var.indexer.url)) && can(regex("^[A-Za-z0-9._-]{1,64}$", var.indexer.user)))
-    error_message = "indexer.url must be an https URL and indexer.user letters, digits, '.', '_' and '-'."
-  }
-}
-
-variable "indexer_password" {
-  description = "Wazuh 5.0 only: password of indexer.user."
-  type        = string
-  default     = null
   sensitive   = true
 }
 

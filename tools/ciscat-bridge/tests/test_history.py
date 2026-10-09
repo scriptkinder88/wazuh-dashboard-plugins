@@ -1,6 +1,7 @@
 """Daily coverage snapshot (ciscat-fleet.py history) against the fake Wazuh API."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,7 @@ def ago(days):
 class History(unittest.TestCase):
     def setUp(self):
         root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
         self.paths = {k: os.path.join(root, k) for k in
                       ("exclusions_dir", "benchmarks_dir", "shared_dir", "work_dir", "lists_dir",
                        "run_dir")}

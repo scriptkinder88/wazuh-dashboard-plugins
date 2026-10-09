@@ -28,7 +28,7 @@ describe('ModulesDefaults SCA reporting', () => {
     )?.[0];
 
     expect(scaBlock).toContain("id: 'ciscat'");
-    expect(scaBlock).toContain('component: CiscatManagement');
+    expect(scaBlock).toContain('component: CiscatManagementTab');
   });
 
   it('adds the FIM rules management tab to Integrity monitoring', () => {
@@ -39,6 +39,6 @@ describe('ModulesDefaults SCA reporting', () => {
     const fimBlock = source.match(/\n {2}fim:\s*\{[\s\S]*?\n {2}\},/)?.[0];
 
     expect(fimBlock).toContain("id: 'manage'");
-    expect(fimBlock).toContain('component: FimManagement');
+    expect(fimBlock).toContain('component: FimManagementTab');
   });
 });

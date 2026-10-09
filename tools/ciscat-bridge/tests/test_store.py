@@ -3,6 +3,7 @@ import json
 import io
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -47,6 +48,7 @@ class Encoding(unittest.TestCase):
 
     def test_atomic_write_and_read(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         rec = exclusion()
         s.write_list(s.EXCLUSIONS, {s.exclusion_key(rec): rec}, lists_dir=d)
         self.assertEqual(oct(os.stat(os.path.join(d, s.EXCLUSIONS)).st_mode & 0o777), "0o660")
@@ -134,6 +136,28 @@ class Jobs(unittest.TestCase):
                     {"type": "once", "at": "2026-10-31T22:00", "enabled": "yes"}):
             with self.assertRaises(s.StoreError, msg=rec):
                 s.validate_job(rec)
+
+    def test_run_scope_is_os_keys_agents_or_groups(self):
+        base = {"type": "weekly", "weekday": 1, "time": "01:00"}
+        job = s.validate_job(dict(base, agents=["017", "003", "003"]))
+        self.assertEqual((job["targets"], job["agents"], job["groups"]), ([], ["003", "017"], []))
+        job = s.validate_job(dict(base, groups=["web-prod", "os-rhel7"], targets=[]))
+        self.assertEqual((job["targets"], job["groups"]), ([], ["os-rhel7", "web-prod"]))
+        job = s.validate_job(base)
+        self.assertEqual((job["targets"], job["agents"], job["groups"]), (["*"], [], []))
+        for bad in ({"agents": ["000"]}, {"agents": ["3"]}, {"agents": ["003; id"]},
+                    {"agents": "003"}, {"groups": ["ciscat-rhel7-base"]}, {"groups": ["a b"]},
+                    {"agents": ["003"], "groups": ["x"]}, {"agents": ["003"], "targets": ["*"]},
+                    {"targets": []},
+                    {"agents": ["{0:03d}".format(i) for i in range(1, 1003)]}):
+            with self.assertRaises(s.StoreError, msg=bad):
+                s.validate_job(dict(base, **bad))
+        run = s.validate_request({"action": "run", "agents": ["003"]})
+        self.assertEqual((run["targets"], run["agents"], run["groups"]), ([], ["003"], []))
+
+    def test_bridge_groups_are_not_targets(self):
+        with self.assertRaises(s.StoreError):
+            s.validate_target({"group": "ciscat-windows_server_2025-base"})
 
     def test_requests(self):
         self.assertEqual(s.validate_request({"action": "apply"})["action"], "apply")

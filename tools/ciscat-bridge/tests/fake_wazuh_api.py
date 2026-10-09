@@ -11,6 +11,11 @@ class FakeWazuh:
         # agents: {id: {"name":..., "status":..., "group": [...]}}
         self.shared_dir = shared_dir
         self.agents = agents
+        # the platform the API reports, when a test does not set one: Windows for agents of a
+        # Windows group, a Linux distribution otherwise
+        for a in agents.values():
+            a.setdefault("os", {"platform": "windows" if any("win" in g for g in a["group"])
+                                else "rhel"})
         self.groups = {g for a in agents.values() for g in a["group"]} | {"default"}
         self.calls = []
         self.ar = []
@@ -19,6 +24,11 @@ class FakeWazuh:
         self.confs = {}  # {group: agent.conf}
         for g in self.groups:
             os.makedirs(os.path.join(shared_dir, g), exist_ok=True)
+        # the Active Response commands the master distributes (from its ossec.conf)
+        with open(os.path.join(shared_dir, "ar.conf"), "w") as f:
+            f.write("ciscat-bootstrap-linux0 - ciscat-bootstrap.sh - 0\n"
+                    "ciscat-refresh-linux0 - ciscat-refresh.sh - 0\n"
+                    "ciscat-assessment0 - ciscat-assessment.cmd - 0\n")
 
     def handle(self, method, path, query, body):
         self.calls.append((method, path))
@@ -61,7 +71,11 @@ class FakeWazuh:
             self.confs[g] = body
             return {}, False
         if method == "GET" and path == "/agents":
-            return {"affected_items": [dict(id=i, **a) for i, a in sorted(self.agents.items())]}, False
+            wanted = query.get("agents_list")
+            items = [dict(id=i, **a) for i, a in sorted(self.agents.items())
+                     if not wanted or i in wanted.split(",")]
+            off, lim = int(query.get("offset", 0)), int(query.get("limit", 500))
+            return {"affected_items": items[off:off + lim], "total_affected_items": len(items)}, False
         if method == "GET" and path.startswith("/sca/"):
             aid = path.split("/")[2]
             policy = query.get("q", "").split("=", 1)[-1]

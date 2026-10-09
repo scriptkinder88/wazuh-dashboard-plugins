@@ -1,8 +1,9 @@
 # Terraform: CIS-CAT bridge, dashboard plugin and baseline groups
 
 The module `modules/wazuh-ciscat` installs and configures the CIS-CAT bridge on **existing** Wazuh
-hosts (4.14.x or 5.0.x), over SSH. It does not create machines and needs no provider: the caller
-reads the secrets (for example from Vault, as in `examples/site`) and passes them in.
+hosts (4.14.x), over SSH. It does not create machines and needs no provider: the caller reads the
+secrets (for example from Vault, as in `examples/site`) and passes them in. Wazuh 5.0 is not
+supported yet: `wazuh_major = 5` is refused, since the bridge installer has no indexer options.
 
 ## What Terraform manages, and what it leaves to the dashboard
 
@@ -10,7 +11,7 @@ reads the secrets (for example from Vault, as in `examples/site`) and passes the
 | ----------------------------------------------------------------------------------------- | -------------------------------------------- |
 | Bridge version (the installer and its SHA-256)                                            | FIM rules of every other group               |
 | Dashboard plugin version (zip and SHA-256)                                                | CIS-CAT exclusions, target groups, schedules |
-| API and indexer credentials (root-only files)                                             | Groups created from the agent list           |
+| API credentials (root-only files)                                                         | Groups created from the agent list           |
 | Licensed benchmarks in `/opt/ciscat/benchmarks`                                           | Agents added to groups by hand               |
 | Groups starting with `baseline-`: their whole `agent.conf` and the agents listed for them |                                              |
 | First CIS-CAT exclusions (CSV seed, imported only by the first install)                   |                                              |
@@ -24,10 +25,10 @@ managed by Terraform: such a change would be overwritten at the next apply.
 - Files go to `~/.ciscat-terraform` of the SSH user (mode 700), are checked (SHA-256) and moved in
   place as root. A user other than root needs passwordless `sudo`.
 - **Secrets** are written by the file provisioner, so they never appear on a command line, in
-  `ps` or in the Terraform output: the API password to `/opt/ciscat/etc/.ciscat_api_pass` (600),
-  and on Wazuh 5.0 the indexer password and CA. `ciscat-orchestrator.conf` only has `api_user` and
-  `api_pass_file` set, other settings stay. The state keeps hashes of the secrets (to know when to
-  rewrite them): keep it encrypted and access-controlled, as any Terraform state.
+  `ps` or in the Terraform output: the API password to `/opt/ciscat/etc/.ciscat_api_pass` (600).
+  `ciscat-orchestrator.conf` only has `api_user` and `api_pass_file` set, other settings stay. The
+  state keeps hashes of the secrets (to know when to rewrite them): keep it encrypted and
+  access-controlled, as any Terraform state.
 - **Installer:** the bridge installer runs on the master (and on the dashboard host when it is
   separate, for the plugin). It is idempotent and keeps a backup (`--rollback`). A new version is
   a change of `installer` (path and SHA-256); the plugin likewise.
@@ -48,7 +49,7 @@ module "wazuh_ciscat" {
 
   wazuh_major  = 4
   master       = { host = "<master address>", user = "root" }
-  installer    = { path = "ciscat-bridge-install-2.2.6.sh", sha256 = "<from the .sha256 file>" }
+  installer    = { path = "ciscat-bridge-install-2.3.0.sh", sha256 = "<from the .sha256 file>" }
   plugin       = { path = "<plugin zip from the build>", sha256 = "<sha256sum of the zip>" }
   api_password = data.vault_kv_secret_v2.wazuh.data["api_password"]
 
@@ -56,13 +57,9 @@ module "wazuh_ciscat" {
 }
 ```
 
-`examples/site` reads the secrets from Vault (KV v2: `api_user`, `api_password`, and on 5.0
-`indexer_url`, `indexer_user`, `indexer_password`, `indexer_ca`) and the baseline from
-`baseline.yaml`. Copy `terraform.tfvars.example` to `terraform.tfvars`: it holds addresses and paths,
-never secrets.
-
-On Wazuh 5.0 set `wazuh_major = 5` and `indexer` (URL, user, CA) with `indexer_password`: the
-installer writes the bridge's indexer configuration from them.
+`examples/site` reads the secrets from Vault (KV v2: `api_user`, `api_password`) and the baseline
+from `baseline.yaml`. Copy `terraform.tfvars.example` to `terraform.tfvars`: it holds addresses and
+paths, never secrets.
 
 ## Baseline groups
 

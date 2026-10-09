@@ -5,7 +5,8 @@ Run by the self-contained ciscat-bridge-install-<version>.sh (see build.py) from
 the payload was extracted to. Idempotent: running the same version twice changes nothing more.
 
 Master role (Wazuh manager, cluster master or standalone):
-  - backup of everything it touches, restorable with --rollback
+  - backup of everything it touches, restorable with --rollback; restored automatically when
+    the installation fails
   - scripts into /opt/ciscat/bin, agent scripts into /opt/ciscat/agent/active-response
   - /opt/ciscat/etc/os-library.json created from the OS table of the ciscat-fleet.py in place
     (only when missing: later updates keep the site's active flags)
@@ -21,6 +22,7 @@ import ast
 import csv
 import glob
 import hashlib
+import io
 import json
 import os
 import re
@@ -30,6 +32,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("CISCAT_INSTALL_ROOT", "/")  # tests install into a fake root
@@ -39,11 +42,18 @@ PLUGIN_TOOL = "/usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin"
 
 MANAGED_BIN = [
     "ciscat-fleet.py", "ciscat-scheduler.py", "ciscat_store.py", "ciscat_schedule.py",
-    "ciscat_discover.py", "csv_to_custom_xccdf.py", "xccdf_to_sca_policy.py", "benchmark_to_sheet.py",
-    "ciscat-refresh.sh", "ciscat-bootstrap.sh", "maps/ciscat-profiles.json",
-    "maps/os-benchmark-map.json",
+    "ciscat_discover.py", "ciscat_xccdf.py", "csv_to_custom_xccdf.py", "xccdf_to_sca_policy.py",
+    "benchmark_to_sheet.py", "ciscat-refresh.sh", "ciscat-bootstrap.sh",
+    "maps/ciscat-profiles.json",
 ]
-MANAGED_AGENT = ["ciscat-assessment.ps1", "ciscat-assessment.cmd"]
+# files earlier versions installed into /opt/ciscat/bin and nothing reads any more
+OBSOLETE_BIN = ["maps/os-benchmark-map.json"]
+ORCH_CONF = "/opt/ciscat/etc/ciscat-orchestrator.conf"
+DEFAULT_PASS_FILE = "/opt/ciscat/etc/.ciscat_api_pass"
+# Windows agent scripts: the launcher and its bootstrap are installed by hand on the agents, the
+# assessment and conversion scripts are published by the master in the Windows OS groups
+MANAGED_AGENT = ["ciscat-assessment.cmd", "ciscat-bootstrap.ps1", "ciscat-assessment.ps1",
+                 "ciscat-csv-to-flat.ps1"]
 CRON_FILE = "/etc/cron.d/ciscat-scheduler"
 CRON_LINE = ("*/5 * * * * root /usr/bin/python3 /opt/ciscat/bin/ciscat-scheduler.py "
              ">>/opt/ciscat/log/ciscat-scheduler.log 2>&1\n")
@@ -84,6 +94,11 @@ def own_wazuh(path, mode):
             os.chown(path, pwd.getpwnam("wazuh").pw_uid, grp.getgrnam("wazuh").gr_gid)
         except KeyError:
             pass
+
+
+def read_file(path, binary=False):
+    with open(path, "rb") if binary else open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def run(cmd, check=False, **kw):
@@ -141,30 +156,58 @@ def make_backup(crontab_text):
             data = crontab_text.encode()
             info = tarfile.TarInfo("crontab-root.txt")
             info.size = len(data)
-            import io
             tar.addfile(info, io.BytesIO(data))
     os.chmod(path, 0o600)
     return path
 
 
-def rollback(path):
+def extract(tar, dest, members=None):
+    """extractall with the "data" filter where Python has it (no links or devices out of dest)."""
+    if hasattr(tarfile, "data_filter"):
+        tar.extractall(dest, members=members, filter="data")
+    else:
+        tar.extractall(dest, members=members)
+
+
+LISTS_PREFIX = "var/ossec/etc/lists/ciscat-"
+
+
+def rollback(path, keep_lists=True):
+    """Restores a backup. The ciscat-* lists hold what was saved in the dashboard since then:
+    by default the current ones are kept and only missing ones restored. keep_lists=False (a
+    failed installation, backup taken moments ago) restores the backup exactly."""
     if not os.path.isfile(path):
         die("backup not found: " + path)
     step("Rollback from " + path)
-    for p in (P("/opt/ciscat/bin"), P("/opt/ciscat/agent")):
-        if os.path.isdir(p):
-            shutil.rmtree(p)
-    for p in (P(CRON_FILE), P("/var/ossec/etc/rules/ciscat_rules.xml")):
-        if os.path.exists(p):
-            os.remove(p)
     with tarfile.open(path) as tar:
         members = [m for m in tar.getmembers() if m.name != "crontab-root.txt"]
         for m in members:
             if m.name.startswith("/") or ".." in m.name.split("/"):
                 die("unsafe path in backup: " + m.name)
-        tar.extractall(ROOT, members=members)
+        names = {m.name for m in members}
+        for p in (P("/opt/ciscat/bin"), P("/opt/ciscat/agent")):
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+        for p in (P(CRON_FILE), P("/var/ossec/etc/rules/ciscat_rules.xml")):
+            if os.path.exists(p):
+                os.remove(p)
+        kept = []
+        for p in glob.glob(P("/" + LISTS_PREFIX + "*")):
+            if keep_lists:
+                kept.append(os.path.basename(p))
+            elif os.path.relpath(p, ROOT) not in names:
+                os.remove(p)
+        if not keep_lists and "opt/ciscat/etc/os-library.json" not in names:
+            lib = P("/opt/ciscat/etc/os-library.json")
+            if os.path.exists(lib):
+                os.remove(lib)
+        restore = [m for m in members if not (m.name.startswith(LISTS_PREFIX) and
+                                              os.path.basename(m.name) in kept)]
+        extract(tar, ROOT, restore)
         if "crontab-root.txt" in tar.getnames():
             write_crontab(tar.extractfile("crontab-root.txt").read().decode())
+    if kept:
+        say("dashboard lists kept as they are now (not restored): " + ", ".join(sorted(kept)))
     say("restored. Restart wazuh-manager if the rule file changed.")
 
 
@@ -172,7 +215,7 @@ def rollback(path):
 def read_crontab():
     fake = os.environ.get("CISCAT_CRONTAB_FILE")
     if fake:
-        return open(fake).read() if os.path.exists(fake) else ""
+        return read_file(fake) if os.path.exists(fake) else ""
     if not shutil.which("crontab"):
         return None
     rc, out = run(["crontab", "-l"])
@@ -235,26 +278,53 @@ def os_library_from_fleet(path):
     return literal_assignment(path, "OS_LIBRARY")
 
 
+def copy_atomic(src, dst, mode):
+    """Replaces dst in one step: cron may start a script while the update runs."""
+    tmp = os.path.join(os.path.dirname(dst), ".{0}.tmp".format(os.path.basename(dst)))
+    shutil.copyfile(src, tmp)
+    os.chmod(tmp, mode)
+    os.replace(tmp, dst)
+
+
 def install_files(payload):
     installed = []
     for rel in MANAGED_BIN:
         src, dst = os.path.join(payload, "bin", rel), P("/opt/ciscat/bin/" + rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
+        mode = 0o750 if rel.endswith((".py", ".sh")) else 0o640
         if not os.path.exists(dst) or sha256(dst) != sha256(src):
-            shutil.copyfile(src, dst)
+            copy_atomic(src, dst, mode)
             installed.append(rel)
-        os.chmod(dst, 0o750 if rel.endswith((".py", ".sh")) else 0o640)
+        os.chmod(dst, mode)
     for rel in MANAGED_AGENT:
         src, dst = (os.path.join(payload, "agent", "active-response", rel),
                     P("/opt/ciscat/agent/active-response/" + rel))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if not os.path.exists(dst) or sha256(dst) != sha256(src):
-            shutil.copyfile(src, dst)
+            copy_atomic(src, dst, 0o750)
             installed.append("agent/" + rel)
         os.chmod(dst, 0o750)
+    for rel in OBSOLETE_BIN:
+        if os.path.exists(P("/opt/ciscat/bin/" + rel)):
+            os.remove(P("/opt/ciscat/bin/" + rel))
+            installed.append(rel + " (removed)")
     for d in ("/opt/ciscat/log", "/opt/ciscat/run", "/opt/ciscat/etc"):
         os.makedirs(P(d), exist_ok=True)
     return installed
+
+
+def api_pass_file():
+    """The password file named by api_pass_file in ciscat-orchestrator.conf (as ciscat-fleet.py
+    reads it), else the default one."""
+    path = DEFAULT_PASS_FILE
+    if os.path.isfile(P(ORCH_CONF)):
+        with open(P(ORCH_CONF), encoding="utf-8") as f:
+            for line in f:
+                if "=" in line and not line.lstrip().startswith("#"):
+                    k, v = line.rstrip("\n").split("=", 1)
+                    if k.strip() == "api_pass_file" and v.strip():
+                        path = v.strip()
+    return P(path)
 
 
 def install_rule(payload):
@@ -279,9 +349,9 @@ def install_rule(payload):
     rule_id = current if current in free else free[0]  # keep the id already in place
     with open(os.path.join(payload, "rules", "ciscat_rules.xml"), encoding="utf-8") as fh:
         content = re.sub(r'(<rule\s[^>]*\bid=")\d+(")', r"\g<1>{0}\2".format(rule_id), fh.read(), count=1)
-    if os.path.exists(dst) and open(dst, encoding="utf-8").read() == content:
+    if os.path.exists(dst) and read_file(dst) == content:
         return None
-    previous = open(dst, "rb").read() if os.path.exists(dst) else None
+    previous = read_file(dst, binary=True) if os.path.exists(dst) else None
     with open(dst, "w", encoding="utf-8") as fh:
         fh.write(content)
     own_wazuh(dst, 0o660)
@@ -327,7 +397,7 @@ def install_cron():
     path = P(CRON_FILE)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     content = "# CIS-CAT bridge scheduler (tools/ciscat-bridge)\n" + CRON_LINE
-    if os.path.exists(path) and open(path).read() == content:
+    if os.path.exists(path) and read_file(path) == content:
         return False
     with open(path, "w") as f:
         f.write(content)
@@ -349,7 +419,28 @@ def master(payload, args, version):
     crontab_text = read_crontab()
     b = make_backup(crontab_text)
     say("backup: {0}  (restore: --rollback {0})".format(b))
+    try:
+        install_master(payload, args, version, crontab_text)
+    except (Exception, SystemExit) as e:
+        say("ERROR: installation failed ({0}: {1}): restoring the backup".format(
+            type(e).__name__, e))
+        rollback(b, keep_lists=False)
+        die("installation failed, the previous state was restored from " + b)
 
+    step("Benchmark sheets for the dashboard (sync)")
+    fleet("sync")
+    step("Plan")
+    rc = fleet("plan")
+    if args.apply:
+        step("Apply")
+        rc = fleet("apply")
+    else:
+        say("\nNothing applied to the agents. Re-run with --apply, or use Apply in the dashboard.")
+    return rc
+
+
+def install_master(payload, args, version, crontab_text):
+    """Files, rule, exclusions and cron: any failure here restores the backup."""
     lib_file = P("/opt/ciscat/etc/os-library.json")
     if not os.path.exists(lib_file):
         lib = os_library_from_fleet(P("/opt/ciscat/bin/ciscat-fleet.py"))
@@ -388,29 +479,72 @@ def master(payload, args, version):
     if install_cron():
         say("scheduler cron installed: " + CRON_FILE)
 
-    pfile = P("/opt/ciscat/etc/.ciscat_api_pass")
-    if not os.path.exists(P("/opt/ciscat/etc/ciscat-orchestrator.conf")) or not os.path.exists(pfile):
-        say("WARNING: API credentials missing: create /opt/ciscat/etc/ciscat-orchestrator.conf "
-            "(api_user, api_pass_file) and the password file (chmod 600)")
+    problems, fix = check_ar_commands()
+    if problems:
+        say("WARNING: Active Response in ossec.conf: " + "; ".join(problems))
+        say("  the agents run the bridge only with these blocks (fix the existing ones, then "
+            "restart wazuh-manager):\n" + fix)
+    else:
+        say("Active Response commands: ok")
+
+    pfile = api_pass_file()
+    if not os.path.exists(P(ORCH_CONF)) or not os.path.exists(pfile):
+        say("WARNING: API credentials missing: create {0} (api_user, api_pass_file) and the "
+            "password file (chmod 600)".format(ORCH_CONF))
     elif os.stat(pfile).st_mode & 0o077:
         os.chmod(pfile, 0o600)
-        say("password file permissions tightened to 600")
+        say("password file permissions tightened to 600: /" + os.path.relpath(pfile, ROOT))
 
-    step("Benchmark sheets for the dashboard (sync)")
-    fleet("sync")
-    step("Plan")
-    rc = fleet("plan")
-    if args.apply:
-        step("Apply")
-        rc = fleet("apply")
-    else:
-        say("\nNothing applied to the agents. Re-run with --apply, or use Apply in the dashboard.")
-    return rc
+
+# Active Response commands the bridge sends: <command> name -> executable on the agents
+AR_COMMANDS = {
+    "ciscat-bootstrap-linux": "ciscat-bootstrap.sh",
+    "ciscat-refresh-linux": "ciscat-refresh.sh",
+    "ciscat-assessment": "ciscat-assessment.cmd",
+}
+AR_SNIPPET = """  <command>
+    <name>{name}</name>
+    <executable>{exe}</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+  <active-response>
+    <disabled>no</disabled>
+    <command>{name}</command>
+    <location>local</location>
+  </active-response>"""
+
+
+def check_ar_commands():
+    """The <command> and <active-response> blocks the bridge needs in the master's ossec.conf.
+    Reported, never changed: the manager configuration stays the administrator's."""
+    try:
+        with open(P("/var/ossec/etc/ossec.conf"), encoding="utf-8", errors="replace") as f:
+            text = re.sub(r"<!--.*?-->", "", f.read(), flags=re.S)
+    except OSError:
+        return ["ossec.conf not readable"], ""
+    commands = {}
+    for block in re.findall(r"<command>(.*?)</command>", text, re.S):
+        name = re.search(r"<name>\s*([^<]*?)\s*</name>", block)
+        exe = re.search(r"<executable>\s*([^<]*?)\s*</executable>", block)
+        if name:
+            commands[name.group(1)] = exe.group(1) if exe else ""
+    used = set(re.findall(r"<active-response>(?:(?!</active-response>).)*?<command>\s*([^<]*?)"
+                          r"\s*</command>", text, re.S))
+    problems, fix = [], []
+    for name, exe in AR_COMMANDS.items():
+        if name not in commands:
+            problems.append("command {0} missing".format(name))
+        elif commands[name] != exe:
+            problems.append("command {0} runs {1}, expected {2}".format(name, commands[name], exe))
+        if name not in used:
+            problems.append("no <active-response> block uses the command {0}".format(name))
+        if name not in commands or commands[name] != exe or name not in used:
+            fix.append(AR_SNIPPET.format(name=name, exe=exe))
+    return problems, "\n".join(fix)
 
 
 def unwrap_plugin_zip(path):
     """The plugin zip itself, also when it arrives inside the zip GitHub wraps artifacts in."""
-    import zipfile
     for _ in range(2):
         try:
             with zipfile.ZipFile(path) as z:
@@ -470,7 +604,7 @@ def dashboard(args):
             if os.path.isdir(current):
                 shutil.rmtree(current)
             with tarfile.open(saved) as tar:
-                tar.extractall(plugins)
+                extract(tar, plugins)
             if ROOT == "/":
                 run(["chown", "-R", "wazuh-dashboard:wazuh-dashboard", current])
             die("plugin install failed, previous plugin restored:\n" + out[-2000:])
@@ -500,7 +634,7 @@ def main():
     if sys.version_info < (3, 6):
         die("python 3.6+ required")
     payload = HERE
-    version = open(args.version_file).read().strip()
+    version = read_file(args.version_file).strip()
     if args.rollback:
         rollback(args.rollback)
         return 0

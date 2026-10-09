@@ -268,5 +268,22 @@ export const describeJob = (job: Job) => {
   } day at ${job.time}`;
 };
 
-export const describeTargets = (targets: string[]) =>
-  targets.includes('*') ? 'All active OS' : targets.join(', ');
+const listed = (names: string[], max = 5) =>
+  names.length > max
+    ? `${names.slice(0, max).join(', ')} and ${names.length - max} more`
+    : names.join(', ');
+
+/** Who a job or a run reaches: OSes, chosen agents or chosen groups. */
+export const describeTargets = ({
+  targets,
+  agents = [],
+  groups = [],
+}: Pick<Job, 'targets'> & Partial<Pick<Job, 'agents' | 'groups'>>) => {
+  if (agents.length) {
+    return `${agents.length === 1 ? 'Agent' : 'Agents'} ${listed(agents)}`;
+  }
+  if (groups.length) {
+    return `${groups.length === 1 ? 'Group' : 'Groups'} ${listed(groups)}`;
+  }
+  return targets.includes('*') ? 'All active OS' : listed(targets, 10);
+};
