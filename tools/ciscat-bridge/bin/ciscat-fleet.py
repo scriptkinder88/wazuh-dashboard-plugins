@@ -50,7 +50,7 @@ import ciscat_xccdf as xccdf  # noqa: E402
 import csv_to_custom_xccdf as tailor  # noqa: E402
 import xccdf_to_sca_policy as gen  # noqa: E402
 
-VERSION = "2.2.8"
+VERSION = "2.2.9"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")
@@ -635,6 +635,23 @@ def apply_lock():
     return lock
 
 
+def retire_combos(os_key, groups, token, apply_):
+    """An OS that is not applied (inactive, or its group is gone) must not keep agents in its
+    combo groups: they would go on receiving its policy. Removes the groups, and so the
+    agents' membership."""
+    combos = sorted(g for g in groups if is_combo_group(os_key, g))
+    if not combos:
+        return
+    if not apply_:
+        print("    [dry-run] would remove the groups {0}".format(", ".join(combos)))
+        return
+    for g in combos:
+        for aid, _, _ in group_agents(token, g, active_only=False, verbose=False):
+            api_json("DELETE", "/agents/{0}/group/{1}".format(aid, g), token)
+    api_json("DELETE", "/groups?groups_list=" + ",".join(combos), token)
+    print("    removed groups of an OS no longer applied: {0}".format(", ".join(combos)))
+
+
 def act_plan_apply(apply_, restart=False, request=None):
     lock = apply_lock() if apply_ else None
     try:
@@ -657,11 +674,14 @@ def plan_apply(apply_, restart, request):
     for os_key, cfg in OS_LIBRARY.items():
         print("[{0}] group={1} active={2}".format(os_key, cfg["group"], cfg["active"]))
         if not cfg["active"]:
-            print("  [skip] inactive in library"); continue
+            print("  [skip] inactive in library")
+            retire_combos(os_key, groups, token, apply_)
+            continue
         if cfg["group"] not in groups:
             # a benchmark nobody uses yet: create the group and add agents to it
             print("  [skip] group {0} does not exist".format(cfg["group"]))
             status["per_os"][os_key] = {"agents": 0, "skipped": "no group " + cfg["group"]}
+            retire_combos(os_key, groups, token, apply_)
             continue
         try:
             status["per_os"][os_key] = summary = apply_os(os_key, cfg, exclusions, token, apply_)

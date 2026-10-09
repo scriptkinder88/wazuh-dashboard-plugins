@@ -115,6 +115,28 @@ class FleetApply(unittest.TestCase):
         sheet, _ = store.read_list("ciscat-bench-rhel7", self.paths["lists_dir"])
         self.assertEqual(sheet["1.1"]["t"], "One & more")
 
+    def test_an_os_no_longer_applied_releases_its_combo_groups(self):
+        # agent 004 was left in the combo groups of two OSes that are not applied any more:
+        # one whose os- group is gone, one switched off in the library
+        self.companions()
+        self.library({"rhel7": entry(),
+                      "aks": entry(group="os-aks", base="aks-custom", policy_id="cis_aks_l1"),
+                      "win": entry(group="os-win", active=False, base="win-custom",
+                                   policy_id="cis_win_l1")})
+        self.fake.agents["004"] = {"name": "win-01", "status": "active",
+                                   "group": ["ciscat-aks-base", "ciscat-win-0123456789",
+                                             "ciscat-aks-handmade"]}
+        self.fake.groups |= {"ciscat-aks-base", "ciscat-win-0123456789", "ciscat-aks-handmade"}
+        out = self.fleet("plan")
+        self.assertIn("would remove the groups ciscat-aks-base", out)
+        self.assertIn("ciscat-aks-base", self.fake.agents["004"]["group"])
+        self.fleet("apply")
+        self.assertEqual(self.fake.agents["004"]["group"], ["ciscat-aks-handmade"])
+        self.assertNotIn("ciscat-aks-base", self.fake.groups)
+        self.assertNotIn("ciscat-win-0123456789", self.fake.groups)
+        self.assertIn("ciscat-aks-handmade", self.fake.groups)
+        self.assertIn("ciscat-rhel7-base", self.fake.groups)
+
     def test_missing_benchmark_files_fail_the_apply(self):
         out = self.fleet("apply", rc=1)
         self.assertIn("MISSING", out)

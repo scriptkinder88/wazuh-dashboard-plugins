@@ -139,6 +139,8 @@ assessment at a time.
 
 ## Changes
 
+- **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
+  groups, so the agents left in them stop receiving its policy.
 - **2.2.8:** scheduler: a job set in the hour repeated when daylight saving time ends runs once, a
   fast run keeps its result, and handled requests never run again. Apply: one at a time, files in
   the shared folders replaced in one step, missing benchmark files reported as errors, combo
