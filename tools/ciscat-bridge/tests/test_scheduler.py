@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -15,12 +16,21 @@ STUB = """#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["STUB_LOG"], "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
+if sys.argv[1] == "trigger" and os.environ.get("STUB_FAST_TRIGGER"):
+    sys.path.insert(0, os.environ["STUB_BIN"])
+    import ciscat_store as store
+    seen = store.read_list(store.STATUS, os.environ["CISCAT_LISTS_DIR"])[0].get("job-" + sys.argv[-1])
+    with open(os.environ["STUB_LOG"] + ".seen", "w") as f:
+        json.dump(seen, f)
+    store.update_records(store.STATUS, {"job-" + sys.argv[-1]: {"state": "ok"}},
+                         os.environ["CISCAT_LISTS_DIR"], os.environ["CISCAT_RUN_DIR"])
 """
 
 
 class Scheduler(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.lists = os.path.join(self.d, "lists")
         os.makedirs(self.lists)
         stub = os.path.join(self.d, "fleet-stub.py")
@@ -92,6 +102,19 @@ class Scheduler(unittest.TestCase):
         self.tick("2026-10-01T10:15:00")
         self.assertEqual(len(self.wait_calls(2)), 2)  # not again
 
+    def test_jobs_on_agents_or_groups_pass_them_to_the_trigger(self):
+        on_agents = store.validate_job({"type": "once", "at": "2026-10-01T10:07",
+                                        "agents": ["017", "003"], "targets": []})
+        on_groups = store.validate_job({"type": "once", "at": "2026-10-01T10:07",
+                                        "groups": ["web-prod", "os-rhel7"]})
+        store.write_list(store.SCHEDULE, {"jaaaaaaaaaaaa": on_agents,
+                                          "jbbbbbbbbbbbb": on_groups}, self.lists)
+        self.tick("2026-10-01T10:05:00")
+        self.tick("2026-10-01T10:10:00")
+        triggers = sorted(c[:3] for c in self.wait_calls(3) if c[0] == "trigger")
+        self.assertEqual(triggers, [["trigger", "--agents", "003,017"],
+                                    ["trigger", "--groups", "os-rhel7,web-prod"]])
+
     def test_pending_applies_run_once(self):
         reqs = {"r1700000000000aaaa": {"action": "apply", "requested_by": "alice"},
                 "r1700000000001bbbb": {"action": "apply", "requested_by": "bob"},
@@ -119,6 +142,34 @@ class Scheduler(unittest.TestCase):
         self.assertIn("utc_offset", st["scheduler"])
         self.tick("2026-10-01T10:05:00")  # the run-now status is not a deleted job
         self.assertIn("job-r1700000000001bbbb", self.status())
+
+    def test_fast_trigger_status_is_not_overwritten(self):
+        job = store.validate_job({"type": "once", "at": "2026-10-01T10:07"})
+        store.write_list(store.SCHEDULE, {"jaaaaaaaaaaaa": job}, self.lists)
+        self.env.update(STUB_FAST_TRIGGER="1", STUB_BIN=BIN)
+        self.tick("2026-10-01T10:05:00")
+        self.tick("2026-10-01T10:10:00")
+        deadline = time.time() + 5
+        while time.time() < deadline and self.status()["job-jaaaaaaaaaaaa"]["state"] != "ok":
+            time.sleep(0.05)
+        # the trigger found its "starting" record, and the tick did not overwrite its result
+        with open(self.calls_file + ".seen") as f:
+            self.assertEqual(json.load(f)["state"], "starting")
+        st = self.status()["job-jaaaaaaaaaaaa"]
+        self.assertEqual((st["state"], st["last_run"]), ("ok", "2026-10-01T10:10:00"))
+
+    def test_processed_requests_are_never_replayed(self):
+        reqs = {"r17000000{0:05d}aaaa".format(i): {"action": "apply"} for i in range(250)}
+        store.write_list(store.REQUESTS, reqs, self.lists)
+        self.tick("2026-10-01T10:00:00")
+        self.tick("2026-10-01T10:05:00")
+        self.assertEqual(len([c for c in self.calls() if c[0] == "apply"]), 1)
+        self.assertEqual(len(self.status()["requests"]["processed"]), 250)
+        # requests the dashboard removed leave the processed list
+        store.write_list(store.REQUESTS, dict(list(sorted(reqs.items()))[-10:]), self.lists)
+        self.tick("2026-10-01T10:10:00")
+        self.assertEqual(len(self.status()["requests"]["processed"]), 10)
+        self.assertEqual(len([c for c in self.calls() if c[0] == "apply"]), 1)
 
     def test_missed_runs_are_reported_not_run(self):
         store.update_records(store.STATUS, {"scheduler": {"last_tick": "2026-10-01T02:00:00",

@@ -789,9 +789,16 @@ describe('SCA indexed report controls', () => {
       'Family 5 - Access, Authentication and Authorization',
       'Family 99',
     ]);
-    expect(
-      tables.find(table => table.title === 'Family 1 - Initial Setup (1)'),
-    ).toBeDefined();
+    // the failed control of family 1, with the server it fails on
+    const failedFamily1 = tables.find(
+      table => table.title === 'Family 1 - Initial Setup (1)',
+    );
+    expect(failedFamily1.items).toEqual([
+      expect.objectContaining({
+        reference: expect.stringMatching(/^1\./),
+        affected: 1,
+      }),
+    ]);
     const chart = printer.addContent.mock.calls
       .map(call => call[0])
       .find(content => typeof content?.svg === 'string');

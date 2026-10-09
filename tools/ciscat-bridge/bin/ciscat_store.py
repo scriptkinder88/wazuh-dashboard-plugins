@@ -35,7 +35,7 @@ OS_KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 RULE_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,9}$")
 ROLE_RE = re.compile(r"^[A-Za-z0-9_ -]{0,64}$")
 # Agent names and Wazuh group names.
-NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,255}$")
+NAME_RE = re.compile(r"^(?!\.+$)[A-Za-z0-9._-]{1,255}$")  # not "." or "..": joined to folders
 TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 AT_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]$")
 
@@ -43,6 +43,14 @@ SCOPES = ("os", "global", "host", "app_group")
 LEVELS = ("L1", "L2", "NG", "ALL")
 JOB_TYPES = ("once", "monthly", "weekly")
 REQUEST_ACTIONS = ("apply", "run")
+# Wazuh agent ids (000 is the manager) and the groups the bridge owns (never chosen by hand)
+AGENT_ID_RE = re.compile(r"^[0-9]{3,8}$")
+MANAGED_GROUP_PREFIX = "ciscat-"
+MAX_RUN_AGENTS = 1000
+MAX_RUN_GROUPS = 64
+# waves of a run when the schedule (or the command line) does not say
+DEFAULT_WAVE_SIZE = 50
+DEFAULT_WAVE_PAUSE_S = 300
 
 
 class StoreError(ValueError):
@@ -246,6 +254,41 @@ def validate_exclusions(records):
     return valid, errors
 
 
+def _name_list(rec, field, limit, pattern, what):
+    value = rec.get(field, [])
+    if value is None:
+        value = []
+    if not isinstance(value, list) or len(value) > limit:
+        raise StoreError("{0}: list of at most {1} {2} expected".format(field, limit, what))
+    for v in value:
+        if not (isinstance(v, str) and pattern.match(v)):
+            raise StoreError("{0}: {1} expected".format(field, what))
+    return sorted(set(value))
+
+
+def validate_run_scope(rec):
+    """Which agents a job or a run applies to: exactly one of
+    targets (os keys, or ["*"] for every active OS), agents (agent ids) or groups (Wazuh groups,
+    an OS group or any custom one). A record with none of them runs every active OS."""
+    agents = _name_list(rec, "agents", MAX_RUN_AGENTS, AGENT_ID_RE, "agent ids")
+    if "000" in agents:
+        raise StoreError("agents: 000 is the manager")
+    groups = _name_list(rec, "groups", MAX_RUN_GROUPS, NAME_RE, "Wazuh group names")
+    if any(g.startswith(MANAGED_GROUP_PREFIX) for g in groups):
+        raise StoreError("groups: the ciscat-* groups are managed by the bridge")
+    targets = rec.get("targets")
+    if targets is None:
+        targets = [] if agents or groups else ["*"]
+    if not isinstance(targets, list) or len(targets) > 64:
+        raise StoreError("targets: list of os keys expected")
+    for t in targets:
+        if t != "*" and not (isinstance(t, str) and OS_KEY_RE.match(t)):
+            raise StoreError("targets: os keys or '*' expected")
+    if sum(1 for x in (targets, agents, groups) if x) != 1:
+        raise StoreError("exactly one of targets, agents or groups expected")
+    return {"targets": sorted(set(targets)), "agents": agents, "groups": groups}
+
+
 def validate_job(rec):
     if not isinstance(rec, dict):
         raise StoreError("record must be an object")
@@ -274,15 +317,9 @@ def validate_job(rec):
             out["day"] = day
         else:
             out["weekday"] = _int(rec, "weekday", 0, 6)  # 0 = Monday
-    targets = rec.get("targets", ["*"])
-    if not isinstance(targets, list) or not targets or len(targets) > 64:
-        raise StoreError("targets: non-empty list expected")
-    for t in targets:
-        if t != "*" and not (isinstance(t, str) and OS_KEY_RE.match(t)):
-            raise StoreError("targets: os keys or '*' expected")
-    out["targets"] = sorted(set(targets))
-    out["wave_size"] = _int(rec, "wave_size", 1, 100000, default=50)
-    out["wave_pause_s"] = _int(rec, "wave_pause_s", 0, 86400, default=300)
+    out.update(validate_run_scope(rec))
+    out["wave_size"] = _int(rec, "wave_size", 1, 100000, default=DEFAULT_WAVE_SIZE)
+    out["wave_pause_s"] = _int(rec, "wave_pause_s", 0, 86400, default=DEFAULT_WAVE_PAUSE_S)
     enabled = rec.get("enabled", True)
     if not isinstance(enabled, bool):
         raise StoreError("enabled: true/false expected")
@@ -302,7 +339,8 @@ def validate_request(rec):
         raise StoreError("action: one of {}".format(", ".join(REQUEST_ACTIONS)))
     if out["action"] == "run":  # "Run now": same parameters as a job, no time
         job = validate_job(dict(rec, type="once", at="2000-01-01T00:00"))
-        out.update({k: job[k] for k in ("targets", "wave_size", "wave_pause_s", "label")})
+        out.update({k: job[k] for k in ("targets", "agents", "groups", "wave_size",
+                                        "wave_pause_s", "label")})
     out["requested_by"] = _text(rec, "requested_by", 128)
     out["requested_at"] = _text(rec, "requested_at", 40)
     return out
@@ -316,6 +354,8 @@ def validate_target(rec):
     out["group"] = _text(rec, "group", 255, required=True)
     if not NAME_RE.match(out["group"]):
         raise StoreError("group: Wazuh group name expected")
+    if out["group"].startswith(MANAGED_GROUP_PREFIX):
+        raise StoreError("group: the ciscat-* groups are managed by the bridge")
     out["updated_by"] = _text(rec, "updated_by", 128)
     out["updated_at"] = _text(rec, "updated_at", 40)
     return out

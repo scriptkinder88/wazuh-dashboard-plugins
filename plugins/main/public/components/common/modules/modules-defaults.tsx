@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { MainSca } from '../../agents/sca';
-import { CiscatManagement } from '../../agents/sca/ciscat';
+import { CiscatManagementTab } from '../../agents/sca/ciscat';
 import { MainMitre } from './main-mitre';
 import { ModuleMitreAttackIntelligence } from '../../overview/mitre/intelligence';
 import { ComplianceTable } from '../../overview/compliance-table';
@@ -95,7 +95,7 @@ import {
 } from '../../overview/it-hygiene';
 import { InventoryFIM } from '../../overview/fim';
 import { MainFim } from '../../agents/fim';
-import { FimManagement } from '../../agents/fim/manager';
+import { FimManagementTab } from '../../agents/fim/manager';
 
 const renderDiscoverTab = (props: WazuhDiscoverProps) => {
   return {
@@ -149,7 +149,7 @@ export const ModulesDefaults = {
         id: 'manage',
         name: 'Manage',
         buttons: [],
-        component: FimManagement,
+        component: FimManagementTab,
       },
       renderDiscoverTab({
         moduleId: 'fim',
@@ -261,7 +261,7 @@ export const ModulesDefaults = {
         id: 'ciscat',
         name: 'CIS-CAT',
         buttons: [],
-        component: CiscatManagement,
+        component: CiscatManagementTab,
       },
     ],
     buttons: ['settings'],

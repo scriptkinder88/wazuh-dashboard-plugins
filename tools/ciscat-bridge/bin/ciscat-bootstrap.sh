@@ -6,14 +6,20 @@
 # integrity via the SHA256 manifest before copying each file to its
 # destination. Python-free: works on legacy RHEL 7 (and any Linux).
 #
-# Model: the manager publishes files + ciscat-manifest.csv into the group
-# shared folder (os-rhel7). Wazuh merges the group config; the individual
-# files land in the agent's shared dir. This script reads the manifest,
-# checks each file's sha256, and installs it to the 'dest' path recorded in
-# the manifest. Only files that verify are installed; a mismatch is refused.
+# Model: the manager publishes, for each OS (benchmark) of a group, its files and
+# ciscat-manifest-<os>.csv into the shared folder of the group. Wazuh merges
+# the files of the agent's groups into its shared dir, so an agent with several
+# benchmarks gets one manifest each. This script reads every manifest (or the
+# group-wide ciscat-manifest.csv of older managers), checks each file's sha256,
+# and installs it to the 'dest' path recorded in the manifest. Only files that
+# verify are installed; a mismatch is refused.
 #
 # Manifest format (one file per line, after two comment lines):
 #   name;sha256;dest
+# 'name' is a plain file name of the shared folder, and 'dest' must lie in
+# the Assessor's benchmarks folder or in /var/lib/wazuh-ciscat, or be the
+# refresh script in active-response/bin: any other line is refused, so the
+# shared folder cannot have files written elsewhere as root.
 #
 # Trigger: PUT /active-response {"command":"!ciscat-bootstrap.sh"}
 # Runs as root via the Wazuh active-response mechanism.
@@ -24,21 +30,33 @@ set -u
 # see this). Ignore SIGPIPE and write to stdout only when it is a terminal.
 trap '' PIPE
 
-AGENT_SHARED="/var/ossec/etc/shared"           # merged group files land here
-DATA_ROOT="/var/lib/wazuh-ciscat"
+# Overridable for tests only; execd runs the script with the defaults.
+AGENT_SHARED="${CISCAT_AGENT_SHARED:-/var/ossec/etc/shared}"   # merged group files land here
+DATA_ROOT="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
+ASSESSOR_BENCH="${CISCAT_PATH:-/opt/ciscat/Assessor}/benchmarks"
+REFRESH_DEST="${CISCAT_AR_BIN:-/var/ossec/active-response/bin}/ciscat-refresh.sh"
 LOG_TAG="ciscat-bootstrap"
 
 # Resolve the Wazuh root from this script's location (active-response/bin -> root)
 _LOCAL=$(dirname "$0"); cd "$_LOCAL" 2>/dev/null; cd ../../ 2>/dev/null; WROOT=$(pwd)
-AR_LOG="${WROOT}/logs/active-responses.log"
+AR_LOG="${CISCAT_AR_LOG:-${WROOT}/logs/active-responses.log}"
 
 log() {
-    _line="[+] $(date '+%Y-%m-%dT%H:%M:%S') ${LOG_TAG}: $1"
-    echo "$_line"
-    # also append to the Wazuh AR log so the execution is traceable (like restart.sh)
+    [ -t 1 ] && echo "[+] $(date '+%Y-%m-%dT%H:%M:%S') ${LOG_TAG}: $1"
+    # the Wazuh AR log keeps the execution traceable (like restart.sh)
     [ -w "$AR_LOG" ] 2>/dev/null && echo "$(date '+%Y/%m/%d %H:%M:%S') $0 ${LOG_TAG}: $1" >> "$AR_LOG" 2>/dev/null
+    return 0
 }
 fail() { log "ERROR: $1"; exit 1; }
+
+# dest_allowed <path>: the only places a manifest may install to.
+dest_allowed() {
+    case "$1" in
+        *..*) return 1 ;;
+        "$ASSESSOR_BENCH"/?*|"$DATA_ROOT"/?*|"$REFRESH_DEST") return 0 ;;
+    esac
+    return 1
+}
 
 # NOTE on Wazuh AR: execd invokes this script and passes a JSON object on stdin
 # with an "add"/"delete" command. We do not use those parameters (this is a
@@ -48,17 +66,16 @@ fail() { log "ERROR: $1"; exit 1; }
 
 log "invoked (bootstrap start)"
 
-# The manifest can arrive in the agent shared root or in a group subdir,
-# depending on how the merge lands. Find it.
-MANIFEST=""
-for cand in \
-    "${AGENT_SHARED}/ciscat-manifest.csv" \
-    "${AGENT_SHARED}/os-rhel7/ciscat-manifest.csv"; do
-    [ -f "$cand" ] && { MANIFEST="$cand"; break; }
+# The agent unpacks the files of its groups into the shared folder itself.
+SRC_DIR="$AGENT_SHARED"
+MANIFESTS=""
+for m in "$AGENT_SHARED"/ciscat-manifest-*.csv; do
+    [ -f "$m" ] && MANIFESTS="$MANIFESTS $m"
 done
-[ -n "$MANIFEST" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
-SRC_DIR=$(dirname "$MANIFEST")
-log "using manifest: $MANIFEST"
+[ -n "$MANIFESTS" ] || MANIFESTS="${AGENT_SHARED}/ciscat-manifest.csv"
+for m in $MANIFESTS; do
+    [ -f "$m" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
+done
 
 mkdir -p "$DATA_ROOT" 2>/dev/null
 chmod 700 "$DATA_ROOT" 2>/dev/null
@@ -67,6 +84,8 @@ installed=0
 refused=0
 missing=0
 
+install_manifest() {
+log "using manifest: $1"
 # Read the manifest, skipping comment lines (#) and the header.
 while IFS=';' read -r name expected dest; do
     # skip comments / blanks / header
@@ -76,6 +95,18 @@ while IFS=';' read -r name expected dest; do
     esac
     [ -n "$expected" ] || continue
     [ -n "$dest" ] || { log "no dest for $name, skipping"; continue; }
+    case "$name" in
+        */*|..*)
+            log "REFUSED (not a plain file name): $name"
+            refused=$((refused + 1))
+            continue
+            ;;
+    esac
+    if ! dest_allowed "${dest%:gz}"; then
+        log "REFUSED (destination not allowed): $name -> $dest"
+        refused=$((refused + 1))
+        continue
+    fi
 
     src="${SRC_DIR}/${name}"
     if [ ! -f "$src" ]; then
@@ -124,7 +155,12 @@ while IFS=';' read -r name expected dest; do
     esac
     log "installed: $name -> $dest"
     installed=$((installed + 1))
-done < "$MANIFEST"
+done < "$1"
+}
+
+for m in $MANIFESTS; do
+    install_manifest "$m"
+done
 
 log "bootstrap done: installed=${installed} refused=${refused} missing=${missing}"
 

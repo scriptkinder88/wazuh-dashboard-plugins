@@ -18,6 +18,7 @@ import {
 } from '@elastic/eui';
 import { euiThemeVars } from '@osd/ui-shared-deps/theme';
 import {
+  COVERAGE_WINDOW_DAYS,
   CoveragePoint,
   coverageSeries,
   addDays,
@@ -25,11 +26,12 @@ import {
   historyOsKeys,
 } from './lib/coverage';
 import type { CiscatData } from './ciscat-management';
+import { messages } from './messages';
 
 const PERIODS = [
-  { id: '30', label: '30 days' },
-  { id: '90', label: '90 days' },
-  { id: '365', label: '1 year' },
+  { id: '30', label: messages.coverage30Days },
+  { id: '90', label: messages.coverage90Days },
+  { id: '365', label: messages.coverageYear },
 ];
 
 // chart geometry (viewBox units; the chart scales with its container)
@@ -47,8 +49,8 @@ const formatDay = (day: string) =>
 
 const describe = (p: CoveragePoint) =>
   p.percent === undefined
-    ? 'no agents in the group'
-    : `${p.percent}% (${p.assessed} of ${p.expected} agents)`;
+    ? messages.coverageNoAgents()
+    : messages.coveragePoint(p.percent, p.assessed, p.expected);
 
 /** Line segments of consecutive recorded days (a missing day breaks the line). */
 const segments = (
@@ -116,9 +118,11 @@ const CoverageChart = ({
         viewBox={`0 0 ${W} ${H}`}
         width='100%'
         role='img'
-        aria-label={`Coverage from ${first} to ${last}: ${describe(
-          points[points.length - 1],
-        )} on the last day`}
+        aria-label={messages.coverageAria(
+          first,
+          last,
+          describe(points[points.length - 1]),
+        )}
       >
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
@@ -230,7 +234,7 @@ const CoverageChart = ({
           <strong>{formatDay(hovered.day)}</strong>
           <div>{describe(hovered)}</div>
           {hovered.disconnected > 0 && (
-            <div>{hovered.disconnected} not assessed and disconnected</div>
+            <div>{messages.coverageDisconnected(hovered.disconnected)}</div>
           )}
         </div>
       )}
@@ -255,13 +259,13 @@ export const CoveragePanel = ({ data }: { data: CiscatData }) => {
       <EuiFlexGroup alignItems='center' gutterSize='m' responsive wrap>
         <EuiFlexItem>
           <EuiTitle size='xs'>
-            <h3>Agents assessed in the last 35 days</h3>
+            <h3>{messages.coverageTitle(COVERAGE_WINDOW_DAYS)}</h3>
           </EuiTitle>
           {latest && (
             <EuiText size='s' data-test-subj='ciscat-coverage-latest'>
               <strong>{describe(latest)}</strong>
               {latest.disconnected > 0 &&
-                ` · ${latest.disconnected} not assessed and disconnected`}
+                ` · ${messages.coverageDisconnected(latest.disconnected)}`}
               <EuiTextColor color='subdued'>
                 {` · ${formatDay(latest.day)}`}
               </EuiTextColor>
@@ -271,11 +275,11 @@ export const CoveragePanel = ({ data }: { data: CiscatData }) => {
         <EuiFlexItem grow={false}>
           <EuiSelect
             compressed
-            aria-label='Benchmark'
+            aria-label={messages.coverageBenchmark()}
             value={osKey}
             onChange={e => setOsKey(e.target.value)}
             options={[
-              { value: '*', text: 'All benchmarks' },
+              { value: '*', text: messages.coverageAllBenchmarks() },
               ...osKeys.map(k => ({ value: k, text: title(k) })),
             ]}
             data-test-subj='ciscat-coverage-os'
@@ -283,9 +287,9 @@ export const CoveragePanel = ({ data }: { data: CiscatData }) => {
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
           <EuiButtonGroup
-            legend='Period'
+            legend={messages.coveragePeriod()}
             buttonSize='compressed'
-            options={PERIODS}
+            options={PERIODS.map(p => ({ id: p.id, label: p.label() }))}
             idSelected={period}
             onChange={setPeriod}
           />
@@ -297,21 +301,26 @@ export const CoveragePanel = ({ data }: { data: CiscatData }) => {
           <CoverageChart points={points} days={days} />
           <EuiAccordion
             id='ciscat-coverage-table'
-            buttonContent={<EuiText size='xs'>Show data</EuiText>}
+            buttonContent={
+              <EuiText size='xs'>{messages.coverageShowData()}</EuiText>
+            }
             paddingSize='s'
           >
             <EuiBasicTable
               items={[...points].reverse()}
               columns={[
-                { field: 'day', name: 'Day' },
-                { field: 'assessed', name: 'Assessed' },
-                { field: 'expected', name: 'Agents' },
+                { field: 'day', name: messages.coverageDay() },
+                { field: 'assessed', name: messages.coverageAssessed() },
+                { field: 'expected', name: messages.coverageAgents() },
                 {
                   field: 'percent',
-                  name: 'Coverage',
+                  name: messages.coverageColumn(),
                   render: (v?: number) => (v === undefined ? '—' : `${v}%`),
                 },
-                { field: 'disconnected', name: 'Not assessed, disconnected' },
+                {
+                  field: 'disconnected',
+                  name: messages.coverageNotAssessedDisconnected(),
+                },
               ]}
             />
           </EuiAccordion>
@@ -322,9 +331,7 @@ export const CoveragePanel = ({ data }: { data: CiscatData }) => {
           color='subdued'
           data-test-subj='ciscat-coverage-empty'
         >
-          No coverage recorded yet. The manager records it once a day, and the
-          trend starts from that day: update the CIS-CAT bridge on the manager
-          if nothing shows up tomorrow.
+          {messages.coverageEmpty()}
         </EuiText>
       )}
     </div>

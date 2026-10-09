@@ -22,17 +22,9 @@ locals {
   plugin_file      = var.plugin == null ? "" : "${local.remote}/${basename(var.plugin.path)}"
   plugin_args      = var.plugin == null ? "" : "--plugin-file \"${local.plugin_file}\" --plugin-sha256 ${var.plugin.sha256} --restart-dashboard"
 
-  indexer_args = var.wazuh_major == 5 && var.indexer != null ? join(" ", compact([
-    "--indexer-url '${var.indexer.url}'",
-    "--indexer-user '${var.indexer.user}'",
-    "--indexer-password-file ${local.etc}/.indexer_pass",
-    var.indexer.ca_pem == null ? "" : "--indexer-ca ${local.etc}/indexer-ca.pem",
-  ])) : ""
-
   master_args = join(" ", compact([
     var.apply_policies ? "--apply" : "",
     local.plugin_on_master ? local.plugin_args : "",
-    local.indexer_args,
   ]))
 
   prepare = ["set -e", "umask 077", "mkdir -p ${local.remote}", "chmod 700 ${local.remote}"]
@@ -69,9 +61,8 @@ locals {
 resource "terraform_data" "secrets" {
   # the hashes only tell Terraform when to rewrite the files
   triggers_replace = {
-    api     = sha256("${var.api_user}\n${var.api_password}")
-    indexer = sha256(jsonencode([var.indexer, var.indexer_password]))
-    host    = var.master.host
+    api  = sha256("${var.api_user}\n${var.api_password}")
+    host = var.master.host
   }
 
   connection {
@@ -94,25 +85,13 @@ resource "terraform_data" "secrets" {
     destination = "${local.up}/api.pass"
   }
 
-  provisioner "file" {
-    content     = coalesce(var.indexer_password, " ")
-    destination = "${local.up}/indexer.pass"
-  }
-
-  provisioner "file" {
-    content     = coalesce(try(var.indexer.ca_pem, null), " ")
-    destination = "${local.up}/indexer-ca.pem"
-  }
-
   provisioner "remote-exec" {
     inline = [
       "set -e",
       "S='${local.sudo_master}'",
       "$S install -d -m 700 -o root -g root ${local.etc}",
       "$S install -m 600 -o root -g root ${local.remote}/api.pass ${local.etc}/.ciscat_api_pass",
-      "if [ \"$(cat ${local.remote}/indexer.pass)\" != ' ' ]; then $S install -m 600 -o root -g root ${local.remote}/indexer.pass ${local.etc}/.indexer_pass; fi",
-      "if [ \"$(cat ${local.remote}/indexer-ca.pem)\" != ' ' ]; then $S install -m 644 -o root -g root ${local.remote}/indexer-ca.pem ${local.etc}/indexer-ca.pem; fi",
-      "rm -f ${local.remote}/api.pass ${local.remote}/indexer.pass ${local.remote}/indexer-ca.pem",
+      "rm -f ${local.remote}/api.pass",
       # api_user and api_pass_file in the bridge configuration, other settings kept
       "$S python3 - '${local.etc}/ciscat-orchestrator.conf' '${var.api_user}' '${local.etc}/.ciscat_api_pass' <<'PY'",
       "import os, sys",

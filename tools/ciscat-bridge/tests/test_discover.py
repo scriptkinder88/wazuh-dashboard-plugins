@@ -15,7 +15,8 @@ def bench(roles, extra=()):
     profiles = ['<xccdf:Profile id="{0}Level_{1}_-_{2}"/>'.format(P, lvl, r)
                 for r in roles for lvl in (1, 2)]
     profiles += ['<xccdf:Profile id="{0}{1}"/>'.format(P, e) for e in extra]
-    return "<xccdf:Benchmark>{0}</xccdf:Benchmark>".format("".join(profiles))
+    return ('<xccdf:Benchmark xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2">{0}'
+            '</xccdf:Benchmark>'.format("".join(profiles)))
 
 
 LIBRARY = {
@@ -72,7 +73,8 @@ class Discover(unittest.TestCase):
                          ("Server", "os-rhel9_v2_0_0", [["l1_server", "L1"]]))
         self.assertEqual(lib["rhel9_v1_0_0"]["benchmark"],
                          "CIS_Red_Hat_Enterprise_Linux_9_Benchmark_v1.0.0-xccdf.xml")
-        self.assertEqual(rhel9["flat_path"], "/var/lib/wazuh-ciscat/reports-cache/l1_server/results.txt")
+        self.assertEqual(rhel9["flat_path"],
+                         "/var/lib/wazuh-ciscat/reports-cache/rhel9_v2_0_0/l1_server/results.txt")
         # same Active Response commands as the OS already configured for the family
         self.assertEqual((rhel9["ar_bootstrap"], rhel9["ar_refresh"]),
                          ("!site-bootstrap-linux", "!site-refresh-linux"))

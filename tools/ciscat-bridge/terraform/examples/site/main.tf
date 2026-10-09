@@ -26,13 +26,6 @@ module "wazuh_ciscat" {
   api_user     = local.secret["api_user"]
   api_password = local.secret["api_password"]
 
-  indexer = var.wazuh_major == 5 ? {
-    url    = local.secret["indexer_url"]
-    user   = local.secret["indexer_user"]
-    ca_pem = lookup(local.secret, "indexer_ca", null)
-  } : null
-  indexer_password = var.wazuh_major == 5 ? local.secret["indexer_password"] : null
-
   benchmarks_dir  = var.benchmarks_dir
   baseline_groups = local.baseline.groups
 }
