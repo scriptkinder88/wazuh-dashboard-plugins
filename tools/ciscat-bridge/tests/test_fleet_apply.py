@@ -1,6 +1,7 @@
 """ciscat-fleet.py apply and trigger against the fake Wazuh API, with a small synthetic benchmark:
 the combo groups it owns, the apply lock, missing benchmark files, API tokens and credentials."""
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -329,6 +330,16 @@ class FleetApply(unittest.TestCase):
             self.assertRegex(manifest, "(?m)^{0};[0-9a-f]{{64}};{1}$".format(
                 re.escape(name), re.escape(dest)))
         self.assertRegex(manifest, "(?m)^ciscat-params-win.txt;[0-9a-f]{64};$")
+        # the Windows agent stores group files with CRLF: they are published with LF only, and
+        # the manifest holds the SHA-256 of the CRLF copy the agent checks
+        for line in manifest.splitlines():
+            if line.startswith("#"):
+                continue
+            name, digest = line.split(";")[:2]
+            with open(os.path.join(rhel_dir, name), "rb") as f:
+                data = f.read()
+            self.assertNotIn(b"\r", data, name)
+            self.assertEqual(hashlib.sha256(data.replace(b"\n", b"\r\n")).hexdigest(), digest, name)
         with open(os.path.join(self.paths["shared_dir"], "ciscat-win-base", "cis_win_l1.yml")) as f:
             self.assertIn("f:C:\\CIS\\results\\win.ciscat-flat", f.read())
         # Linux agents of the group get both Linux policies; the Windows one goes to none of them

@@ -202,6 +202,8 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   (`CISCAT_SCA_INTERVAL`, default `1h`, instead of the agent's 12 hours) and loads the policy
   when the manager does not already. An agent with CIS-CAT Pro but no license reports it (same
   alert as a missing Assessor) and its old results are withdrawn.
+  Windows agents store the group files with CRLF line endings: Windows files are published with
+  LF only and their manifest lists the SHA-256 of the CRLF copy the agent checks.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

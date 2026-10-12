@@ -224,6 +224,20 @@ def copy_atomic(src, dst):
         write_atomic(dst, f.read())
 
 
+# A Windows agent writes the group files it receives in text mode (UnmergeFiles with OS_TEXT):
+# every LF becomes CRLF, and a CRLF in the source would shift the reading of the files after it.
+# So Windows files are published with LF only, and their manifest lists the SHA-256 of the CRLF
+# copy the agent ends up with, which is what ciscat-bootstrap.ps1 checks.
+def copy_for_windows(src, dst):
+    with open(src, "rb") as f:
+        write_atomic(dst, f.read().replace(b"\r\n", b"\n"))
+
+
+def windows_sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read().replace(b"\n", b"\r\n")).hexdigest()
+
+
 def ssl_context(ca):
     """Verified TLS when the conf names a CA (api_ca); otherwise the local manager API with its
     default self-signed certificate."""
@@ -506,9 +520,9 @@ def publish_windows(os_key, cfg, art, exc_csv):
     gdir = os.path.join(PATHS["shared_dir"], cfg["group"])
     os.makedirs(gdir, exist_ok=True)
     custom = cfg["base"] + "-custom.xml"
-    copy_atomic(art["custom"], os.path.join(gdir, custom))
+    copy_for_windows(art["custom"], os.path.join(gdir, custom))
     tailoring = "tailoring-{0}.csv".format(os_key)
-    copy_atomic(exc_csv, os.path.join(gdir, tailoring))
+    copy_for_windows(exc_csv, os.path.join(gdir, tailoring))
     # profile, custom benchmark and result name of this OS for ciscat-assessment.ps1 (one script
     # for every Windows OS)
     _, level = cfg["profiles"][0]
@@ -526,7 +540,7 @@ def publish_windows(os_key, cfg, art, exc_csv):
     for suf in ("-oval.xml", "-cpe-oval.xml", "-cpe-dictionary.xml"):
         src = os.path.join(PATHS["benchmarks_dir"], pfx + suf)
         if os.path.isfile(src):
-            copy_atomic(src, os.path.join(gdir, pfx + suf))
+            copy_for_windows(src, os.path.join(gdir, pfx + suf))
             entries.append((pfx + suf, WINDOWS_BENCH + pfx + suf))
     missing = []
     for script in WINDOWS_SCRIPTS:
@@ -535,12 +549,12 @@ def publish_windows(os_key, cfg, art, exc_csv):
             print("    MISSING: {0}".format(src))
             missing.append(script)
             continue
-        copy_atomic(src, os.path.join(gdir, script))
+        copy_for_windows(src, os.path.join(gdir, script))
         entries.append((script, WINDOWS_BIN + script))
     lines = ["# ciscat-manifest ({0}), generated {1}".format(
         os_key, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())), "# name;sha256;dest"]
     for name, dest in entries:
-        lines.append("{0};{1};{2}".format(name, sha256(os.path.join(gdir, name)), dest))
+        lines.append("{0};{1};{2}".format(name, windows_sha256(os.path.join(gdir, name)), dest))
     manifest = OS_MANIFEST.format(os_key)
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     print("    published: custom + {0} + params + {1} companion(s) + {2} script(s) + manifest".format(
