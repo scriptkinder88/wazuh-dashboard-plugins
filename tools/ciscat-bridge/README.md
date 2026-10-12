@@ -71,13 +71,13 @@ without a Level 1 or STIG profile. GPO benchmarks (Firefox ESR, VS Code) are Win
 
 Who installs what, once:
 
-| Where         | What                                                                                               | Installed by                            |
-| ------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Master        | Bridge scripts, cron, rule, API user `ciscat-bridge`, signing key, plugin                          | `ciscat-master-setup.sh`                |
-| Windows agent | `C:\CIS` (ACL, owner), CIS-CAT Pro in `C:\CIS\Assessor`, launcher and bootstrap                    | `install-windows-agent.ps1`             |
-| Linux agent   | `/opt/ciscat/Assessor` (root), bootstrap, SELinux labels                                           | `install-linux-agent.sh`                |
-| First run     | Master public key (kept by the agent; or pinned by the installer)                                  | the master, with the group files        |
-| Every run     | Benchmarks, OVAL/CPE, assessment and conversion scripts, settings                                  | the master, through the signed manifest |
+| Where         | What                                                                            | Installed by                            |
+| ------------- | ------------------------------------------------------------------------------- | --------------------------------------- |
+| Master        | Bridge scripts, cron, rule, API user `ciscat-bridge`, signing key, plugin       | `ciscat-master-setup.sh`                |
+| Windows agent | `C:\CIS` (ACL, owner), CIS-CAT Pro in `C:\CIS\Assessor`, launcher and bootstrap | `install-windows-agent.ps1`             |
+| Linux agent   | `/opt/ciscat/Assessor` (root), bootstrap, SELinux labels                        | `install-linux-agent.sh`                |
+| First run     | Master public key (kept by the agent; or pinned by the installer)               | the master, with the group files        |
+| Every run     | Benchmarks, OVAL/CPE, assessment and conversion scripts, settings               | the master, through the signed manifest |
 
 - **Benchmark files:** the `os-<os>` group carries the custom XCCDF and, under their original
   names, the benchmark's OVAL and CPE files (`-oval.xml`, `-cpe-oval.xml`,
