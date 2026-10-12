@@ -24,10 +24,26 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Appends a line to the Active Response log, which wazuh-agent keeps open: shared read/write
+# access and a few retries (Add-Content gives up on a sharing violation, without a word).
+function Write-LogLine($path, $line) {
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+            try {
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($line + "`r`n")
+                $fs.Write($bytes, 0, $bytes.Length)
+            } finally { $fs.Dispose() }
+            return
+        } catch { Start-Sleep -Milliseconds 300 }
+    }
+}
+
 function Log($msg) {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $line = "$ts ciscat-assessment: $msg"
-    try { Add-Content -Path $LogFile -Value $line -ErrorAction SilentlyContinue } catch {}
+    Write-LogLine $LogFile $line
     # to the host, not the pipeline: functions return their result through the pipeline
     Write-Host $line
 }
