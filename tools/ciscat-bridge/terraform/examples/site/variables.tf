@@ -54,6 +54,6 @@ variable "vault_mount" {
 }
 
 variable "vault_secret" {
-  description = "Secret with the keys api_user, api_password and, on Wazuh 5.0, indexer_url, indexer_user, indexer_password, indexer_ca."
+  description = "Secret with the keys api_user and api_password."
   type        = string
 }

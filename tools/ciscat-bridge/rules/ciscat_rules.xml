@@ -7,7 +7,7 @@
 <group name="sca,ciscat,">
   <rule id="100950" level="7">
     <match>CIS-CAT Pro not found on </match>
-    <description>CIS-CAT Pro not found on the agent: CIS-CAT assessment stopped and previous results withdrawn from SCA</description>
+    <description>CIS-CAT Pro or its license not found on the agent: CIS-CAT assessment stopped and previous results withdrawn from SCA</description>
     <group>ciscat_not_installed,</group>
   </rule>
 </group>

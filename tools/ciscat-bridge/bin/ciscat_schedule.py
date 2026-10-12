@@ -1,4 +1,6 @@
-"""When CIS-CAT jobs run. Pure functions over naive local datetimes (master local time).
+"""When CIS-CAT jobs run. Job times are naive local datetimes (master local time); the tick
+window is a pair of epoch seconds, so a local hour that repeats when daylight saving time ends
+does not run a job twice.
 
 Job types (validated by ciscat_store.validate_job):
   once     at "YYYY-MM-DDTHH:MM"
@@ -6,10 +8,18 @@ Job types (validated by ciscat_store.validate_job):
   weekly   weekday 0..6 (0 = Monday), time "HH:MM"
 """
 import calendar
+import time
 from datetime import datetime, timedelta
 
 # Occurrences missed for longer than this (scheduler down) are reported, not run.
 CATCH_UP = timedelta(hours=6)
+# Local times are searched this far around the tick window: covers any UTC offset change.
+DST_SLACK = timedelta(hours=3)
+
+
+def local_ts(t):
+    """Epoch seconds of a naive local time (an ambiguous or skipped time maps to one instant)."""
+    return time.mktime(t.timetuple())
 
 
 def _at(value):
@@ -70,15 +80,19 @@ def next_run(job, after):
     return occ[0] if occ else None
 
 
-def due(job, last_tick, now):
-    """(run_now, missed): whether to run at this tick, and the occurrences that are too old.
+def due(job, last_ts, now_ts, to_ts=local_ts):
+    """(run_now, missed) for the tick window (last_ts, now_ts], in epoch seconds: whether to run
+    at this tick, and the occurrences that are too old.
 
     Several occurrences inside one tick window run once. Occurrences older than CATCH_UP (the
     scheduler was not running) are not run late: they are returned so they can be reported.
     """
-    if not job.get("enabled", True):
+    if not job.get("enabled", True) or now_ts <= last_ts:
         return False, []
-    occ = occurrences(job, last_tick, now)
-    recent = [t for t in occ if now - t <= CATCH_UP]
-    missed = [t for t in occ if now - t > CATCH_UP]
+    lo, hi = datetime.fromtimestamp(last_ts), datetime.fromtimestamp(now_ts)
+    occ = [t for t in occurrences(job, min(lo, hi) - DST_SLACK, max(lo, hi) + DST_SLACK)
+           if last_ts < to_ts(t) <= now_ts]
+    catch_up = CATCH_UP.total_seconds()
+    recent = [t for t in occ if now_ts - to_ts(t) <= catch_up]
+    missed = [t for t in occ if now_ts - to_ts(t) > catch_up]
     return bool(recent), missed

@@ -1,4 +1,17 @@
 import { cloneDeep } from 'lodash';
+import {
+  Aggregation,
+  BoolQuery,
+  CompositeBucket,
+  CompositeKey,
+  OpenSearchQuery,
+  ScaAgentInfo,
+  ScaCheckEntry,
+  ScaPolicySummary,
+  ScaSearchContext,
+  ScaSearchResponse,
+  TermsBucket,
+} from './sca-types';
 
 const SCA_COMPOSITE_PAGE_SIZE = 1000;
 const SCA_AGENT_AGGREGATION_LIMIT = 10000;
@@ -11,17 +24,16 @@ const normalizeAgentIds = (agentIds: string | string[]) => [
   ),
 ];
 
-const ensureBoolQuery = query => {
-  const cloned = cloneDeep(query || {});
+const ensureBoolQuery = (query?: OpenSearchQuery): BoolQuery => {
+  const cloned = cloneDeep(query || {}) as Partial<BoolQuery>;
 
   if (cloned?.bool) {
-    cloned.bool.filter = Array.isArray(cloned.bool.filter)
-      ? cloned.bool.filter
-      : cloned.bool.filter
-      ? [cloned.bool.filter]
-      : [];
+    const filter: unknown = cloned.bool.filter;
+    if (!Array.isArray(filter)) {
+      cloned.bool.filter = filter ? [filter] : [];
+    }
 
-    return cloned;
+    return cloned as BoolQuery;
   }
 
   return {
@@ -33,7 +45,7 @@ const ensureBoolQuery = query => {
 };
 
 export const buildScaBaseIndexQuery = (
-  serverSideQuery: any,
+  serverSideQuery: OpenSearchQuery | undefined,
   agentIds: string | string[],
 ) => {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
@@ -56,7 +68,7 @@ export const buildScaBaseIndexQuery = (
 };
 
 export const buildScaIndexQuery = (
-  serverSideQuery: any,
+  serverSideQuery: OpenSearchQuery | undefined,
   agentIds: string | string[],
 ) => {
   const query = buildScaBaseIndexQuery(serverSideQuery, agentIds);
@@ -71,7 +83,7 @@ export const buildScaIndexQuery = (
 };
 
 export const buildScaSummaryIndexQuery = (
-  serverSideQuery: any,
+  serverSideQuery: OpenSearchQuery | undefined,
   agentIds: string | string[],
 ) => {
   const query = buildScaBaseIndexQuery(serverSideQuery, agentIds);
@@ -92,19 +104,24 @@ export const buildScaSummaryIndexQuery = (
   return query;
 };
 
-const getAggregation = (response, name: string) =>
-  response?.body?.aggregations?.[name] || response?.aggregations?.[name];
+const getAggregation = <B>(
+  response: ScaSearchResponse,
+  name: string,
+): Aggregation<B> | undefined =>
+  (response?.body?.aggregations?.[name] || response?.aggregations?.[name]) as
+    | Aggregation<B>
+    | undefined;
 
 export async function getScaAgentInventory(
-  context,
+  context: ScaSearchContext,
   pattern: string,
-  serverSideQuery: any,
+  serverSideQuery: OpenSearchQuery | undefined,
   agentIds: string | string[],
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
 
   if (!normalizedAgentIds.length) {
-    return new Map<string, any>();
+    return new Map<string, ScaAgentInfo>();
   }
 
   const response = await context.core.opensearch.client.asCurrentUser.search({
@@ -137,8 +154,9 @@ export async function getScaAgentInventory(
     },
   });
 
-  const buckets = getAggregation(response, 'sca_agents')?.buckets || [];
-  const inventory = new Map<string, any>();
+  const buckets =
+    getAggregation<TermsBucket>(response, 'sca_agents')?.buckets || [];
+  const inventory = new Map<string, ScaAgentInfo>();
 
   for (const bucket of buckets) {
     const source = bucket?.latest?.hits?.hits?.[0]?._source || {};
@@ -160,22 +178,22 @@ export async function getScaAgentInventory(
 }
 
 export async function getLatestScaPolicySummaries(
-  context,
+  context: ScaSearchContext,
   pattern: string,
-  serverSideQuery: any,
+  serverSideQuery: OpenSearchQuery | undefined,
   agentIds: string | string[],
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
-  const summaries = new Map<string, any>();
+  const summaries = new Map<string, ScaPolicySummary>();
 
   if (!normalizedAgentIds.length) {
     return summaries;
   }
 
-  let afterKey: any = undefined;
+  let afterKey: CompositeKey | undefined;
 
   do {
-    const composite: any = {
+    const composite: Record<string, unknown> = {
       size: SCA_COMPOSITE_PAGE_SIZE,
       sources: [
         {
@@ -236,7 +254,10 @@ export async function getLatestScaPolicySummaries(
       },
     });
 
-    const aggregation = getAggregation(response, 'sca_policy_summaries');
+    const aggregation = getAggregation<CompositeBucket>(
+      response,
+      'sca_policy_summaries',
+    );
     const buckets = aggregation?.buckets || [];
 
     for (const bucket of buckets) {
@@ -284,11 +305,11 @@ export async function getLatestScaPolicySummaries(
 }
 
 export async function forEachLatestScaCheck(
-  context,
+  context: ScaSearchContext,
   pattern: string,
-  serverSideQuery: any,
+  serverSideQuery: OpenSearchQuery | undefined,
   agentIds: string | string[],
-  onCheck: (entry: { key: any; source: any }) => Promise<void> | void,
+  onCheck: (entry: ScaCheckEntry) => Promise<void> | void,
 ) {
   const normalizedAgentIds = normalizeAgentIds(agentIds);
 
@@ -296,10 +317,10 @@ export async function forEachLatestScaCheck(
     return;
   }
 
-  let afterKey: any = undefined;
+  let afterKey: CompositeKey | undefined;
 
   do {
-    const composite: any = {
+    const composite: Record<string, unknown> = {
       size: SCA_COMPOSITE_PAGE_SIZE,
       sources: [
         {
@@ -371,7 +392,7 @@ export async function forEachLatestScaCheck(
       },
     });
 
-    const aggregation = getAggregation(response, 'sca_checks');
+    const aggregation = getAggregation<CompositeBucket>(response, 'sca_checks');
     const buckets = aggregation?.buckets || [];
 
     for (const bucket of buckets) {

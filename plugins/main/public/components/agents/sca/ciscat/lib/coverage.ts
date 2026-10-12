@@ -14,6 +14,9 @@ export interface CoveragePoint {
   percent?: number;
 }
 
+/** An agent counts as assessed with a scan in this many days (set by the master). */
+export const COVERAGE_WINDOW_DAYS = 35;
+
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 

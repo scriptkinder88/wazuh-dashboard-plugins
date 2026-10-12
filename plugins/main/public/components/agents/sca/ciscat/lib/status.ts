@@ -5,8 +5,12 @@
 /* eslint-disable camelcase */ // record fields are the snake_case wire format
 import { ListRecords } from '../../../../../../common/ciscat/store';
 
-/** Scheduler ticks every 5 minutes: three missed ticks mean it is not running. */
-export const SCHEDULER_STALE_MS = 15 * 60 * 1000;
+/** The scheduler of the bridge runs every few minutes on the manager. */
+export const SCHEDULER_INTERVAL_MINUTES = 5;
+
+/** Three missed ticks mean the scheduler is not running. */
+export const SCHEDULER_STALE_MINUTES = 3 * SCHEDULER_INTERVAL_MINUTES;
+export const SCHEDULER_STALE_MS = SCHEDULER_STALE_MINUTES * 60 * 1000;
 
 /**
  * A master timestamp as a Date. Values with an offset are exact; values in
