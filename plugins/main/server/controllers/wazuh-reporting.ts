@@ -28,6 +28,10 @@ import {
 import { ReportPrinter } from '../lib/reporting/printer';
 import { addScaChecksToReport } from '../lib/reporting/sca-report';
 import {
+  ScaReportAgentsError,
+  filterAuthorizedAgentIds,
+} from '../lib/reporting/sca-authorized-agents';
+import {
   AUTHORIZED_AGENTS,
   API_NAME_AGENT_STATUS,
 } from '../../common/constants';
@@ -327,6 +331,14 @@ export class WazuhReportingCtrl {
           `downloads/reports/${context.wazuhEndpointParams.hashUsername}`,
         );
 
+        // Checked before anything is written so that a report never includes
+        // agents the user cannot read with the Wazuh server API.
+        const scaAgents =
+          moduleID === 'sca' &&
+          (typeof agents === 'string' || Array.isArray(agents))
+            ? await filterAuthorizedAgentIds(context, agents, apiId)
+            : undefined;
+
         const headerAgents =
           moduleID === 'sca' && Array.isArray(agents) ? false : agents;
 
@@ -370,14 +382,11 @@ export class WazuhReportingCtrl {
 
         printer.addVisualizations(array, agents, moduleID);
 
-        if (
-          moduleID === 'sca' &&
-          (typeof agents === 'string' || Array.isArray(agents))
-        ) {
+        if (scaAgents) {
           await addScaChecksToReport(
             context,
             printer,
-            agents,
+            scaAgents,
             indexPatternTitle ||
               context.wazuh_core.configuration.getSettingValue('pattern'),
             serverSideQuery,
@@ -399,7 +408,12 @@ export class WazuhReportingCtrl {
           },
         });
       } catch (error) {
-        return ErrorResponse(error.message || error, 5029, 500, response);
+        return ErrorResponse(
+          error.message || error,
+          5029,
+          error instanceof ScaReportAgentsError ? 400 : 500,
+          response,
+        );
       }
     },
     ({ body: { agents }, params: { moduleID } }) => {

@@ -1,5 +1,5 @@
 import { TextDecoder, TextEncoder } from 'util';
-import { FimRule, parseRules } from './agent-conf';
+import { FimRule, editAgentConf, parseRules } from './agent-conf';
 import {
   AgentInfo,
   DEFAULT_AGENT_CONF,
@@ -119,6 +119,54 @@ describe('buildPlan', () => {
     expect(removed.map(s => [s.group, s.deleteGroup])).toEqual([
       ['fim-host-007', true],
     ]);
+  });
+
+  it('leaves a group alone when only the author or time would change', () => {
+    const withAudit = Object.fromEntries(
+      [
+        toGroupConf(
+          'web',
+          editAgentConf(DEFAULT_AGENT_CONF, { add: [newRule] }),
+        ),
+        toGroupConf('db', DEFAULT_AGENT_CONF),
+      ].map(g => [g.name, g]),
+    );
+    const [row] = aggregateRules(Object.values(withAudit));
+    const resaved = {
+      ...newRule,
+      meta: { ...meta, by: 'bob', at: '2026-10-05T08:00:00Z' },
+    };
+    const steps = buildPlan(withAudit, agents, {
+      before: row,
+      after: { rule: resaved, groups: ['web', 'db'], hostIds: [] },
+    });
+    expect(steps.map(s => s.group)).toEqual(['db']);
+
+    const nothing = buildPlan(withAudit, agents, {
+      before: row,
+      after: { rule: resaved, groups: ['web'], hostIds: [] },
+    });
+    expect(nothing).toEqual([]);
+  });
+
+  it('rewrites a rule whose audit fields changed', () => {
+    const withAudit = {
+      web: toGroupConf(
+        'web',
+        editAgentConf(DEFAULT_AGENT_CONF, { add: [newRule] }),
+      ),
+    };
+    const [row] = aggregateRules(Object.values(withAudit));
+    const steps = buildPlan(withAudit, agents, {
+      before: row,
+      after: {
+        rule: { ...newRule, meta: { ...meta, ticket: 'CHG-7' } },
+        groups: ['web'],
+        hostIds: [],
+      },
+    });
+    expect(steps.map(s => s.group)).toEqual(['web']);
+    expect(parseRules(steps[0].after)[0].meta?.ticket).toBe('CHG-7');
   });
 
   it('refuses to touch a group whose agent.conf cannot be parsed', () => {

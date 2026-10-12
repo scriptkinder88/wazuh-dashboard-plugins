@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 900" width="1180" height="900" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+  <title>CIS-CAT bridge: who does what</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3a4a5c"/>
+    </marker>
+    <style>
+      .lane{fill:#f5f7fa;stroke:#c9d2dc}
+      .head{font-weight:700;font-size:15px;fill:#1f2d3d}
+      .who{font-size:12px;fill:#5a6b7d}
+      .box{fill:#fff;stroke:#3a4a5c;stroke-width:1.2;rx:8}
+      .key{fill:#fff7e6;stroke:#c98a00;stroke-width:1.2;rx:8}
+      .t{fill:#1f2d3d}
+      .s{fill:#4a5a6b;font-size:12px}
+      .n{fill:#1f6feb}
+      .nt{fill:#fff;font-weight:700;font-size:12px}
+      .ln{stroke:#3a4a5c;stroke-width:1.4;fill:none;marker-end:url(#a)}
+      .dash{stroke-dasharray:5 4}
+    </style>
+  </defs>
+  <rect width="1180" height="900" fill="#ffffff"/>
+  <text x="590" y="30" text-anchor="middle" font-size="19" font-weight="700" fill="#1f2d3d">CIS-CAT bridge — who does what</text>
+
+  <!-- lanes -->
+  <rect class="lane" x="15" y="50" width="330" height="835" rx="10"/>
+  <text class="head" x="30" y="75">1 · Operator + dashboard</text>
+  <text class="who" x="30" y="93">a person, in the Wazuh dashboard (browser)</text>
+  <rect class="lane" x="360" y="50" width="400" height="835" rx="10"/>
+  <text class="head" x="375" y="75">2 · Wazuh master</text>
+  <text class="who" x="375" y="93">root cron + bridge scripts in /opt/ciscat</text>
+  <rect class="lane" x="775" y="50" width="390" height="835" rx="10"/>
+  <text class="head" x="790" y="75">3 · Wazuh agents (Windows / Linux)</text>
+  <text class="who" x="790" y="93">SYSTEM / root, started by Wazuh Active Response</text>
+
+  <!-- operator lane -->
+  <rect class="box" x="30" y="115" width="300" height="90"/>
+  <text class="t" x="45" y="138" font-weight="600">Choose what to assess</text>
+  <text class="s" x="45" y="157">benchmark per OS, exclusions (reason,</text>
+  <text class="s" x="45" y="173">ticket, owner), schedule or "Run now"</text>
+  <text class="s" x="45" y="189">on agents, agent lists or groups</text>
+
+  <rect class="box" x="30" y="235" width="300" height="75"/>
+  <text class="t" x="45" y="258" font-weight="600">CIS-CAT page saves the choices</text>
+  <text class="s" x="45" y="277">as Wazuh CDB lists (ciscat-requests,</text>
+  <text class="s" x="45" y="293">-schedule, -exclusions, -targets)</text>
+
+  <rect class="box" x="30" y="760" width="300" height="105"/>
+  <text class="t" x="45" y="783" font-weight="600">Read the results</text>
+  <text class="s" x="45" y="802">SCA score per agent and benchmark,</text>
+  <text class="s" x="45" y="818">job status, coverage trend,</text>
+  <text class="s" x="45" y="834">alerts (CIS-CAT or license missing)</text>
+  <text class="s" x="45" y="850">in the dashboard</text>
+
+  <!-- master lane -->
+  <rect class="box" x="375" y="235" width="370" height="75"/>
+  <text class="t" x="390" y="258" font-weight="600">ciscat-scheduler.py (cron, every 5 min)</text>
+  <text class="s" x="390" y="277">reads and validates the lists; waves of at most</text>
+  <text class="s" x="390" y="293">200 agents, 5 "Run now" per tick</text>
+
+  <rect class="box" x="375" y="340" width="370" height="105"/>
+  <text class="t" x="390" y="363" font-weight="600">ciscat-fleet.py apply</text>
+  <text class="s" x="390" y="382">tailored XCCDF (benchmark − exclusions) and</text>
+  <text class="s" x="390" y="398">SCA policy per OS, written to the agent groups</text>
+  <text class="s" x="390" y="414">(/var/ossec/etc/shared/&lt;group&gt;) with a</text>
+  <text class="s" x="390" y="430">manifest: file, SHA-256, destination</text>
+
+  <rect class="key" x="375" y="465" width="370" height="60"/>
+  <text class="t" x="390" y="488" font-weight="600">Manifest signed with the master's key</text>
+  <text class="s" x="390" y="507">RSA private key in /opt/ciscat/etc, root only</text>
+
+  <rect class="box" x="375" y="555" width="370" height="75"/>
+  <text class="t" x="390" y="578" font-weight="600">ciscat-fleet.py trigger</text>
+  <text class="s" x="390" y="597">Active Response via Wazuh API (user ciscat-bridge,</text>
+  <text class="s" x="390" y="613">least privilege); Windows ≠ Linux benchmarks</text>
+
+  <rect class="box" x="375" y="760" width="370" height="105"/>
+  <text class="t" x="390" y="783" font-weight="600">Wazuh manager stores the results</text>
+  <text class="s" x="390" y="802">SCA checks per agent (indexer), job status</text>
+  <text class="s" x="390" y="818">in ciscat-status, daily coverage snapshot,</text>
+  <text class="s" x="390" y="834">rule 100952 for an agent without CIS-CAT</text>
+  <text class="s" x="390" y="850">or license</text>
+
+  <!-- agent lane -->
+  <rect class="box" x="790" y="340" width="360" height="75"/>
+  <text class="t" x="805" y="363" font-weight="600">Wazuh agent syncs its group files</text>
+  <text class="s" x="805" y="382">into ossec-agent\shared (Windows) or</text>
+  <text class="s" x="805" y="398">/var/ossec/etc/shared (Linux)</text>
+
+  <rect class="box" x="790" y="555" width="360" height="75"/>
+  <text class="t" x="805" y="578" font-weight="600">Launcher → bootstrap (in background)</text>
+  <text class="s" x="805" y="597">ciscat-assessment.cmd + ciscat-bootstrap.ps1,</text>
+  <text class="s" x="805" y="613">or ciscat-bootstrap.sh (installed by hand once)</text>
+
+  <rect class="key" x="790" y="645" width="360" height="60"/>
+  <text class="t" x="805" y="668" font-weight="600">Verify signature + SHA-256, then install</text>
+  <text class="s" x="805" y="687">master public key: kept at the first sync (or pinned)</text>
+
+  <rect class="box" x="790" y="720" width="360" height="60"/>
+  <text class="t" x="805" y="743" font-weight="600">CIS-CAT Pro Assessor runs the benchmark</text>
+  <text class="s" x="805" y="762">C:\CIS\Assessor · /opt/ciscat/Assessor</text>
+
+  <rect class="box" x="790" y="795" width="360" height="70"/>
+  <text class="t" x="805" y="818" font-weight="600">Results file → Wazuh SCA module</text>
+  <text class="s" x="805" y="837">C:\CIS\results · reports-cache/&lt;os&gt;/&lt;profile&gt;</text>
+  <text class="s" x="805" y="853">read every hour and when the agent starts</text>
+
+  <!-- arrows -->
+  <path class="ln" d="M180,205 L180,233"/>
+  <path class="ln" d="M330,272 L373,272"/>
+  <path class="ln" d="M560,310 L560,338"/>
+  <path class="ln" d="M560,445 L560,463"/>
+  <path class="ln" d="M745,390 L788,378"/>
+  <path class="ln" d="M560,525 L560,553"/>
+  <path class="ln" d="M745,592 L788,592"/>
+  <path class="ln dash" d="M1150,378 L1158,378 L1158,675 L1152,675"/>
+  <path class="ln" d="M970,630 L970,643"/>
+  <path class="ln" d="M970,705 L970,718"/>
+  <path class="ln" d="M970,780 L970,793"/>
+  <path class="ln" d="M790,830 L747,830"/>
+  <path class="ln" d="M375,812 L332,812"/>
+
+  <!-- step numbers -->
+  <g>
+    <circle class="n" cx="30" cy="115" r="12"/><text class="nt" x="30" y="119" text-anchor="middle">1</text>
+    <circle class="n" cx="30" cy="235" r="12"/><text class="nt" x="30" y="239" text-anchor="middle">2</text>
+    <circle class="n" cx="375" cy="235" r="12"/><text class="nt" x="375" y="239" text-anchor="middle">3</text>
+    <circle class="n" cx="375" cy="340" r="12"/><text class="nt" x="375" y="344" text-anchor="middle">4</text>
+    <circle class="n" cx="375" cy="465" r="12"/><text class="nt" x="375" y="469" text-anchor="middle">5</text>
+    <circle class="n" cx="790" cy="340" r="12"/><text class="nt" x="790" y="344" text-anchor="middle">6</text>
+    <circle class="n" cx="375" cy="555" r="12"/><text class="nt" x="375" y="559" text-anchor="middle">7</text>
+    <circle class="n" cx="790" cy="555" r="12"/><text class="nt" x="790" y="559" text-anchor="middle">8</text>
+    <circle class="n" cx="790" cy="645" r="12"/><text class="nt" x="790" y="649" text-anchor="middle">9</text>
+    <circle class="n" cx="790" cy="720" r="12"/><text class="nt" x="790" y="724" text-anchor="middle">10</text>
+    <circle class="n" cx="790" cy="795" r="12"/><text class="nt" x="790" y="799" text-anchor="middle">11</text>
+    <circle class="n" cx="375" cy="760" r="12"/><text class="nt" x="375" y="764" text-anchor="middle">12</text>
+    <circle class="n" cx="30" cy="760" r="12"/><text class="nt" x="30" y="764" text-anchor="middle">13</text>
+  </g>
+</svg>
