@@ -3,12 +3,12 @@
 The sources of the three release packages. The built packages are release attachments, never
 committed (`out/` is ignored).
 
-| Folder | Package | Runs on |
-|--------|---------|---------|
-| [`master/`](master/README.txt) | `ciscat-master-<v>.zip` | the Wazuh master (and the dashboard when on the same host) |
-| [`agent-windows/`](agent-windows/README.txt) | `ciscat-agent-windows-<v>[-assessor-<a>].zip` | every Windows agent |
-| [`agent-linux/`](agent-linux/README.txt) | `ciscat-agent-linux-<v>[-assessor-<a>].tar.gz` | every Linux / Unix-like agent |
-| [`ansible/`](ansible/) | playbook and role `ciscat_agent` | the Ansible controller, to roll out the agent packages |
+| Folder                                       | Package                                        | Runs on                                                    |
+| -------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------- |
+| [`master/`](master/README.txt)               | `ciscat-master-<v>.zip`                        | the Wazuh master (and the dashboard when on the same host) |
+| [`agent-windows/`](agent-windows/README.txt) | `ciscat-agent-windows-<v>[-assessor-<a>].zip`  | every Windows agent                                        |
+| [`agent-linux/`](agent-linux/README.txt)     | `ciscat-agent-linux-<v>[-assessor-<a>].tar.gz` | every Linux / Unix-like agent                              |
+| [`ansible/`](ansible/)                       | playbook and role `ciscat_agent`               | the Ansible controller, to roll out the agent packages     |
 
 ## Build
 
@@ -40,12 +40,12 @@ user-writable folder.
 
 ## Updates
 
-| What changes | How it reaches the agents | What to do |
-|--------------|---------------------------|------------|
-| Assessment and conversion scripts, benchmarks, OVAL/CPE, settings | from the master at every run, through the signed manifest | update the master |
-| CIS-CAT Pro license | from the master at every run, when `/opt/ciscat/license/license.xml` exists | replace that file, then `ciscat-fleet.py apply` |
-| CIS-CAT Pro Assessor (new version or fix) | full agent package (`ASSESSOR_VERSION`): installed when the version differs, license kept, rolled back when it does not start | roll out the new agent package |
-| Launcher and bootstrap | agent package | roll out the agent package |
+| What changes                                                      | How it reaches the agents                                                                                                     | What to do                                      |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Assessment and conversion scripts, benchmarks, OVAL/CPE, settings | from the master at every run, through the signed manifest                                                                     | update the master                               |
+| CIS-CAT Pro license                                               | from the master at every run, when `/opt/ciscat/license/license.xml` exists                                                   | replace that file, then `ciscat-fleet.py apply` |
+| CIS-CAT Pro Assessor (new version or fix)                         | full agent package (`ASSESSOR_VERSION`): installed when the version differs, license kept, rolled back when it does not start | roll out the new agent package                  |
+| Launcher and bootstrap                                            | agent package                                                                                                                 | roll out the agent package                      |
 
 The agent installers are idempotent: running them again with the same package changes nothing
 but the files that differ.

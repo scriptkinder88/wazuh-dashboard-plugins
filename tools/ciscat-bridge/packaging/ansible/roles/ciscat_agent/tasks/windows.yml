@@ -8,7 +8,7 @@
 
 - name: Copy the agent package
   ansible.windows.win_copy:
-    src: "{{ ciscat_release_dir }}/{{ ciscat_package_windows }}"
+    src: '{{ ciscat_release_dir }}/{{ ciscat_package_windows }}'
     dest: "C:\\CIS\\install\\{{ ciscat_version }}\\{{ ciscat_package_windows }}"
 
 - name: Unpack the agent package
@@ -19,7 +19,7 @@
 
 - name: Master public key next to the installer
   ansible.windows.win_copy:
-    src: "{{ ciscat_pubkey_windows }}"
+    src: '{{ ciscat_pubkey_windows }}'
     dest: "C:\\CIS\\install\\{{ ciscat_version }}\\agent-windows\\ciscat-manifest.pub.xml"
 
 - name: Install or update (idempotent; the output lists what changed)
