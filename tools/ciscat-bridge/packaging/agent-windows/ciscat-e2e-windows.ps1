@@ -156,7 +156,8 @@ function Watch {
     }
     Write-Host "== watching the AR log and the processes for up to $WatchMinutes min (Ctrl+C to stop)"
     $seen = if (Test-Path -LiteralPath $ArLog) { @(Get-Content -LiteralPath $ArLog).Count } else { 0 }
-    $t0 = Get-Date; $invoked = $false
+    # a run started before the watch and still going counts as started
+    $t0 = Get-Date; $invoked = [bool]($last -and $last[-1] -notmatch '=== done|ABORTED')
     while ((Get-Date) - $t0 -lt [timespan]::FromMinutes($WatchMinutes)) {
         if (Test-Path -LiteralPath $ArLog) {
             $all = @(Get-Content -LiteralPath $ArLog)
@@ -170,6 +171,7 @@ function Watch {
             }
         }
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue 2>$null | Where-Object { $_.CommandLine -match 'ciscat|Assessor|CIS\\' -and $_.ProcessId -ne $PID }
+        if ($procs | Where-Object { $_.CommandLine -match 'ciscat-assessment|Assessor' }) { $invoked = $true }
         $elapsed = [int]((Get-Date) - $t0).TotalSeconds
         Write-Host ("  {0,4}s  running: {1}" -f $elapsed, $(if ($procs) { ($procs | ForEach-Object { "$($_.Name)[$($_.ProcessId)]" }) -join ", " } else { "none" }))
         if (-not $invoked -and $elapsed -ge 180) {

@@ -122,6 +122,8 @@ watch() {
         el=$(( $(date +%s) - t0 ))
         procs=$(ps -eo pid,etime,args 2>/dev/null | grep -E 'Assessor|ciscat-refresh|ciscat-bootstrap' | grep -v grep | awk '{print $1"("$2") "$3" "$4}' | tr '\n' ';')
         printf '  %4ss  running: %s\n' "$el" "${procs:-none}"
+        # a run started before the watch counts as started
+        [ -n "$procs" ] && started=1
         if [ -z "$started" ] && [ "$el" -ge 180 ]; then
             echo "[FAIL] no ciscat Active Response ran on this agent within 3 minutes"
             echo "       check shared/ar.conf (L2) and these ossec.log lines:"
