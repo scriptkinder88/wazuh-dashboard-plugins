@@ -8,6 +8,8 @@ The test is skipped without it.
 """
 import json
 import os
+
+os.environ.setdefault("CISCAT_MIN_WAVE_PAUSE_S", "0")  # no minimum pause in tests
 import re
 import shutil
 import subprocess

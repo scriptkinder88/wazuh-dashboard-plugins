@@ -1,4 +1,6 @@
-"""ciscat-bootstrap.sh installs the manifest's files only to the bridge's own places."""
+"""ciscat-bootstrap.sh installs the files of signed manifests only, only to the bridge's own
+places."""
+import base64
 import hashlib
 import os
 import shutil
@@ -22,20 +24,45 @@ class Bootstrap(unittest.TestCase):
             os.makedirs(p)
         self.ar_log = os.path.join(self.d, "active-responses.log")
         open(self.ar_log, "w").close()
+        self.key = self.new_key("master")
+        self.pub = self.key + ".pub"
         self.env = dict(os.environ, CISCAT_AGENT_SHARED=self.shared, CISCAT_PATH=self.assessor,
                         CISCAT_DATA_DIR=self.data, CISCAT_AR_BIN=self.ar_bin,
-                        CISCAT_AR_LOG=self.ar_log)
+                        CISCAT_AR_LOG=self.ar_log, CISCAT_PUBKEY=self.pub)
         self.lines = []
+
+    def new_key(self, name):
+        key = os.path.join(self.d, name + ".key")
+        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt",
+                        "rsa_keygen_bits:2048", "-out", key], check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", key, "-pubout", "-out", key + ".pub"],
+                       check=True, capture_output=True)
+        return key
+
+    def sign(self, manifest, key=None):
+        sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key or self.key, manifest],
+                             check=True, capture_output=True).stdout
+        with open(manifest + ".sig", "w") as f:
+            f.write(base64.b64encode(sig).decode() + "\n")
+
+    def write_manifest(self, name, text, key=None, signed=True):
+        path = os.path.join(self.shared, name)
+        with open(path, "w") as f:
+            f.write(text)
+        if signed:
+            self.sign(path, key)
+        return path
 
     def publish(self, name, dest, content=b"<x/>"):
         with open(os.path.join(self.shared, name), "wb") as f:
             f.write(content)
         self.lines.append("{0};{1};{2}".format(name, hashlib.sha256(content).hexdigest(), dest))
 
-    def run_bootstrap(self, manifest=None):
-        with open(os.path.join(self.shared, "ciscat-manifest.csv"), "w") as f:
-            f.write(manifest if manifest is not None else
-                    "# ciscat-manifest (test)\n# name;sha256;dest\n" + "\n".join(self.lines) + "\n")
+    def run_bootstrap(self, manifest=None, **kw):
+        if manifest is not False:
+            self.write_manifest("ciscat-manifest-test.csv", manifest if manifest is not None else
+                                "# ciscat-manifest (test)\n# name;sha256;dest\n" +
+                                "\n".join(self.lines) + "\n", **kw)
         # as execd does: the alert as one JSON line on stdin
         r = subprocess.run(["sh", SCRIPT], env=self.env, stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, timeout=30, text=True,
@@ -61,12 +88,13 @@ class Bootstrap(unittest.TestCase):
             self.lines = []
             self.publish("ciscat-refresh-{0}.conf".format(key),
                          os.path.join(conf_d, key + ".conf"), key.encode())
-            with open(os.path.join(self.shared, "ciscat-manifest-{0}.csv".format(key)), "w") as f:
-                f.write("# ciscat-manifest ({0})\n# name;sha256;dest\n".format(key) +
-                        "\n".join(self.lines) + "\n")
-        # the group-wide manifest of older managers is not read next to the per-OS ones
-        rc, out = self.run_bootstrap("# old\nmissing.xml;00;" +
-                                     os.path.join(self.data, "x") + "\n")
+            self.write_manifest("ciscat-manifest-{0}.csv".format(key),
+                                "# ciscat-manifest ({0})\n# name;sha256;dest\n".format(key) +
+                                "\n".join(self.lines) + "\n")
+        # the group-wide manifest of older managers is not read
+        with open(os.path.join(self.shared, "ciscat-manifest.csv"), "w") as f:
+            f.write("# old\nmissing.xml;00;" + os.path.join(self.data, "x") + "\n")
+        rc, out = self.run_bootstrap(False)
         self.assertEqual(rc, 0, out)
         self.assertIn("installed=2 refused=0 missing=0", out)
         self.assertEqual(sorted(os.listdir(conf_d)), ["aks.conf", "rhel7.conf"])
@@ -81,7 +109,7 @@ class Bootstrap(unittest.TestCase):
                            input='{"command":"add","parameters":{}}\n')
         self.assertEqual(r.returncode, 1)
         with open(self.ar_log) as f:
-            self.assertIn("manifest not found in " + self.shared, f.read())
+            self.assertIn("no ciscat-manifest-*.csv in " + self.shared, f.read())
 
     def test_other_destinations_and_names_are_refused(self):
         outside = os.path.join(self.d, "etc", "cron.d", "evil")
@@ -101,6 +129,41 @@ class Bootstrap(unittest.TestCase):
         for p in (outside, os.path.join(self.ar_bin, "other.sh"), os.path.join(self.d, "y.xml"),
                   os.path.join(self.assessor, "benchmarks-other", "z.xml")):
             self.assertFalse(os.path.exists(p), p)
+
+    def test_unsigned_manifest_is_refused(self):
+        bench = os.path.join(self.assessor, "benchmarks", "x-xccdf.xml")
+        self.publish("x-xccdf.xml", bench)
+        rc, out = self.run_bootstrap(signed=False)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("REFUSED (no signature ciscat-manifest-test.csv.sig)", out)
+        self.assertFalse(os.path.exists(bench))
+
+    def test_manifest_signed_by_another_key_is_refused(self):
+        evil = os.path.join(self.ar_bin, "ciscat-refresh.sh")
+        self.publish("ciscat-refresh.sh", evil, b"#!/bin/sh\nid\n")
+        rc, out = self.run_bootstrap(key=self.new_key("other"))
+        self.assertEqual(rc, 2, out)
+        self.assertIn("REFUSED (signature not valid for the master's key)", out)
+        self.assertFalse(os.path.exists(evil))
+
+    def test_manifest_changed_after_signing_is_refused(self):
+        bench = os.path.join(self.assessor, "benchmarks", "x-xccdf.xml")
+        self.publish("x-xccdf.xml", bench)
+        path = self.write_manifest("ciscat-manifest-test.csv",
+                                   "# m\n" + "\n".join(self.lines) + "\n")
+        with open(path, "a") as f:
+            f.write("x.sh;{0};{1}\n".format("0" * 64, os.path.join(self.ar_bin, "x.sh")))
+        rc, out = self.run_bootstrap(False)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("REFUSED (signature not valid", out)
+        self.assertFalse(os.path.exists(bench))
+
+    def test_without_the_public_key_nothing_is_installed(self):
+        self.publish("x-xccdf.xml", os.path.join(self.assessor, "benchmarks", "x-xccdf.xml"))
+        os.remove(self.pub)
+        rc, out = self.run_bootstrap()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("public key " + self.pub + " not found", out)
 
 
 if __name__ == "__main__":

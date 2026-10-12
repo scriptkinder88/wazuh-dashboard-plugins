@@ -79,6 +79,11 @@ function Read-Params($file) {
                 Log "ignored in $($file.Name) (not a file name): $name=$value"
                 continue
             }
+            # the profile goes to Assessor-CLI.bat, which cmd.exe parses again: an XCCDF id only
+            if ($name -eq "Profile" -and $value -notmatch '^xccdf_[A-Za-z0-9_.-]+$') {
+                Log "ignored in $($file.Name) (not an XCCDF profile id): $name=$value"
+                continue
+            }
             $set[$name] = $value
             Log "from $($file.Name): $name=$value"
         }
@@ -166,11 +171,12 @@ function Invoke-Benchmark($run) {
         }
         $custom = $cand.FullName
         Log "auto-selected custom benchmark: $($cand.Name)"
-    } elseif (-not (Test-Path $custom)) {
-        # if a bare name was passed, resolve it inside benchmarks/
-        $maybe = Join-Path $benchDir $custom
-        if (-not (Test-Path $maybe)) { Log "ERROR: custom benchmark not found: $custom"; return $false }
-        $custom = $maybe
+    } elseif (-not [System.IO.Path]::IsPathRooted($custom)) {
+        # a bare name is always looked up in benchmarks\ (never in the current folder)
+        $custom = Join-Path $benchDir $custom
+        if (-not (Test-Path -LiteralPath $custom)) { Log "ERROR: custom benchmark not found: $custom"; return $false }
+    } elseif (-not (Test-Path -LiteralPath $custom)) {
+        Log "ERROR: custom benchmark not found: $custom"; return $false
     }
 
     Log "running CIS-CAT: -b `"$custom`" -p `"$($run.Profile)`""

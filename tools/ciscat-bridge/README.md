@@ -204,6 +204,14 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   alert as a missing Assessor) and its old results are withdrawn.
   Windows agents store the group files with CRLF line endings: Windows files are published with
   LF only and their manifest lists the SHA-256 of the CRLF copy the agent checks.
+  Manifests are signed by the master (RSA 3072, SHA-256, key created once in /opt/ciscat/etc,
+  `ciscat-fleet.py key` prints it): agents install a file only from a manifest whose signature
+  matches the public key their installer put in a root/Administrators-only place, and check each
+  file in a protected staging folder before installing it (Windows parameters go to C:\CIS\run).
+  Files the wazuh user can reach are never followed by root on the master (links refused).
+  Waves are capped (200 agents, 60 s pause minimum), at most 5 "Run now" requests start per
+  scheduler tick, and the handled requests are kept in a root-only file. An API without api_ca
+  must be on the master itself.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

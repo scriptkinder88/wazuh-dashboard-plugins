@@ -1,9 +1,12 @@
 """ciscat-fleet.py apply and trigger against the fake Wazuh API, with a small synthetic benchmark:
 the combo groups it owns, the apply lock, missing benchmark files, API tokens and credentials."""
+import base64
 import fcntl
 import hashlib
 import json
 import os
+
+os.environ.setdefault("CISCAT_MIN_WAVE_PAUSE_S", "0")  # no minimum pause in tests
 import re
 import shutil
 import ssl
@@ -329,7 +332,19 @@ class FleetApply(unittest.TestCase):
                            ("ciscat-csv-to-flat.ps1", "C:\\CIS\\bin\\ciscat-csv-to-flat.ps1")):
             self.assertRegex(manifest, "(?m)^{0};[0-9a-f]{{64}};{1}$".format(
                 re.escape(name), re.escape(dest)))
-        self.assertRegex(manifest, "(?m)^ciscat-params-win.txt;[0-9a-f]{64};$")
+        self.assertRegex(manifest, r"(?m)^ciscat-params-win.txt;[0-9a-f]{64};C:\\CIS\\run\\ciscat-params-win.txt$")
+        # every manifest is signed with the master's key (agents verify it before installing)
+        for m in ("ciscat-manifest-win.csv", "ciscat-manifest-rhel7.csv", "ciscat-manifest-aks.csv"):
+            path = os.path.join(rhel_dir, m)
+            with open(path + ".sig") as f:
+                sig = base64.b64decode(f.read())
+            with tempfile.NamedTemporaryFile() as s:
+                s.write(sig)
+                s.flush()
+                r = subprocess.run(["openssl", "dgst", "-sha256", "-verify",
+                                    os.path.join(self.etc, "ciscat-manifest.pub"), "-signature",
+                                    s.name, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            self.assertEqual(r.returncode, 0, (m, r.stdout))
         # the Windows agent stores group files with CRLF: they are published with LF only, and
         # the manifest holds the SHA-256 of the CRLF copy the agent checks
         for line in manifest.splitlines():

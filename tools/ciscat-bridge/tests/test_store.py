@@ -2,6 +2,8 @@ import csv
 import json
 import io
 import os
+
+os.environ.setdefault("CISCAT_MIN_WAVE_PAUSE_S", "0")  # no minimum pause in tests
 import re
 import shutil
 import sys

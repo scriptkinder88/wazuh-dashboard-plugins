@@ -9,10 +9,13 @@
      meanwhile).
   2. One run at a time on the agent (named mutex).
   3. For every ciscat-manifest-<os>.csv the manager published in the agent's groups (shared
-     folder): check each file's SHA-256 and install it to its destination, only under
-     C:\CIS\Assessor\benchmarks (custom benchmark, OVAL and CPE files) or C:\CIS\bin (the
-     assessment and conversion scripts). A file that does not verify is not installed.
-  4. Run C:\CIS\bin\ciscat-assessment.ps1, which assesses every benchmark of the agent.
+     folder): copy it and its .sig to C:\CIS\staging (SYSTEM and Administrators only), verify
+     the signature with the master's public key (C:\CIS\ciscat-manifest.pub.xml, put there by
+     the installer), then copy each file it lists to the staging folder, check its SHA-256 there
+     and install it to its destination, only under C:\CIS\Assessor\benchmarks (custom
+     benchmark, OVAL and CPE files), C:\CIS\bin (the assessment and conversion scripts) or
+     C:\CIS\run (parameters and tailoring). Nothing of a manifest that does not verify is used.
+  4. Run C:\CIS\bin\ciscat-assessment.ps1 on the parameters in C:\CIS\run.
 
   Logs go to ossec-agent\active-response\active-responses.log.
 #>
@@ -20,6 +23,7 @@ param(
     [string]$Root = "C:\CIS",
     [string]$SharedDir = "C:\Program Files (x86)\ossec-agent\shared",
     [string]$LogFile = "C:\Program Files (x86)\ossec-agent\active-response\active-responses.log",
+    [string]$PublicKey = "",
     [switch]$Detach
 )
 $ErrorActionPreference = "Stop"
@@ -71,7 +75,9 @@ if (-not $owned) {
 }
 
 # the only places a manifest may install to (no "..", no other folder)
-$allowed = @((Join-Path $Root "Assessor\benchmarks"), (Join-Path $Root "bin")) |
+$RunDir = Join-Path $Root "run"
+$Stage = Join-Path $Root "staging"
+$allowed = @((Join-Path $Root "Assessor\benchmarks"), (Join-Path $Root "bin"), $RunDir) |
     ForEach-Object { [System.IO.Path]::GetFullPath($_).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar }
 function Allowed($dest) {
     if ($dest -match '\.\.') { return $false }
@@ -80,30 +86,76 @@ function Allowed($dest) {
     return $false
 }
 
+if (-not $PublicKey) { $PublicKey = Join-Path $Root "ciscat-manifest.pub.xml" }
+if (-not (Test-Path -LiteralPath $PublicKey)) {
+    Log "ERROR: public key $PublicKey not found: install the agent with the master's ciscat-manifest.pub.xml"
+    exit 1
+}
+$rsa = [System.Security.Cryptography.RSA]::Create()
+$rsa.FromXmlString((Get-Content -LiteralPath $PublicKey -Raw))
+
+# the agent stores group files with CRLF; the master signed them with LF
+function Get-LfBytes($path) {
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $out = New-Object System.IO.MemoryStream
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        if ($bytes[$i] -eq 13 -and $i + 1 -lt $bytes.Length -and $bytes[$i + 1] -eq 10) { continue }
+        $out.WriteByte($bytes[$i])
+    }
+    return ,$out.ToArray()
+}
+
+function Test-Manifest($manifest) {
+    $sigFile = $manifest + ".sig"
+    if (-not (Test-Path -LiteralPath $sigFile)) { Log "REFUSED (no signature $(Split-Path $sigFile -Leaf))"; return $false }
+    try {
+        $sig = [Convert]::FromBase64String(((Get-Content -LiteralPath $sigFile -Raw) -replace '\s', ''))
+        $ok = $rsa.VerifyData((Get-LfBytes $manifest), $sig,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+    } catch { $ok = $false }
+    if (-not $ok) { Log "REFUSED (signature not valid for the master's key): $(Split-Path $manifest -Leaf)" }
+    return $ok
+}
+
 $manifests = @(Get-ChildItem -LiteralPath $SharedDir -Filter "ciscat-manifest-*.csv" -ErrorAction SilentlyContinue)
 if (-not $manifests) {
     Log "ERROR: no ciscat-manifest-*.csv in $SharedDir (group files not synchronized yet?)"
     exit 1
 }
+# a clean staging folder, and a run folder holding only what this run verified
+foreach ($d in $Stage, $RunDir) {
+    if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $d | Out-Null
+}
 $installed = 0; $refused = 0; $missing = 0
 foreach ($m in $manifests) {
     Log "using manifest: $($m.Name)"
-    foreach ($line in Get-Content -LiteralPath $m.FullName) {
+    $staged = Join-Path $Stage $m.Name
+    Copy-Item -LiteralPath $m.FullName -Destination $staged -Force
+    if (Test-Path -LiteralPath ($m.FullName + ".sig")) { Copy-Item -LiteralPath ($m.FullName + ".sig") -Destination ($staged + ".sig") -Force }
+    if (-not (Test-Manifest $staged)) { $refused++; continue }
+    Log "signature OK: $($m.Name)"
+    foreach ($line in Get-Content -LiteralPath $staged) {
         if ($line -match '^\s*#' -or -not $line.Trim()) { continue }
         $parts = $line.Split(";")
-        if ($parts.Count -lt 3 -or -not $parts[2]) { continue }  # read from shared, not installed
+        if ($parts.Count -lt 3 -or -not $parts[2]) { continue }
         $name, $expected, $dest = $parts[0], $parts[1].ToUpper(), $parts[2]
         if ($name -notmatch '^[A-Za-z0-9._-]+$') { Log "REFUSED (not a plain file name): $name"; $refused++; continue }
         if (-not (Allowed $dest)) { Log "REFUSED (destination not allowed): $name -> $dest"; $refused++; continue }
         $src = Join-Path $SharedDir $name
         if (-not (Test-Path -LiteralPath $src)) { Log "MISSING in shared: $name"; $missing++; continue }
-        $actual = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash
+        # checked and installed from the protected copy, which nobody else can change meanwhile
+        $copy = Join-Path $Stage $name
+        Copy-Item -LiteralPath $src -Destination $copy -Force
+        $actual = (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash
         if ($actual -ne $expected) { Log "REFUSED (sha256 mismatch): $name"; $refused++; continue }
         New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-        Copy-Item -LiteralPath $src -Destination $dest -Force
+        Copy-Item -LiteralPath $copy -Destination $dest -Force
         $installed++
     }
 }
+Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
 Log "bootstrap done: installed=$installed refused=$refused missing=$missing"
 if ($refused) {
     Log "ERROR: files refused, assessment not run"
@@ -115,5 +167,5 @@ if (-not (Test-Path -LiteralPath $assessment)) {
     Log "ERROR: $assessment not installed (not in any manifest?)"
     exit 1
 }
-& $assessment -Root $Root -SharedDir $SharedDir -LogFile $LogFile
+& $assessment -Root $Root -SharedDir $RunDir -LogFile $LogFile
 exit $LASTEXITCODE

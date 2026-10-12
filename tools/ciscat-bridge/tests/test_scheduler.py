@@ -1,5 +1,7 @@
 import json
 import os
+
+os.environ.setdefault("CISCAT_MIN_WAVE_PAUSE_S", "0")  # no minimum pause in tests
 import shutil
 import subprocess
 import sys
@@ -170,6 +172,34 @@ class Scheduler(unittest.TestCase):
         self.tick("2026-10-01T10:10:00")
         self.assertEqual(len(self.status()["requests"]["processed"]), 10)
         self.assertEqual(len([c for c in self.calls() if c[0] == "apply"]), 1)
+
+    def test_status_list_edit_does_not_replay_requests(self):
+        reqs = {"r1700000000000aaaa": {"action": "run", "targets": ["rhel7"]}}
+        store.write_list(store.REQUESTS, reqs, self.lists)
+        self.tick("2026-10-01T10:00:00")
+        self.wait_calls(2)
+        # someone with the right to edit lists empties "processed" in the status list
+        st = self.status()
+        st["requests"]["processed"] = []
+        store.write_list(store.STATUS, st, self.lists)
+        self.tick("2026-10-01T10:05:00")
+        time.sleep(0.5)
+        self.assertEqual(len([c for c in self.calls() if c[0] == "trigger"]), 1)
+
+    def test_run_now_requests_are_limited_per_tick(self):
+        reqs = {"r17000000{0:05d}aaaa".format(i): {"action": "run", "targets": ["rhel7"],
+                                                     "wave_size": 100000, "wave_pause_s": 0}
+                for i in range(8)}
+        store.write_list(store.REQUESTS, reqs, self.lists)
+        self.tick("2026-10-01T10:00:00")
+        calls = self.wait_calls(6)
+        triggers = [c for c in calls if c[0] == "trigger"]
+        self.assertEqual(len(triggers), 5)
+        # waves are brought within the limits
+        self.assertIn(str(store.MAX_WAVE_SIZE), triggers[0])
+        self.tick("2026-10-01T10:05:00")
+        self.wait_calls(9)
+        self.assertEqual(len([c for c in self.calls() if c[0] == "trigger"]), 8)
 
     def test_missed_runs_are_reported_not_run(self):
         store.update_records(store.STATUS, {"scheduler": {"last_tick": "2026-10-01T02:00:00",

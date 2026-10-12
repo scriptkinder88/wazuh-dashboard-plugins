@@ -12,6 +12,7 @@ Replaces ciscat-orchestrator.sh. On each tick it:
 Data contract: CONTRACT.md. Nothing here takes a command from the lists: a list can only choose
 among fixed actions and validated parameters.
 """
+import json
 import os
 import re
 import subprocess
@@ -34,6 +35,35 @@ RUNNING_LIMIT = timedelta(hours=12)  # a job reported running longer than this i
 FMT = "%Y-%m-%dT%H:%M:%S"
 SCHEDULED_KEY = re.compile(r"^job-j[0-9a-f]{12}$")
 KEEP_RUNS = 20
+
+
+MAX_RUNS_PER_TICK = 5
+PROCESSED_FILE = os.path.join(RUN_DIR, "requests-processed.json")
+
+
+def read_processed(from_status):
+    """Request keys already handled: the root-only file; the status list only until that file
+    exists (upgrade from an older bridge)."""
+    try:
+        with open(PROCESSED_FILE, encoding="utf-8") as f:
+            keys = json.load(f)
+        if isinstance(keys, list):
+            return [k for k in keys if isinstance(k, str)]
+    except (OSError, ValueError):
+        pass
+    return [k for k in from_status if isinstance(k, str)]
+
+
+def write_processed(keys):
+    os.makedirs(RUN_DIR, exist_ok=True)
+    tmp = PROCESSED_FILE + ".tmp"
+    old = os.umask(0o077)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(keys, f)
+        os.replace(tmp, PROCESSED_FILE)
+    finally:
+        os.umask(old)
 
 
 def log(msg):
@@ -116,8 +146,16 @@ def tick(now_ts):
     requests, verrors = store.validate_records(raw, store.validate_request)
     for e in errors + verrors:
         log("WARNING request rejected: " + e)
-    processed = list(status.get("requests", {}).get("processed", []))
+    # what was handled is kept in a root-only file: the status list can be written through the
+    # Wazuh API, and a request taken off its "processed" entry must not run again
+    processed = read_processed(status.get("requests", {}).get("processed", []))
     pending = sorted(k for k in requests if k not in processed)
+    runs = [k for k in pending if requests[k]["action"] == "run"]
+    if len(runs) > MAX_RUNS_PER_TICK:
+        log("{0} 'run now' requests pending: {1} now, the others at the next ticks".format(
+            len(runs), MAX_RUNS_PER_TICK))
+        later = set(runs[MAX_RUNS_PER_TICK:])
+        pending = [k for k in pending if k not in later]
     applies = [k for k in pending if requests[k]["action"] == "apply"]
     if applies:
         log("apply requested by {0} ({1} request(s))".format(
@@ -136,6 +174,7 @@ def tick(now_ts):
     # list and a request is never handled twice
     still = [k for k in processed if k in raw]
     if pending or still != processed:
+        write_processed(still + pending)
         patches["requests"] = {"processed": still + pending}
 
     # 3. jobs

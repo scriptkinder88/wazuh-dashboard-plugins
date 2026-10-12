@@ -36,6 +36,10 @@ DATA_ROOT="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
 ASSESSOR_BENCH="${CISCAT_PATH:-/opt/ciscat/Assessor}/benchmarks"
 REFRESH_DEST="${CISCAT_AR_BIN:-/var/ossec/active-response/bin}/ciscat-refresh.sh"
 LOG_TAG="ciscat-bootstrap"
+# the master's public key, put here (root only) by the agent installer: every manifest must be
+# signed with the matching private key, which never leaves the master
+PUBKEY="${CISCAT_PUBKEY:-${DATA_ROOT}/ciscat-manifest.pub}"
+STAGE="${DATA_ROOT}/staging"
 
 # Resolve the Wazuh root from this script's location (active-response/bin -> root)
 _LOCAL=$(dirname "$0"); cd "$_LOCAL" 2>/dev/null; cd ../../ 2>/dev/null; WROOT=$(pwd)
@@ -65,19 +69,22 @@ dest_allowed() {
 
 log "invoked (bootstrap start)"
 
-# The agent unpacks the files of its groups into the shared folder itself.
-SRC_DIR="$AGENT_SHARED"
+# The agent unpacks the files of its groups into the shared folder itself (writable by the
+# wazuh user): everything is copied to a root-only staging folder first, and checked there.
 MANIFESTS=""
 for m in "$AGENT_SHARED"/ciscat-manifest-*.csv; do
     [ -f "$m" ] && MANIFESTS="$MANIFESTS $m"
 done
-[ -n "$MANIFESTS" ] || MANIFESTS="${AGENT_SHARED}/ciscat-manifest.csv"
-for m in $MANIFESTS; do
-    [ -f "$m" ] || fail "manifest not found in ${AGENT_SHARED} (group sync pending?)"
-done
+[ -n "$MANIFESTS" ] || fail "no ciscat-manifest-*.csv in ${AGENT_SHARED} (group sync pending?)"
+[ -s "$PUBKEY" ] || fail "public key ${PUBKEY} not found: install the agent with the master's ciscat-manifest.pub"
+command -v openssl >/dev/null 2>&1 || fail "openssl not found: manifests cannot be verified"
 
 mkdir -p "$DATA_ROOT" 2>/dev/null
 chmod 700 "$DATA_ROOT" 2>/dev/null
+rm -rf "$STAGE"
+mkdir -m 700 "$STAGE" || fail "cannot create ${STAGE}"
+trap 'rm -rf "$STAGE"' EXIT
+SRC_DIR="$STAGE"
 
 installed=0
 refused=0
@@ -107,12 +114,13 @@ while IFS=';' read -r name expected dest; do
         continue
     fi
 
-    src="${SRC_DIR}/${name}"
-    if [ ! -f "$src" ]; then
+    if [ ! -f "${AGENT_SHARED}/${name}" ]; then
         log "MISSING in shared: $name"
         missing=$((missing + 1))
         continue
     fi
+    src="${SRC_DIR}/${name}"
+    cp "${AGENT_SHARED}/${name}" "$src" 2>/dev/null || { log "REFUSED (cannot stage): $name"; refused=$((refused + 1)); continue; }
 
     actual=$(sha256sum "$src" | awk '{print $1}')
     if [ "$actual" != "$expected" ]; then
@@ -157,8 +165,29 @@ while IFS=';' read -r name expected dest; do
 done < "$1"
 }
 
+# verify_manifest <manifest in shared>: copies it and its .sig to the staging folder, checks the
+# signature there and prints the staged copy (empty when refused)
+verify_manifest() {
+    base=$(basename "$1")
+    cp "$1" "${STAGE}/${base}" 2>/dev/null || return 1
+    [ -f "${1}.sig" ] || { log "REFUSED (no signature ${base}.sig): ${base}"; return 1; }
+    tr -d ' \r\n' < "${1}.sig" | base64 -d > "${STAGE}/${base}.sig.bin" 2>/dev/null || return 1
+    if openssl dgst -sha256 -verify "$PUBKEY" -signature "${STAGE}/${base}.sig.bin" \
+            "${STAGE}/${base}" >/dev/null 2>&1; then
+        echo "${STAGE}/${base}"
+    else
+        log "REFUSED (signature not valid for the master's key): ${base}"
+        return 1
+    fi
+}
+
 for m in $MANIFESTS; do
-    install_manifest "$m"
+    if staged=$(verify_manifest "$m") && [ -n "$staged" ]; then
+        log "signature OK: $(basename "$m")"
+        install_manifest "$staged"
+    else
+        refused=$((refused + 1))
+    fi
 done
 
 log "bootstrap done: installed=${installed} refused=${refused} missing=${missing}"

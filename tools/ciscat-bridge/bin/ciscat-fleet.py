@@ -36,6 +36,7 @@ import re
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -60,6 +61,13 @@ COMBO_PREFIX = "ciscat-"
 LINUX_CONF = "ciscat-refresh-{0}.conf"         # -> /var/lib/wazuh-ciscat/conf.d/<os>.conf
 WINDOWS_PARAMS = "ciscat-params-{0}.txt"
 OS_MANIFEST = "ciscat-manifest-{0}.csv"
+# the manifests are signed (RSA, SHA-256): agents verify them with the public key their
+# installer put in a root/Administrators-only place, so nobody who can only write the group
+# folders (the wazuh user, here or on an agent) can make them run other files
+SIGN_KEY = os.path.join(ETC_DIR, "manifest-signing.key")
+SIGN_PUB = os.path.join(ETC_DIR, "ciscat-manifest.pub")
+SIGN_PUB_XML = os.path.join(ETC_DIR, "ciscat-manifest.pub.xml")
+WINDOWS_RUN = "C:\\CIS\\run\\"
 # group-wide files read by agent scripts older than 2.3.0
 LEGACY_MANIFEST = "ciscat-manifest.csv"
 LEGACY_PARAMS = "ciscat-params.txt"
@@ -162,9 +170,17 @@ def load_os_library():
             lib = json.load(f)
     else:
         lib = DEFAULT_OS_LIBRARY
-    for key in lib:
+    for key, cfg in lib.items():
         if not store.OS_KEY_RE.match(key):
             sys.exit("os-library: invalid os key {0!r}".format(key))
+        # joined into paths written as root: group names and plain file names only
+        if not isinstance(cfg, dict) or not store.NAME_RE.match(str(cfg.get("group", ""))):
+            sys.exit("os-library: {0}: invalid group {1!r}".format(key, cfg.get("group")))
+        for field in ("base", "benchmark", "companion_prefix"):
+            value = cfg.get(field)
+            if value is not None and not re.match(r"^[A-Za-z0-9._()+-]{1,200}$", str(value)) \
+                    or str(value or "").startswith("."):
+                sys.exit("os-library: {0}: invalid {1} {2!r}".format(key, field, value))
     # every benchmark present in the benchmarks folder is an OS too (see ciscat_discover.py)
     lib, notes = discover.merge(lib, PATHS["benchmarks_dir"])
     # the group each OS applies to can be chosen in the dashboard
@@ -213,11 +229,22 @@ def sha256(path):
 
 def write_atomic(path, data):
     """Writes a file through a hidden temporary file in the same folder (remoted skips hidden
-    files), so agents and readers never see it half written."""
-    tmp = os.path.join(os.path.dirname(path), ".{0}.tmp".format(os.path.basename(path)))
-    with open(tmp, "wb" if isinstance(data, bytes) else "w") as f:
-        f.write(data)
-    os.replace(tmp, path)
+    files), so agents and readers never see it half written. The temporary name is created
+    exclusively (mkstemp): the group folders are writable by the wazuh user, and a name planted
+    there in advance (a link) must not be followed by root."""
+    folder = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".{0}.".format(os.path.basename(path)),
+                               suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb" if isinstance(data, bytes) else "w") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def copy_atomic(src, dst):
@@ -239,11 +266,18 @@ def windows_sha256(path):
         return hashlib.sha256(f.read().replace(b"\n", b"\r\n")).hexdigest()
 
 
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
+
+
 def ssl_context(ca):
-    """Verified TLS when the conf names a CA (api_ca); otherwise the local manager API with its
-    default self-signed certificate."""
+    """Verified TLS when the conf names a CA (api_ca); otherwise only the local manager API, with
+    its default self-signed certificate: credentials never go unverified to another host."""
     if ca:
         return ssl.create_default_context(cafile=ca)
+    host = urllib.parse.urlsplit(API["url"]).hostname or ""
+    if host not in LOOPBACK:
+        sys.exit("API {0}: not on this host, set api_ca in {1} (TLS is verified for a remote "
+                 "API)".format(API["url"], ORCH_CONF))
     return ssl._create_unverified_context()
 
 
@@ -372,6 +406,62 @@ def combo_group(os_key, combo):
     return "{0}{1}-{2}".format(COMBO_PREFIX, os_key, combo)
 
 
+def openssl(*args, data=None):
+    r = subprocess.run(["openssl"] + list(args), input=data, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise RuntimeError("openssl {0}: {1}".format(
+            args[0], r.stderr.decode(errors="replace")[:300]))
+    return r.stdout
+
+
+def signing_key():
+    """The manifest signing key, created once (RSA 3072, root only), with its public key as PEM
+    (Linux agents) and as .NET RSAKeyValue XML (Windows agents) next to it."""
+    os.makedirs(ETC_DIR, exist_ok=True)
+    if not os.path.isfile(SIGN_KEY):
+        old = os.umask(0o077)
+        try:
+            tmp = SIGN_KEY + ".new"
+            openssl("genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:3072",
+                    "-out", tmp)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, SIGN_KEY)
+        finally:
+            os.umask(old)
+        print("manifest signing key created: {0}".format(SIGN_KEY))
+    if not os.path.isfile(SIGN_PUB) or not os.path.isfile(SIGN_PUB_XML):
+        pem = openssl("pkey", "-in", SIGN_KEY, "-pubout")
+        text = openssl("pkey", "-in", SIGN_KEY, "-noout", "-text_pub").decode()
+        mod = re.search(r"Modulus:\s*\n((?:\s+[0-9a-f:]+\n)+)", text)
+        exp = re.search(r"Exponent:\s*(\d+)", text)
+        if not mod or not exp:
+            raise RuntimeError("cannot read the public key of " + SIGN_KEY)
+        n = bytes.fromhex(re.sub(r"[\s:]", "", mod.group(1))).lstrip(b"\x00")
+        e = int(exp.group(1))
+        e = e.to_bytes((e.bit_length() + 7) // 8, "big")
+        xml = "<RSAKeyValue><Modulus>{0}</Modulus><Exponent>{1}</Exponent></RSAKeyValue>\n".format(
+            base64.b64encode(n).decode(), base64.b64encode(e).decode())
+        write_atomic(SIGN_PUB, pem.decode())
+        write_atomic(SIGN_PUB_XML, xml)
+        for path in (SIGN_PUB, SIGN_PUB_XML):
+            os.chmod(path, 0o644)
+    return SIGN_KEY
+
+
+def key_fingerprint():
+    """SHA-256 of the public key (DER): what the agent installers print, to compare."""
+    der = openssl("pkey", "-in", signing_key(), "-pubout", "-outform", "DER")
+    return hashlib.sha256(der).hexdigest()
+
+
+def sign_manifest(path):
+    """<manifest>.sig: base64 of the RSA/SHA-256 signature of the manifest as written (LF)."""
+    sig = openssl("dgst", "-sha256", "-sign", signing_key(), path)
+    write_atomic(path + ".sig", base64.b64encode(sig).decode() + "\n")
+    return os.path.basename(path) + ".sig"
+
+
 def is_combo_group(os_key, group):
     """Only the groups this script names: ciscat-<os_key>-base or ciscat-<os_key>-<10 hex>."""
     return re.match(r"^{0}{1}-(base|[0-9a-f]{{10}})$".format(
@@ -379,16 +469,43 @@ def is_combo_group(os_key, group):
 
 
 def own(path, mode=0o640):
+    """wazuh:wazuh and mode on a file the bridge wrote. Never through a link: the group folders
+    are writable by the wazuh user, so a link there could point root at any file (O_NOFOLLOW,
+    then fchown/fchmod on what was opened)."""
     try:
-        os.chown(path, pwd.getpwnam("wazuh").pw_uid, grp.getgrnam("wazuh").gr_gid)
-        os.chmod(path, mode)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    except OSError as e:
+        print("    WARNING: ownership {0}: not changed ({1})".format(path, e.strerror))
+        return
+    try:
+        os.fchown(fd, pwd.getpwnam("wazuh").pw_uid, grp.getgrnam("wazuh").gr_gid)
+        os.fchmod(fd, mode)
     except Exception as e:
         print("    WARNING: ownership {0}: {1}".format(path, e))
+    finally:
+        os.close(fd)
 
 
 def own_dir(gdir):
     for fn in os.listdir(gdir):
-        own(os.path.join(gdir, fn))
+        path = os.path.join(gdir, fn)
+        if not os.path.islink(path):
+            own(path)
+
+
+def group_dir(group):
+    """The shared folder of a group, created if missing; refused when it is a link or not a
+    folder of the shared directory (the wazuh user can write there)."""
+    if not store.NAME_RE.match(group) or group in (".", ".."):
+        raise RuntimeError("invalid group name: {0!r}".format(group))
+    gdir = os.path.join(PATHS["shared_dir"], group)
+    if os.path.islink(gdir):
+        raise RuntimeError("{0} is a link: refused".format(gdir))
+    os.makedirs(gdir, exist_ok=True)
+    if os.path.islink(gdir) or not os.path.isdir(gdir) or \
+            os.path.dirname(os.path.realpath(gdir)) != os.path.realpath(PATHS["shared_dir"]):
+        raise RuntimeError("{0} is not a folder of {1}: refused".format(gdir, PATHS["shared_dir"]))
+    return gdir
 
 
 # ----------------------------------------------------------------- status (shared with scheduler)
@@ -470,8 +587,7 @@ def build(os_key, cfg, exc_csv, host, app_groups, out_dir):
 
 def publish_linux(os_key, cfg, art):
     """Publishes the files, then the manifest that lists them. Returns the missing sources."""
-    gdir = os.path.join(PATHS["shared_dir"], cfg["group"])
-    os.makedirs(gdir, exist_ok=True)
+    gdir = group_dir(cfg["group"])
     base, pfx = cfg["base"], cfg["companion_prefix"]
     bdir = PATHS["benchmarks_dir"]
     dest_bench = "/opt/ciscat/Assessor/benchmarks"
@@ -509,6 +625,7 @@ def publish_linux(os_key, cfg, art):
         lines.append("{0};{1};{2}".format(name, sha256(os.path.join(gdir, name)), dest))
         print("    published: {0}".format(name))
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
+    names.append(sign_manifest(os.path.join(gdir, manifest)))
     own_dir(gdir)
     return sorted(set(missing)), names
 
@@ -518,8 +635,7 @@ def publish_windows(os_key, cfg, art, exc_csv):
     ciscat-bootstrap.ps1 installs those with a destination (benchmark files into the Assessor's
     benchmarks folder, the assessment and conversion scripts into C:\\CIS\\bin); the parameters
     and the tailoring are read from the shared folder. Returns the missing sources."""
-    gdir = os.path.join(PATHS["shared_dir"], cfg["group"])
-    os.makedirs(gdir, exist_ok=True)
+    gdir = group_dir(cfg["group"])
     custom = cfg["base"] + "-custom.xml"
     copy_for_windows(art["custom"], os.path.join(gdir, custom))
     tailoring = "tailoring-{0}.csv".format(os_key)
@@ -534,7 +650,9 @@ def publish_windows(os_key, cfg, art, exc_csv):
         "FlatName={0}\n".format(flat[:-len(".ciscat-flat")] if flat.endswith(".ciscat-flat")
                                 else flat),
         "CustomXccdf={0}\n".format(custom)]))
-    entries = [(custom, WINDOWS_BENCH + custom), (tailoring, ""), (params, "")]
+    # parameters and tailoring go to C:\CIS\run, so the assessment reads the verified copies
+    entries = [(custom, WINDOWS_BENCH + custom), (tailoring, WINDOWS_RUN + tailoring),
+               (params, WINDOWS_RUN + params)]
     # OVAL and CPE companions under their original names: the XCCDF checks reference them by href,
     # and the agent's CIS-CAT may not ship this benchmark (a newer version, a STIG)
     pfx = cfg["benchmark"][:-len("-xccdf.xml")]
@@ -558,12 +676,13 @@ def publish_windows(os_key, cfg, art, exc_csv):
         lines.append("{0};{1};{2}".format(name, windows_sha256(os.path.join(gdir, name)), dest))
     manifest = OS_MANIFEST.format(os_key)
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
+    signature = sign_manifest(os.path.join(gdir, manifest))
     print("    published: custom + {0} + params + {1} companion(s) + {2} script(s) + manifest".format(
         tailoring, len(entries) - 3 - (len(WINDOWS_SCRIPTS) - len(missing)),
         len(WINDOWS_SCRIPTS) - len(missing)))
     own_dir(gdir)
     # a Windows benchmark may come without OVAL/CPE files (the agent's CIS-CAT bundle has them)
-    return missing, [name for name, _ in entries] + [manifest]
+    return missing, [name for name, _ in entries] + [manifest, signature]
 
 
 def policy_enabled(group, policy_file):
@@ -660,8 +779,7 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
         if g not in existing:
             api_json("POST", "/groups", token, {"group_id": g})
             print("    created group {0}".format(g))
-        gdir = os.path.join(PATHS["shared_dir"], g)
-        os.makedirs(gdir, exist_ok=True)
+        gdir = group_dir(g)
         copy_atomic(b["policy"], os.path.join(gdir, policy_file))
         write_atomic(os.path.join(gdir, "agent.conf"), sca_conf)
         own_dir(gdir)
@@ -808,6 +926,9 @@ def withdraw_published(published, applied):
             del published[os_key]
             continue
         gdir = os.path.join(PATHS["shared_dir"], rec["group"])
+        if os.path.islink(gdir):
+            print("[withdraw] {0} is a link: left as it is".format(gdir))
+            continue
         gone = []
         for name in rec["files"]:
             path = os.path.join(gdir, name)
@@ -831,7 +952,7 @@ def write_group_legacy(published, groups_seen):
         by_group.setdefault(rec["group"], []).append(os_key)
     for group in sorted(set(groups_seen) | set(by_group)):
         gdir = os.path.join(PATHS["shared_dir"], group)
-        if not os.path.isdir(gdir):
+        if os.path.islink(gdir) or not os.path.isdir(gdir):
             continue
         keys = sorted(by_group.get(group, []))
         legacy = {}
@@ -1298,7 +1419,7 @@ def load_api_credentials(args):
 def main():
     ap = argparse.ArgumentParser(description="CIS-CAT / Wazuh SCA fleet orchestrator")
     ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "history", "baseline",
-                                       "report", "version"])
+                                       "key", "report", "version"])
     ap.add_argument("--password", help="deprecated, visible in ps: use the password file")
     ap.add_argument("--password-file", help="file with the API password (default: api_pass_file "
                     "in " + ORCH_CONF + ")")
@@ -1324,6 +1445,14 @@ def main():
     if args.action == "version":
         print(VERSION)
         return 0
+    if args.action == "key":
+        # the manifest signing key (created when missing) and the public keys for the agents
+        print("private key (master only): {0}".format(signing_key()))
+        for path in (SIGN_PUB, SIGN_PUB_XML):
+            print("public key for {0} agents: {1}  sha256 {2}".format(
+                "Linux" if path == SIGN_PUB else "Windows", path, sha256(path)))
+        print("key fingerprint: {0}".format(key_fingerprint()))
+        return 0
     global OS_LIBRARY, DISCOVERY_NOTES
     OS_LIBRARY, DISCOVERY_NOTES = load_os_library()
     load_api_credentials(args)
@@ -1336,6 +1465,8 @@ def main():
     if args.action == "trigger":
         if args.wave_size < 1 or args.wave_pause < 0:
             sys.exit("--wave-size must be >= 1 and --wave-pause >= 0")
+        args.wave_size = min(args.wave_size, store.MAX_WAVE_SIZE)
+        args.wave_pause = max(args.wave_pause, store.MIN_WAVE_PAUSE_S)
         split = lambda v: [t.strip() for t in (v or "").split(",") if t.strip()]  # noqa: E731
         scope = {"agents": split(args.agents), "groups": split(args.groups)}
         if not scope["agents"] and not scope["groups"]:

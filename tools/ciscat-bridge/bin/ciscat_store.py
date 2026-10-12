@@ -30,7 +30,7 @@ HISTORY = "ciscat-history"
 BENCH_PREFIX = "ciscat-bench-"
 SCHEMA_VERSION = 1
 
-KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+KEY_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._-]{0,127}$")  # no leading "-" (argv)
 OS_KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 RULE_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,9}$")
 ROLE_RE = re.compile(r"^[A-Za-z0-9_ -]{0,64}$")
@@ -51,6 +51,10 @@ MAX_RUN_GROUPS = 64
 # waves of a run when the schedule (or the command line) does not say
 DEFAULT_WAVE_SIZE = 50
 DEFAULT_WAVE_PAUSE_S = 300
+# upper bound of a wave and lower bound of the pause: CIS-CAT is heavy, a run must never start on
+# the whole fleet at once (values outside are brought within, not refused)
+MAX_WAVE_SIZE = 200
+MIN_WAVE_PAUSE_S = int(os.environ.get("CISCAT_MIN_WAVE_PAUSE_S", "60"))  # tests: 0
 
 
 class StoreError(ValueError):
@@ -318,8 +322,10 @@ def validate_job(rec):
         else:
             out["weekday"] = _int(rec, "weekday", 0, 6)  # 0 = Monday
     out.update(validate_run_scope(rec))
-    out["wave_size"] = _int(rec, "wave_size", 1, 100000, default=DEFAULT_WAVE_SIZE)
-    out["wave_pause_s"] = _int(rec, "wave_pause_s", 0, 86400, default=DEFAULT_WAVE_PAUSE_S)
+    out["wave_size"] = min(_int(rec, "wave_size", 1, 100000, default=DEFAULT_WAVE_SIZE),
+                           MAX_WAVE_SIZE)
+    out["wave_pause_s"] = max(_int(rec, "wave_pause_s", 0, 86400, default=DEFAULT_WAVE_PAUSE_S),
+                              MIN_WAVE_PAUSE_S)
     enabled = rec.get("enabled", True)
     if not isinstance(enabled, bool):
         raise StoreError("enabled: true/false expected")
