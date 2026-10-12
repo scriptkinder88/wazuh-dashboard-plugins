@@ -8,9 +8,11 @@ administrators can change:
     Expand-Archive <package zip> -DestinationPath C:\CIS\install\@VERSION@ -Force
 The installer warns when the folder can be changed by non-administrators.
 
-1. Copy ciscat-manifest.pub.xml (from master/agent-keys after ciscat-master-setup.sh) into
-   this folder: the agent only installs and runs files of manifests signed with the master's
-   key. Compare the sha256 the installer prints with the one the master setup printed.
+1. Master's public key: nothing to do. The agent receives it from the master with the group
+   files and keeps the first one (it only installs and runs files of manifests signed with
+   it). To pin it at install instead, copy ciscat-manifest.pub.xml (from master/agent-keys)
+   into this folder or pass -PublicKey <file>, and compare the sha256 the installer prints with
+   the one the master setup printed.
 
 2. Install or update, PowerShell as administrator, in this folder:
      powershell -ExecutionPolicy Bypass -File .\install-windows-agent.ps1

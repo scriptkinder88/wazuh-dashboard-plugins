@@ -45,9 +45,17 @@ pre() {
     perm=$(stat -c '%a %U:%G' "$BIN/ciscat-bootstrap.sh" 2>/dev/null)
     check L3 "its owner and mode" "750 root:wazuh" "${perm:-missing}" "$([ "$perm" = "750 root:wazuh" ]; echo $?)"
     k="$DATA/ciscat-manifest.pub"
-    check L3 "master's public key (manifests must be signed with it)" "$k" \
-        "$([ -s "$k" ] && echo "sha256 $(sha256sum "$k" | cut -d' ' -f1)" || echo "missing: reinstall with --pubkey")" \
-        "$([ -s "$k" ] && command -v openssl >/dev/null; echo $?)"
+    sk="$SHARED/ciscat-manifest.pub"
+    if [ -s "$k" ]; then
+        kgot="kept, sha256 $(sha256sum "$k" | cut -d' ' -f1)"
+        [ -s "$sk" ] && ! cmp -s "$k" "$sk" && kgot="$kgot - the group's key DIFFERS (new master key?)"
+    elif [ -s "$sk" ]; then
+        kgot="from the master, kept at the first run: sha256 $(sha256sum "$sk" | cut -d' ' -f1)"
+    else
+        kgot="missing: not received from the master yet (group sync pending?)"
+    fi
+    check L3 "master's public key (manifests must be signed with it)" "$k, or in shared" "$kgot" \
+        "$( { [ -s "$k" ] || [ -s "$sk" ]; } && command -v openssl >/dev/null && ! echo "$kgot" | grep -q DIFFERS; echo $?)"
     own=$(stat -c '%U' /opt/ciscat "$ASSESSOR" 2>/dev/null | sort -u | tr '\n' ' ')
     check L4 "/opt/ciscat and the Assessor owned by root (root runs them)" "root" "${own:-missing}" \
         "$([ "$own" = "root " ]; echo $?)"

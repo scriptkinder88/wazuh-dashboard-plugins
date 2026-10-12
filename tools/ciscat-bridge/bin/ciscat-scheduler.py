@@ -2,7 +2,8 @@
 """ciscat-scheduler.py - MANAGER side, run by cron every 5 minutes.
 
 Replaces ciscat-orchestrator.sh. On each tick it:
-  1. publishes the benchmark sheets and OS list for the dashboard (at most hourly);
+  1. publishes the benchmark sheets and OS list for the dashboard (at most hourly), and with
+     auto_assign=yes in ciscat-orchestrator.conf puts new agents into the group of their OS;
   2. applies pending dashboard requests ("apply": regenerate and publish the policies);
   3. starts the schedule jobs that are due, each as a separate `ciscat-fleet.py trigger`, so a
      run in waves does not block later ticks;
@@ -132,6 +133,8 @@ def tick(now_ts):
         log("sync: benchmark sheets and OS list")
         if fleet("sync") == 0:
             synced = now.strftime(FMT)
+        # agents into the group of their OS (does nothing unless auto_assign=yes)
+        fleet("assign", "--auto")
 
     # 1b. daily coverage snapshot (the first tick of each day)
     today = now.strftime("%Y-%m-%d")

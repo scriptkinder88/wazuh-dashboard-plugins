@@ -89,8 +89,37 @@ function Allowed($dest) {
 }
 
 if (-not $PublicKey) { $PublicKey = Join-Path $Root "ciscat-manifest.pub.xml" }
+# The master's public key comes with the group files. Without a key of its own (installed with
+# -PublicKey) the agent keeps the first valid one it receives (trust on first use); from then on
+# only the kept key counts, and a different key in the group is ignored. New master key: reinstall
+# with -PublicKey, or delete the kept key.
+function Get-KeyText($path) { ((Get-Content -LiteralPath $path -Raw) -replace '\s', '') }
+function Get-TextSha($text) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    (($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($text)) | ForEach-Object { $_.ToString("x2") }) -join "")
+}
+$sharedKey = Join-Path $SharedDir "ciscat-manifest.pub.xml"
+$sharedItem = Get-Item -LiteralPath $sharedKey -Force -ErrorAction SilentlyContinue
+if ($sharedItem -and -not ($sharedItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    $received = Get-KeyText $sharedKey
+    if (-not (Test-Path -LiteralPath $PublicKey)) {
+        try {
+            if ($received -notmatch '^<RSAKeyValue><Modulus>[A-Za-z0-9+/=]+</Modulus><Exponent>[A-Za-z0-9+/=]+</Exponent></RSAKeyValue>$') {
+                throw "not an RSA public key"
+            }
+            $probe = [System.Security.Cryptography.RSA]::Create()
+            $probe.FromXmlString($received)
+            [System.IO.File]::WriteAllText($PublicKey, $received + "`r`n")
+            Log "master's public key received and kept: $PublicKey (key sha256 $(Get-TextSha $received))"
+        } catch {
+            Log "WARNING: $sharedKey not kept: $($_.Exception.Message)"
+        }
+    } elseif ($received -ne (Get-KeyText $PublicKey)) {
+        Log "WARNING: the group's public key (key sha256 $(Get-TextSha $received)) differs from the kept one (key sha256 $(Get-TextSha (Get-KeyText $PublicKey))): ignored"
+    }
+}
 if (-not (Test-Path -LiteralPath $PublicKey)) {
-    Log "ERROR: public key $PublicKey not found: install the agent with the master's ciscat-manifest.pub.xml"
+    Log "ERROR: public key $PublicKey not found and none received from the master yet"
     exit 1
 }
 $rsa = [System.Security.Cryptography.RSA]::Create()

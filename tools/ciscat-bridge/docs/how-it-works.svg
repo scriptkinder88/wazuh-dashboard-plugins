@@ -93,7 +93,7 @@
 
   <rect class="key" x="790" y="645" width="360" height="60"/>
   <text class="t" x="805" y="668" font-weight="600">Verify signature + SHA-256, then install</text>
-  <text class="s" x="805" y="687">master public key from the agent installer</text>
+  <text class="s" x="805" y="687">master public key: kept at the first sync (or pinned)</text>
 
   <rect class="box" x="790" y="720" width="360" height="60"/>
   <text class="t" x="805" y="743" font-weight="600">CIS-CAT Pro Assessor runs the benchmark</text>

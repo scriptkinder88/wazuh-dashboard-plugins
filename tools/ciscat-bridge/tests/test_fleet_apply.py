@@ -366,6 +366,10 @@ class FleetApply(unittest.TestCase):
                                     os.path.join(self.etc, "ciscat-manifest.pub"), "-signature",
                                     s.name, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self.assertEqual(r.returncode, 0, (m, r.stdout))
+        # the public key travels with the group files (agents keep the first one they receive)
+        for name in ("ciscat-manifest.pub", "ciscat-manifest.pub.xml"):
+            with open(os.path.join(rhel_dir, name)) as f, open(os.path.join(self.etc, name)) as k:
+                self.assertEqual(f.read(), k.read())
         # the Windows agent stores group files with CRLF: they are published with LF only, and
         # the manifest holds the SHA-256 of the CRLF copy the agent checks
         for line in manifest.splitlines():

@@ -2,15 +2,16 @@
 # install-linux-agent.sh - CIS-CAT bridge @VERSION@, Linux agent preparation (shell only).
 # Run as root on each Linux agent (RHEL, Oracle Linux, Rocky, Debian...):
 #   sh install-linux-agent.sh [--pubkey <file>]
-# ciscat-manifest.pub (the master's public key, made by ciscat-master-setup.sh) must be next to
-# this script, or given with --pubkey.
+# The master's public key (manifests must be signed with it) comes from the master with the group
+# files, and the agent keeps the first one it receives. To pin it at install time instead, put
+# ciscat-manifest.pub (master: /opt/ciscat/etc) next to this script or give --pubkey <file>.
 # What it does (and only this):
 #   1. CIS-CAT Pro in /opt/ciscat/Assessor: installs or updates it from the package when the
 #      package carries it (full agent package), else checks it; /opt/ciscat owned by root
 #   2. exit.on.invalid.signature=false in the Assessor settings (the custom benchmark is unsigned)
-#   3. installs ciscat-bootstrap.sh (SHA-256 checked, root:wazuh 0750) in active-response/bin and
-#      the master's public key (every manifest must be signed with it) in
-#      /var/lib/wazuh-ciscat; everything else comes from the manager at each run
+#   3. installs ciscat-bootstrap.sh (SHA-256 checked, root:wazuh 0750) in active-response/bin and,
+#      when given, the master's public key in /var/lib/wazuh-ciscat; everything else comes from
+#      the manager at each run
 #   4. moves the files of earlier versions to /var/lib/wazuh-ciscat/backup-<date>
 #   5. SELinux: default labels (restorecon) on /opt/ciscat and /var/lib/wazuh-ciscat
 # Prints RESULT: OK, or STOP / WARNING lines.
@@ -18,7 +19,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 PUBKEY="$HERE/ciscat-manifest.pub"
 case "${1:-}" in
-    --pubkey) PUBKEY=${2:-} ;;
+    --pubkey) PUBKEY=${2:-}; [ -s "$PUBKEY" ] || { echo "STOP: $PUBKEY not found"; exit 1; } ;;
     "") ;;
     *) echo "usage: sh $0 [--pubkey <ciscat-manifest.pub>]"; exit 2 ;;
 esac
@@ -50,8 +51,11 @@ esac
 getent group wazuh >/dev/null || stop "group wazuh not found (Wazuh agent?)"
 for t in sha256sum base64 flock awk; do command -v $t >/dev/null || warn "tool missing: $t"; done
 command -v openssl >/dev/null || stop "openssl missing: the agent could not verify the master's signed manifests"
-[ -s "$PUBKEY" ] || stop "$PUBKEY not found: copy here the ciscat-manifest.pub made by ciscat-master-setup.sh on the master"
-openssl pkey -pubin -in "$PUBKEY" -noout 2>/dev/null || stop "$PUBKEY is not a public key"
+if [ -s "$PUBKEY" ]; then
+    openssl pkey -pubin -in "$PUBKEY" -noout 2>/dev/null || stop "$PUBKEY is not a public key"
+else
+    PUBKEY=""
+fi
 
 say "== 1. CIS-CAT Pro Assessor"
 # a full agent package carries the Assessor (Assessor/ + ASSESSOR_VERSION, no license): install it,
@@ -137,9 +141,15 @@ if [ -f "$BIN/ciscat-bootstrap.sh" ]; then
 fi
 install -o root -g wazuh -m 0750 "$T" "$BIN/ciscat-bootstrap.sh"; rm -f "$T"
 say "   $BIN/ciscat-bootstrap.sh  $SHA"
-install -o root -g root -m 0644 "$PUBKEY" "$DATA/ciscat-manifest.pub"
-say "   master's public key: $DATA/ciscat-manifest.pub  sha256 $(sha256sum "$DATA/ciscat-manifest.pub" | cut -d' ' -f1)"
-say "   (compare with the sha256 that ciscat-master-setup.sh printed for ciscat-manifest.pub)"
+if [ -n "$PUBKEY" ]; then
+    install -o root -g root -m 0644 "$PUBKEY" "$DATA/ciscat-manifest.pub"
+    say "   master's public key: $DATA/ciscat-manifest.pub  sha256 $(sha256sum "$DATA/ciscat-manifest.pub" | cut -d' ' -f1)"
+    say "   (compare with the sha256 that ciscat-master-setup.sh printed for ciscat-manifest.pub)"
+elif [ -s "$DATA/ciscat-manifest.pub" ]; then
+    say "   master's public key kept: $DATA/ciscat-manifest.pub  sha256 $(sha256sum "$DATA/ciscat-manifest.pub" | cut -d' ' -f1)"
+else
+    say "   master's public key: received from the master at the first run, then kept"
+fi
 
 say "== 4. files of earlier versions"
 for f in ciscat-sca-refresh.sh ciscat-sca-setup.sh ciscat-sca-setup.cmd ciscat-bootstrap-linux0 ciscat-refresh-linux0; do

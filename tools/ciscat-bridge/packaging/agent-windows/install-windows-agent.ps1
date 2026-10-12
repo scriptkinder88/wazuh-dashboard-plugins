@@ -3,12 +3,13 @@
   Run in an elevated PowerShell on each Windows agent:
     powershell -ExecutionPolicy Bypass -File .\install-windows-agent.ps1
     powershell -ExecutionPolicy Bypass -File .\install-windows-agent.ps1 -CopyAssessorFrom "C:\Program Files (x86)\ciscat"
-  ciscat-manifest.pub.xml (the master's public key, made by ciscat-master-setup.sh) must be next to
-  this script, or given with -PublicKey <file>.
+  The master's public key (manifests must be signed with it) comes from the master with the group
+  files, and the agent keeps the first one it receives. To pin it at install time instead, put
+  ciscat-manifest.pub.xml (master: /opt/ciscat/etc) next to this script or give -PublicKey <file>.
   What it does (and only this):
     1. C:\CIS, C:\CIS\bin, C:\CIS\results; C:\CIS owned by Administrators and writable only by
-       SYSTEM and Administrators (the scripts there run as SYSTEM); the master's public key, which
-       every manifest must be signed with, in C:\CIS\ciscat-manifest.pub.xml
+       SYSTEM and Administrators (the scripts there run as SYSTEM); when given, the master's
+       public key in C:\CIS\ciscat-manifest.pub.xml
     2. CIS-CAT Pro in C:\CIS\Assessor: installs or updates it from the package when the package
        carries it (full agent package), else checks it, or copies it from -CopyAssessorFrom
     3. exit.on.invalid.signature=false in the Assessor settings (the custom benchmark is unsigned)
@@ -40,12 +41,18 @@ $pkgWriters = @((Get-Acl -LiteralPath $PSScriptRoot).Access | Where-Object {
 if ($PSScriptRoot -match '^[A-Za-z]:\\(Users|Temp|Windows\\Temp)\\' -or $pkgWriters) {
     Warn "$PSScriptRoot can be changed by non-administrators ($(($pkgWriters | ForEach-Object { $_.IdentityReference.Value }) -join ', ')): use a folder only administrators can write, e.g. C:\CIS\install\@VERSION@ (see README.txt)"
 }
-if (-not $PublicKey) { $PublicKey = Join-Path $PSScriptRoot "ciscat-manifest.pub.xml" }
-if (-not (Test-Path -LiteralPath $PublicKey)) { Stop "$PublicKey not found: copy here the ciscat-manifest.pub.xml made by ciscat-master-setup.sh on the master" }
-try {
-    $probe = [System.Security.Cryptography.RSA]::Create()
-    $probe.FromXmlString((Get-Content -LiteralPath $PublicKey -Raw))
-} catch { Stop "$PublicKey is not an RSA public key: $($_.Exception.Message)" }
+if ($PublicKey) {
+    if (-not (Test-Path -LiteralPath $PublicKey)) { Stop "$PublicKey not found" }
+} else {
+    $PublicKey = Join-Path $PSScriptRoot "ciscat-manifest.pub.xml"
+    if (-not (Test-Path -LiteralPath $PublicKey)) { $PublicKey = "" }
+}
+if ($PublicKey) {
+    try {
+        $probe = [System.Security.Cryptography.RSA]::Create()
+        $probe.FromXmlString((Get-Content -LiteralPath $PublicKey -Raw))
+    } catch { Stop "$PublicKey is not an RSA public key: $($_.Exception.Message)" }
+}
 $stamp = Get-Date -Format "yyyyMMddHHmm"
 $backup = Join-Path $Root "backup-$stamp"
 
@@ -69,10 +76,16 @@ if ($LASTEXITCODE -ne 0) { Stop "could not set the permissions of $Root (icacls 
 & icacls.exe (Join-Path $Root "*") /reset /T /C /Q | Out-Null
 if ($LASTEXITCODE -ne 0) { Stop "could not reset the permissions under $Root (icacls exit $LASTEXITCODE)" }
 $keyDest = Join-Path $Root "ciscat-manifest.pub.xml"
-Copy-Item -LiteralPath $PublicKey -Destination $keyDest -Force
 Say "   $Root ready, owned by Administrators, writable only by SYSTEM and Administrators"
-Say "   master's public key: $keyDest  sha256 $((Get-FileHash -LiteralPath $keyDest -Algorithm SHA256).Hash.ToLower())"
-Say "   (compare with the sha256 that ciscat-master-setup.sh printed for ciscat-manifest.pub.xml)"
+if ($PublicKey) {
+    Copy-Item -LiteralPath $PublicKey -Destination $keyDest -Force
+    Say "   master's public key: $keyDest  sha256 $((Get-FileHash -LiteralPath $keyDest -Algorithm SHA256).Hash.ToLower())"
+    Say "   (compare with the sha256 that ciscat-master-setup.sh printed for ciscat-manifest.pub.xml)"
+} elseif (Test-Path -LiteralPath $keyDest) {
+    Say "   master's public key kept: $keyDest  sha256 $((Get-FileHash -LiteralPath $keyDest -Algorithm SHA256).Hash.ToLower())"
+} else {
+    Say "   master's public key: received from the master at the first run, then kept"
+}
 
 Say "== 2. CIS-CAT Pro Assessor"
 $assessorDir = Join-Path $Root "Assessor"

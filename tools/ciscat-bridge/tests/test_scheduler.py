@@ -52,13 +52,13 @@ class Scheduler(unittest.TestCase):
         return r.stdout
 
     def calls(self, history=False):
-        """Fleet calls, without the daily history snapshot unless asked."""
+        """Fleet calls, without the daily history snapshot and the hourly assign unless asked."""
         try:
             with open(self.calls_file) as f:
                 calls = [json.loads(line) for line in f]
         except FileNotFoundError:
             return []
-        return [c for c in calls if history or c[0] != "history"]
+        return [c for c in calls if history or c[0] not in ("history", "assign")]
 
     def wait_calls(self, n):
         """Triggers are detached processes: wait for their calls to land."""
@@ -86,6 +86,9 @@ class Scheduler(unittest.TestCase):
         self.tick("2026-10-01T10:05:00")
         self.tick("2026-10-01T11:00:00")
         self.assertEqual([c[0] for c in self.calls()], ["sync", "sync"])
+        # new agents go into the group of their OS with each sync (when auto_assign=yes)
+        self.assertEqual([c for c in self.calls(history=True) if c[0] == "assign"],
+                         [["assign", "--auto"], ["assign", "--auto"]])
 
     def test_once_job_runs_at_its_tick_with_its_waves(self):
         job = store.validate_job({"type": "once", "at": "2026-10-01T10:07", "targets": ["rhel7"],

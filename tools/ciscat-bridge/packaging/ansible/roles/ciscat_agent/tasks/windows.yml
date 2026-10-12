@@ -21,6 +21,7 @@
   ansible.windows.win_copy:
     src: '{{ ciscat_pubkey_windows }}'
     dest: "C:\\CIS\\install\\{{ ciscat_version }}\\agent-windows\\ciscat-manifest.pub.xml"
+  when: ciscat_pin_pubkey | bool
 
 - name: Install or update (idempotent; the output lists what changed)
   ansible.windows.win_shell: >-

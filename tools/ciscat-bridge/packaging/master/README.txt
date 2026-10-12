@@ -19,16 +19,22 @@ B) Dashboard plugin: put the release attachment @PLUGIN@ in the master/ folder.
 C) On the master, root, in the master/ folder:
      sh ciscat-master-setup.sh [--import ciscat-config-<date>.tgz [--with-targets]]
                                [--no-dashboard] [--new-api-user]
+                               [--auto-assign | --no-auto-assign]
    The setup checks Wazuh @WAZUH@ and the package files, creates /opt/ciscat (root), imports the
    benchmarks, creates the API user "ciscat-bridge" (role and policies with only the rights the
    bridge uses, random password in a root-only file; an API administrator is asked once and
    never stored; --new-api-user rotates it and refreshes the role), adds the Active Response
    commands to ossec.conf (backup, checked by wazuh-analysisd -t), installs the bridge, restarts
    the manager and installs the plugin when the dashboard runs on this host.
-   It creates once the key the master signs the manifests with and copies its public part to
-   agent-keys/: ciscat-manifest.pub for the Linux agents, ciscat-manifest.pub.xml for the
-   Windows agents, with the sha256 to compare. The private key stays in /opt/ciscat/etc, root
-   only, and is never exported.
+   It creates once the key the master signs the manifests with. Its public part goes to the
+   agents with the group files, and each agent keeps the first one it receives. A copy is in
+   agent-keys/ (ciscat-manifest.pub for Linux, ciscat-manifest.pub.xml for Windows, with the
+   sha256 to compare) to pin it at agent install instead. The private key stays in
+   /opt/ciscat/etc, root only, and is never exported.
+   --auto-assign: every hour the agents go into the group of their OS benchmark (from the OS
+   they report) and get its files; --no-auto-assign turns it off. By hand:
+     /opt/ciscat/bin/ciscat-fleet.py assign            (what it would do)
+     /opt/ciscat/bin/ciscat-fleet.py assign --apply
    Expected at the end: "RESULT: OK".
 
 D) CIS-CAT Pro license (optional): copy license.xml to /opt/ciscat/license/license.xml (root,

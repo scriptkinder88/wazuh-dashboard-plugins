@@ -2,7 +2,7 @@
 # ciscat-master-setup.sh - CIS-CAT bridge @VERSION@, complete setup of a Wazuh @WAZUH@ master
 # (and of the Wazuh dashboard when it runs on the same host). Run as root from this folder:
 #   sh ciscat-master-setup.sh [--import ciscat-config-<date>.tgz] [--with-targets] [--no-dashboard]
-#                             [--new-api-user]
+#                             [--new-api-user] [--auto-assign | --no-auto-assign]
 #
 #   1. checks: root, Wazuh master @WAZUH@, files of this package (SHA-256)
 #   2. folders /opt/ciscat/... (root only)
@@ -16,22 +16,26 @@
 #   6. bridge installer: scripts, rule, cron, policies (--apply), manager restart
 #   7. dashboard plugin from the file of this package (when the dashboard is on this host;
 #      otherwise prints the command for the dashboard host)
-#   6b. manifest signing key: created once in /opt/ciscat/etc (root only); its public key is
-#      copied to ./agent-keys for the agent installers
-#   8. summary: what was done, and the plan of the policies
+#   6b. manifest signing key: created once in /opt/ciscat/etc (root only); its public key goes to
+#      the agents with the group files (copy in ./agent-keys to pin it at agent install instead)
+#   6c. --auto-assign: every hour, agents go into the group of their OS benchmark (from the OS
+#      they report) and get its files; --no-auto-assign turns it off; neither: unchanged
+#   8. summary: what was done, the policies, and the agents that would go into an OS group
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 INSTALLER="$HERE/@INSTALLER@"
 PLUGIN="$HERE/@PLUGIN@"
 PLUGIN_SHA="@PLUGIN_SHA@"
-IMPORT=""; WITH_TARGETS=""; DASHBOARD=1; NEW_API_USER=""
+IMPORT=""; WITH_TARGETS=""; DASHBOARD=1; NEW_API_USER=""; AUTO_ASSIGN=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --import) IMPORT=${2:-}; shift ;;
         --with-targets) WITH_TARGETS=1 ;;
         --no-dashboard) DASHBOARD="" ;;
         --new-api-user) NEW_API_USER=1 ;;
-        *) echo "usage: sh $0 [--import <tgz>] [--with-targets] [--no-dashboard] [--new-api-user]"; exit 2 ;;
+        --auto-assign) AUTO_ASSIGN=yes ;;
+        --no-auto-assign) AUTO_ASSIGN=no ;;
+        *) echo "usage: sh $0 [--import <tgz>] [--with-targets] [--no-dashboard] [--new-api-user] [--auto-assign | --no-auto-assign]"; exit 2 ;;
     esac
     shift
 done
@@ -197,8 +201,24 @@ say "== 6b. manifest signing key (agents accept only manifests signed with it)"
 /opt/ciscat/bin/ciscat-fleet.py key | sed 's/^/   /' || stop "signing key not available"
 mkdir -p "$HERE/agent-keys"
 install -m 0644 /opt/ciscat/etc/ciscat-manifest.pub /opt/ciscat/etc/ciscat-manifest.pub.xml "$HERE/agent-keys/"
-say "   copied to $HERE/agent-keys: ciscat-manifest.pub (next to install-linux-agent.sh) and"
-say "   ciscat-manifest.pub.xml (next to install-windows-agent.ps1) on every agent"
+say "   the public key goes to the agents with the group files: each agent keeps the first one"
+say "   it receives. To pin it at agent install instead: $HERE/agent-keys"
+say "   (ciscat-manifest.pub next to install-linux-agent.sh, ciscat-manifest.pub.xml next to"
+say "   install-windows-agent.ps1)"
+
+say "== 6c. agents into the group of their OS"
+if [ -n "$AUTO_ASSIGN" ]; then
+    CONF=/opt/ciscat/etc/ciscat-orchestrator.conf
+    touch "$CONF"
+    sed -i '/^auto_assign=/d' "$CONF"
+    echo "auto_assign=$AUTO_ASSIGN" >> "$CONF"
+fi
+if grep -q '^auto_assign=yes$' /opt/ciscat/etc/ciscat-orchestrator.conf 2>/dev/null; then
+    say "   automatic (auto_assign=yes): every hour; now:"
+    /opt/ciscat/bin/ciscat-fleet.py assign --auto 2>&1 | grep -E '^assign|^  \[|ERROR' | sed 's/^/   /' | head -40
+else
+    say "   by hand (ciscat-fleet.py assign --apply), or automatic with --auto-assign"
+fi
 
 say "== 7. dashboard plugin"
 if [ -z "$DASHBOARD" ]; then
@@ -215,5 +235,6 @@ fi
 say "== 8. summary"
 grep ciscat /var/ossec/etc/shared/ar.conf 2>/dev/null | sed 's/^/   ar.conf: /'
 say "   benchmarks: $(ls /opt/ciscat/benchmarks 2>/dev/null | grep -c xccdf) xccdf file(s)"
-/opt/ciscat/bin/ciscat-fleet.py plan 2>&1 | grep -E '^\[|ERROR|would' | sed 's/^/   /' | head -40
+/opt/ciscat/bin/ciscat-fleet.py plan 2>&1 | grep -E '^\[[a-z0-9_]+\] group=|^\[skip\]|ERROR' | sed 's/^/   /' | head -40
+/opt/ciscat/bin/ciscat-fleet.py assign 2>&1 | grep -E '^assign|^  \[|ERROR' | sed 's/^/   /' | head -40
 say "RESULT: OK - CIS-CAT bridge @VERSION@ installed. Next: agents (Windows and Linux packages), then the end-to-end test."

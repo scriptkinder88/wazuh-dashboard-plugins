@@ -18,6 +18,8 @@ Actions:
   trigger   bootstrap + assessment in waves, on the agents of the target OSes, on chosen agents
             (--agents) or on the agents of chosen groups (--groups: OS or custom groups)
   history   coverage of the day per OS (ciscat-history), run daily by the scheduler
+  assign    every agent into the group of its OS benchmark, from the OS the agent reports
+            (dry-run; --apply assigns, then publishes; --auto: only with auto_assign=yes)
   baseline  groups owned by infrastructure code (Terraform): create them, write their agent.conf,
             add the listed agents (--file baseline.json)
   report    SCA scores per agent
@@ -46,6 +48,7 @@ from datetime import datetime
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BIN_DIR)
 import benchmark_to_sheet as sheet  # noqa: E402
+import ciscat_assign as assign  # noqa: E402
 import ciscat_discover as discover  # noqa: E402
 import ciscat_store as store  # noqa: E402
 import ciscat_xccdf as xccdf  # noqa: E402
@@ -479,6 +482,16 @@ def publish_license(gdir, windows):
     return "{0};{1};/opt/ciscat/Assessor/license/license.xml:b64".format(LICENSE_NAME, sha256(path))
 
 
+def publish_pubkey(gdir, windows):
+    """The public key travels with the group files: an agent installed without it keeps the first
+    one it gets (trust on first use) and ignores any other one later. Returns its file name."""
+    signing_key()
+    src, name = (SIGN_PUB_XML, "ciscat-manifest.pub.xml") if windows else \
+        (SIGN_PUB, "ciscat-manifest.pub")
+    (copy_for_windows if windows else copy_atomic)(src, os.path.join(gdir, name))
+    return name
+
+
 def sign_manifest(path):
     """<manifest>.sig: base64 of the RSA/SHA-256 signature of the manifest as written (LF)."""
     sig = openssl("dgst", "-sha256", "-sign", signing_key(), path)
@@ -655,6 +668,7 @@ def publish_linux(os_key, cfg, art):
         print("    published: CIS-CAT license")
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     names.append(sign_manifest(os.path.join(gdir, manifest)))
+    names.append(publish_pubkey(gdir, windows=False))
     own_dir(gdir)
     return sorted(set(missing)), names
 
@@ -709,12 +723,13 @@ def publish_windows(os_key, cfg, art, exc_csv):
     manifest = OS_MANIFEST.format(os_key)
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     signature = sign_manifest(os.path.join(gdir, manifest))
+    pubkey = publish_pubkey(gdir, windows=True)
     print("    published: custom + {0} + params + {1} companion(s) + {2} script(s) + manifest".format(
         tailoring, len(entries) - 3 - (len(WINDOWS_SCRIPTS) - len(missing)),
         len(WINDOWS_SCRIPTS) - len(missing)))
     own_dir(gdir)
     # a Windows benchmark may come without OVAL/CPE files (the agent's CIS-CAT bundle has them)
-    return missing, [name for name, _ in entries] + [manifest, signature] + (
+    return missing, [name for name, _ in entries] + [manifest, signature, pubkey] + (
         [LICENSE_NAME] if lic else [])
 
 
@@ -1278,6 +1293,93 @@ def act_report():
     return 1 if errors else 0
 
 
+# ----------------------------------------------------------------- OS groups from the agents
+def assign_plan(token):
+    """([(agent id, name, os key, group)] to add, notes): every agent whose OS has a benchmark goes
+    into the group of that OS. An agent already in the group of an OS benchmark (another version,
+    STIG, Stand-alone: a choice made in the dashboard) is left as it is."""
+    agents = [a for a in paged(token, "/agents?select=id,name,status,group,os.platform,os.name,"
+                                      "os.major,os.minor")
+              if a["id"] != "000"]
+    os_groups = {}  # group -> base OS products of the library entries applied to it
+    for key, cfg in OS_LIBRARY.items():
+        product = assign.os_product(cfg)
+        if product and cfg.get("active"):
+            os_groups.setdefault(cfg["group"], set()).add(product)
+    adds, notes, ok, unmatched = [], [], 0, {}
+    for a in sorted(agents, key=lambda x: x["id"]):
+        key, reason = assign.choose(OS_LIBRARY, a.get("os"))
+        if not key:
+            unmatched.setdefault(reason, []).append(a["id"])
+            continue
+        target = OS_LIBRARY[key]["group"]
+        groups = a.get("group") or []
+        if target in groups:
+            ok += 1
+            continue
+        product = assign.os_product(OS_LIBRARY[key])
+        other = sorted(g for g in groups if g in os_groups)
+        if any(product in os_groups[g] for g in other):
+            ok += 1  # same OS, a benchmark chosen in the dashboard
+            continue
+        if other:
+            notes.append("[!] {0} {1}: in {2}, but reports {3}: not moved (OS upgraded? move it "
+                         "in the dashboard)".format(a["id"], a.get("name", "?"), ", ".join(other),
+                                                    product))
+            continue
+        adds.append((a["id"], a.get("name", "?"), key, target))
+    for reason, ids in sorted(unmatched.items()):
+        notes.append("[-] {0}: {1} agent(s) {2}{3}".format(
+            reason, len(ids), ", ".join(ids[:10]), ", ..." if len(ids) > 10 else ""))
+    print("assign: {0} agent(s): {1} in their OS group, {2} to add, {3} without an OS "
+          "benchmark".format(len(agents), ok, len(adds), sum(map(len, unmatched.values()))))
+    return adds, notes
+
+
+def act_assign(apply_, auto=False):
+    if auto and read_conf().get("auto_assign", "").lower() not in ("yes", "true", "1"):
+        print("assign: auto_assign is off in {0}".format(ORCH_CONF))
+        return 0
+    lock = apply_lock() if apply_ else None
+    try:
+        token = get_token()
+        adds, notes = assign_plan(token)
+        for line in notes:
+            print("  " + line)
+        groups = existing_groups(token)
+        errors = 0
+        for aid, name, key, group in adds:
+            new = group not in groups
+            if not apply_:
+                print("  [+] {0} {1}: {2} -> {3}{4}".format(aid, name, key, group,
+                                                          " (new group)" if new else ""))
+                continue
+            try:
+                if new:
+                    api_json("POST", "/groups", token, {"group_id": group})
+                    groups.add(group)
+                    print("  [+] group {0} created".format(group))
+                api_json("PUT", "/agents/{0}/group/{1}".format(aid, urllib.parse.quote(group)),
+                         token)
+                print("  [+] {0} {1}: {2} -> {3}".format(aid, name, key, group))
+            except Exception as e:
+                print("  ERROR {0} {1} -> {2}: {3}".format(aid, name, group, e))
+                errors += 1
+        if not apply_:
+            if adds:
+                print("\n[dry-run] nothing changed. Re-run with 'assign --apply'.")
+            return 0
+        rc = 1 if errors else 0
+        if len(adds) > errors:
+            # the new members get the files of their OS at once
+            print("\n== publish")
+            rc = plan_apply(True, False, None) or rc
+        return rc
+    finally:
+        if lock:
+            lock.close()
+
+
 # ----------------------------------------------------------------- baseline groups
 GROUP_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
@@ -1452,7 +1554,7 @@ def load_api_credentials(args):
 def main():
     ap = argparse.ArgumentParser(description="CIS-CAT / Wazuh SCA fleet orchestrator")
     ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "history", "baseline",
-                                       "key", "report", "version"])
+                                       "assign", "key", "report", "version"])
     ap.add_argument("--password", help="deprecated, visible in ps: use the password file")
     ap.add_argument("--password-file", help="file with the API password (default: api_pass_file "
                     "in " + ORCH_CONF + ")")
@@ -1471,6 +1573,10 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="sync/plan/apply: one line per benchmark found and per OS without a group")
     ap.add_argument("--day", help="history: day of the snapshot (YYYY-MM-DD, default today)")
+    ap.add_argument("--apply", action="store_true", help="assign: make the changes (default: "
+                    "dry-run)")
+    ap.add_argument("--auto", action="store_true", help="assign: only when auto_assign=yes in "
+                    "the conf (scheduler)")
     ap.add_argument("--file", help="baseline: JSON file of the groups owned by infrastructure code")
     args = ap.parse_args()
     global VERBOSE
@@ -1510,6 +1616,8 @@ def main():
             sys.exit("trigger: {0}".format(e))
         return act_trigger(scope["targets"], args.wave_size, args.wave_pause, args.job,
                            agents=scope["agents"], groups=scope["groups"])
+    if args.action == "assign":
+        return act_assign(args.apply or args.auto, auto=args.auto)
     if args.action == "baseline":
         if not args.file:
             sys.exit("baseline needs --file")

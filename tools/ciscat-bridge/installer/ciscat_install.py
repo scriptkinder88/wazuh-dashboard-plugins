@@ -42,7 +42,8 @@ PLUGIN_TOOL = "/usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin"
 
 MANAGED_BIN = [
     "ciscat-fleet.py", "ciscat-scheduler.py", "ciscat_store.py", "ciscat_schedule.py",
-    "ciscat_discover.py", "ciscat_xccdf.py", "csv_to_custom_xccdf.py", "xccdf_to_sca_policy.py",
+    "ciscat_discover.py", "ciscat_assign.py", "ciscat_xccdf.py", "csv_to_custom_xccdf.py",
+    "xccdf_to_sca_policy.py",
     "benchmark_to_sheet.py", "ciscat-refresh.sh", "ciscat-bootstrap.sh",
     "maps/ciscat-profiles.json",
 ]

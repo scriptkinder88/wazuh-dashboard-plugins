@@ -181,5 +181,38 @@ class Bootstrap(unittest.TestCase):
         self.assertIn("public key " + self.pub + " not found", out)
 
 
+    def test_key_received_from_the_master_is_kept_on_first_use(self):
+        bench = os.path.join(self.assessor, "benchmarks", "x-xccdf.xml")
+        self.publish("x-xccdf.xml", bench)
+        shutil.move(self.pub, os.path.join(self.shared, "ciscat-manifest.pub"))
+        rc, out = self.run_bootstrap()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("master's public key received and kept: " + self.pub, out)
+        self.assertTrue(os.path.isfile(bench))
+        with open(self.pub) as kept, open(os.path.join(self.shared, "ciscat-manifest.pub")) as f:
+            self.assertEqual(kept.read(), f.read())
+
+    def test_other_key_in_the_group_is_ignored_once_a_key_is_kept(self):
+        evil = os.path.join(self.ar_bin, "ciscat-refresh.sh")
+        self.publish("ciscat-refresh.sh", evil, b"#!/bin/sh\nid\n")
+        other = self.new_key("other")
+        shutil.copy(other + ".pub", os.path.join(self.shared, "ciscat-manifest.pub"))
+        rc, out = self.run_bootstrap(key=other)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("differs from the kept one", out)
+        self.assertIn("REFUSED (signature not valid for the master's key)", out)
+        self.assertFalse(os.path.exists(evil))
+
+    def test_a_file_that_is_not_a_key_is_not_kept(self):
+        self.publish("x-xccdf.xml", os.path.join(self.assessor, "benchmarks", "x-xccdf.xml"))
+        os.remove(self.pub)
+        with open(os.path.join(self.shared, "ciscat-manifest.pub"), "w") as f:
+            f.write("not a key\n")
+        rc, out = self.run_bootstrap()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("is not a public key: not kept", out)
+        self.assertFalse(os.path.exists(self.pub))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -27,10 +27,12 @@ commit.
 ## Install order
 
 1. Master: `ciscat-master-setup.sh` (see `master/README.txt`). It creates the manifest signing
-   key and writes the public keys the agents need to `master/agent-keys/`.
-2. Agents: the agent installer with the master's public key next to it, by hand or with
+   key; the agents get its public key with the group files at their first run and keep it. A copy
+   is in `master/agent-keys/` for those who pin it at agent install. With `--auto-assign` the
+   agents go into the group of their OS benchmark by themselves (every hour).
+2. Agents: the agent installer, by hand or with
    `ansible-playbook -i inventory.ini ansible/ciscat-agents.yml -e ciscat_release_dir=<dir>`
-   (`<dir>` holds the agent packages and `agent-keys/`).
+   (`<dir>` holds the agent packages, and `agent-keys/` with `-e ciscat_pin_pubkey=true`).
 3. End-to-end test: `ciscat-e2e-master.py pre|run|post` on the master, the e2e script of each
    agent package on the agents.
 

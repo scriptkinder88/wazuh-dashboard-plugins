@@ -20,7 +20,20 @@ exclusions.
 
 In the CIS-CAT tab, **Applies to group** chooses the Wazuh group whose agents get the benchmark
 (by default `os-<key>`); **Save and apply** has the master publish it to that group. Apply and runs
-skip an OS until its group exists. An entry in `/opt/ciscat/etc/os-library.json` keeps its
+skip an OS until its group exists.
+
+`ciscat-fleet.py assign` puts every agent into the group of its OS benchmark, from the OS the agent
+reports (platform, name, version): a RHEL 9 agent goes to the group of the newest
+`Red_Hat_Enterprise_Linux_9` benchmark, a Windows Server 2022 agent to the one of
+`Microsoft_Windows_Server_2022`, Windows 10/11 to the Enterprise benchmark. It only adds groups
+(never removes one), and leaves alone an agent already in the group of another benchmark of its OS
+(STIG, Stand-alone, other version: a choice made in the dashboard); an agent in the group of
+another OS (an upgraded host) is reported, not moved. Without `--apply` it only shows what it would
+do; with `--apply` it creates the missing groups, adds the agents and publishes. With
+`auto_assign=yes` in `ciscat-orchestrator.conf` (`ciscat-master-setup.sh --auto-assign`) the
+scheduler does it every hour, so a new agent or a new benchmark needs no step. Application
+benchmarks (databases, web servers, browsers, Office) cannot be told from the agent's OS: their
+group is chosen in the dashboard, and an agent joins it by hand or through `baseline`. An entry in `/opt/ciscat/etc/os-library.json` keeps its
 settings (for example `"active": false`; choosing a group in the dashboard activates it again), and one whose benchmark file is missing follows the
 newest version of the same product in the folder.
 
@@ -61,8 +74,9 @@ Who installs what, once:
 | Where         | What                                                                                               | Installed by                            |
 | ------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | Master        | Bridge scripts, cron, rule, API user `ciscat-bridge`, signing key, plugin                          | `ciscat-master-setup.sh`                |
-| Windows agent | `C:\CIS` (ACL, owner), CIS-CAT Pro in `C:\CIS\Assessor`, launcher and bootstrap, master public key | `install-windows-agent.ps1`             |
-| Linux agent   | `/opt/ciscat/Assessor` (root), bootstrap, master public key, SELinux labels                        | `install-linux-agent.sh`                |
+| Windows agent | `C:\CIS` (ACL, owner), CIS-CAT Pro in `C:\CIS\Assessor`, launcher and bootstrap                    | `install-windows-agent.ps1`             |
+| Linux agent   | `/opt/ciscat/Assessor` (root), bootstrap, SELinux labels                                           | `install-linux-agent.sh`                |
+| First run     | Master public key (kept by the agent; or pinned by the installer)                                  | the master, with the group files        |
 | Every run     | Benchmarks, OVAL/CPE, assessment and conversion scripts, settings                                  | the master, through the signed manifest |
 
 - **Benchmark files:** the `os-<os>` group carries the custom XCCDF and, under their original
@@ -146,6 +160,7 @@ ciscat-fleet.py sync|plan|apply|report
 ciscat-fleet.py trigger --targets rhel7,windows_server_2025 --wave-size 50 --wave-pause 300
 ciscat-fleet.py trigger --agents 003,017          # chosen agents
 ciscat-fleet.py trigger --groups web-prod,os-rhel7  # agents of OS or custom groups
+ciscat-fleet.py assign [--apply]                    # agents into the group of their OS benchmark
 ciscat-scheduler.py            # what cron runs every 5 minutes
 ```
 
@@ -224,8 +239,14 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   LF only and their manifest lists the SHA-256 of the CRLF copy the agent checks.
   Manifests are signed by the master (RSA 3072, SHA-256, key created once in /opt/ciscat/etc,
   `ciscat-fleet.py key` prints it): agents install a file only from a manifest whose signature
-  matches the public key their installer put in a root/Administrators-only place, and check each
+  matches the master's public key kept in a root/Administrators-only place, and check each
   file in a protected staging folder before installing it (Windows parameters go to C:\CIS\run).
+  The public key goes to the agents with the group files: an agent keeps the first valid one it
+  receives (trust on first use) and from then on ignores any other one in its groups, with a
+  warning in its Active Response log. To pin it before the first sync, the agent installers take
+  it (`--pubkey`, `-PublicKey`, or the file next to them; Ansible: `ciscat_pin_pubkey: true`).
+  A new master key reaches agents that kept the old one only by reinstalling with the new key,
+  or by deleting the kept key on the agent.
   Files the wazuh user can reach are never followed by root on the master (links refused).
   Waves are capped (200 agents, 60 s pause minimum), at most 5 "Run now" requests start per
   scheduler tick, and the handled requests are kept in a root-only file. An API without api_ca
@@ -233,6 +254,8 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   The CIS-CAT Pro license can be kept on the master (`/opt/ciscat/license/license.xml`): it then
   reaches every agent through the signed manifest, byte for byte (renewal: replace the file and
   apply). Each run logs the CIS-CAT version used.
+  `assign` puts every agent into the group of its OS benchmark (every hour with
+  `auto_assign=yes`).
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

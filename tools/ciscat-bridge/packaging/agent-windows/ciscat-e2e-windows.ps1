@@ -79,7 +79,20 @@ function Pre {
         $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @("S-1-5-18", "S-1-5-32-544") }
     Check "W3" "$Root writable only by SYSTEM and Administrators (scripts there run as SYSTEM)" "no other write access" ($(if ($acl) { ($acl | ForEach-Object { "$($_.IdentityReference): $($_.FileSystemRights)" }) -join "; " } else { "ok" })) (-not $acl -and (Test-Path -LiteralPath $Root))
     $key = Join-Path $Root "ciscat-manifest.pub.xml"
-    Check "W3" "master's public key (manifests must be signed with it)" $key ($(if (Test-Path -LiteralPath $key) { "sha256 " + (Get-FileHash -LiteralPath $key -Algorithm SHA256).Hash.ToLower() } else { "missing: reinstall with ciscat-manifest.pub.xml" })) (Test-Path -LiteralPath $key)
+    $sharedKey = Join-Path $Shared "ciscat-manifest.pub.xml"
+    $keyText = { param($p) ((Get-Content -LiteralPath $p -Raw) -replace '\s', '') }
+    $keyOk = $true
+    if (Test-Path -LiteralPath $key) {
+        $kgot = "kept, sha256 " + (Get-FileHash -LiteralPath $key -Algorithm SHA256).Hash.ToLower()
+        if ((Test-Path -LiteralPath $sharedKey) -and ((& $keyText $key) -ne (& $keyText $sharedKey))) {
+            $kgot += " - the group's key DIFFERS (new master key?)"; $keyOk = $false
+        }
+    } elseif (Test-Path -LiteralPath $sharedKey) {
+        $kgot = "from the master, kept at the first run"
+    } else {
+        $kgot = "missing: not received from the master yet (group sync pending?)"; $keyOk = $false
+    }
+    Check "W3" "master's public key (manifests must be signed with it)" "$key, or in shared" $kgot $keyOk
     $assessor = Join-Path $Ciscat "Assessor-CLI.bat"
     Check "W4" "CIS-CAT Pro Assessor" $assessor ($(if (Test-Path -LiteralPath $assessor) { "present" } else { "missing" })) (Test-Path -LiteralPath $assessor)
     $java = Join-Path $Ciscat "jre\bin\java.exe"

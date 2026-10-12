@@ -21,6 +21,7 @@
     owner: root
     group: root
     mode: '0644'
+  when: ciscat_pin_pubkey | bool
 
 - name: Install or update (idempotent; the output lists what changed)
   ansible.builtin.command:

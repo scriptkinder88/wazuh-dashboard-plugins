@@ -77,11 +77,33 @@ for m in "$AGENT_SHARED"/ciscat-manifest-*.csv; do
     [ -f "$m" ] && MANIFESTS="$MANIFESTS $m"
 done
 [ -n "$MANIFESTS" ] || fail "no ciscat-manifest-*.csv in ${AGENT_SHARED} (group sync pending?)"
-[ -s "$PUBKEY" ] || fail "public key ${PUBKEY} not found: install the agent with the master's ciscat-manifest.pub"
 command -v openssl >/dev/null 2>&1 || fail "openssl not found: manifests cannot be verified"
 
 mkdir -p "$DATA_ROOT" 2>/dev/null
 chmod 700 "$DATA_ROOT" 2>/dev/null
+
+# The master's public key comes with the group files. Without a key of its own (installed with
+# --pubkey) the agent keeps the first valid one it receives (trust on first use); from then on
+# only the kept key counts, and a different key in the group is ignored. New master key: reinstall
+# with --pubkey, or delete the kept key.
+SHARED_KEY="$AGENT_SHARED/ciscat-manifest.pub"
+key_sha() { openssl dgst -sha256 "$1" 2>/dev/null | sed 's/.*= *//'; }
+if [ -f "$SHARED_KEY" ] && [ ! -L "$SHARED_KEY" ]; then
+    if [ ! -s "$PUBKEY" ]; then
+        tmp="${PUBKEY}.new.$$"
+        if cat "$SHARED_KEY" > "$tmp" 2>/dev/null && \
+           openssl pkey -pubin -in "$tmp" -noout >/dev/null 2>&1 && \
+           chmod 644 "$tmp" && mv -f "$tmp" "$PUBKEY"; then
+            log "master's public key received and kept: ${PUBKEY} sha256 $(key_sha "$PUBKEY")"
+        else
+            rm -f "$tmp"
+            log "WARNING: ${SHARED_KEY} is not a public key: not kept"
+        fi
+    elif ! cmp -s "$SHARED_KEY" "$PUBKEY"; then
+        log "WARNING: the group's public key (sha256 $(key_sha "$SHARED_KEY")) differs from the kept one (sha256 $(key_sha "$PUBKEY")): ignored"
+    fi
+fi
+[ -s "$PUBKEY" ] || fail "public key ${PUBKEY} not found and none received from the master yet"
 rm -rf "$STAGE"
 mkdir -m 700 "$STAGE" || fail "cannot create ${STAGE}"
 trap 'rm -rf "$STAGE"' EXIT
