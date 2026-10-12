@@ -1,0 +1,12 @@
+---
+# Bridge version of the packages, and the folder holding the release attachments on the
+# controller: the agent packages and master/agent-keys/ciscat-manifest.pub{,.xml}
+ciscat_version: "2.3.0"
+ciscat_release_dir: "{{ playbook_dir }}/release"
+# package file names (the full packages carry the Assessor: -assessor-<version>)
+ciscat_package_linux: "ciscat-agent-linux-{{ ciscat_version }}.tar.gz"
+ciscat_package_windows: "ciscat-agent-windows-{{ ciscat_version }}.zip"
+ciscat_pubkey_linux: "{{ ciscat_release_dir }}/agent-keys/ciscat-manifest.pub"
+ciscat_pubkey_windows: "{{ ciscat_release_dir }}/agent-keys/ciscat-manifest.pub.xml"
+# Windows only: CIS-CAT Pro already installed elsewhere on the host, copied to C:\CIS\Assessor
+ciscat_copy_assessor_from: ""

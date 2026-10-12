@@ -1,0 +1,37 @@
+---
+- name: C:\CIS owned by Administrators, writable only by SYSTEM and Administrators
+  ansible.windows.win_shell: |
+    New-Item -ItemType Directory -Force "C:\CIS\install\{{ ciscat_version }}" | Out-Null
+    & icacls.exe C:\CIS /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /C /Q
+    & icacls.exe C:\CIS /setowner "*S-1-5-32-544" /T /C /Q
+  changed_when: false
+
+- name: Copy the agent package
+  ansible.windows.win_copy:
+    src: "{{ ciscat_release_dir }}/{{ ciscat_package_windows }}"
+    dest: "C:\\CIS\\install\\{{ ciscat_version }}\\{{ ciscat_package_windows }}"
+
+- name: Unpack the agent package
+  ansible.windows.win_shell: >-
+    Expand-Archive -Force -Path "C:\CIS\install\{{ ciscat_version }}\{{ ciscat_package_windows }}"
+    -DestinationPath "C:\CIS\install\{{ ciscat_version }}"
+  changed_when: false
+
+- name: Master public key next to the installer
+  ansible.windows.win_copy:
+    src: "{{ ciscat_pubkey_windows }}"
+    dest: "C:\\CIS\\install\\{{ ciscat_version }}\\agent-windows\\ciscat-manifest.pub.xml"
+
+- name: Install or update (idempotent; the output lists what changed)
+  ansible.windows.win_shell: >-
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-windows-agent.ps1
+    {% if ciscat_copy_assessor_from %}-CopyAssessorFrom "{{ ciscat_copy_assessor_from }}"{% endif %}
+  args:
+    chdir: "C:\\CIS\\install\\{{ ciscat_version }}\\agent-windows"
+  register: ciscat_install
+  changed_when: true
+  failed_when: ciscat_install.rc != 0 or 'RESULT:' not in ciscat_install.stdout
+
+- name: Installer output
+  ansible.builtin.debug:
+    var: ciscat_install.stdout_lines
