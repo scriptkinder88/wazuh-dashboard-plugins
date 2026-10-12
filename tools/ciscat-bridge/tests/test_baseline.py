@@ -1,6 +1,7 @@
 """Groups owned by infrastructure code (ciscat-fleet.py baseline), against the fake Wazuh API."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ CONF = """<agent_config os="Linux">
 class Baseline(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
         paths = {k: os.path.join(self.root, k) for k in
                  ("exclusions_dir", "benchmarks_dir", "shared_dir", "work_dir", "lists_dir", "run_dir")}
         for d in paths.values():

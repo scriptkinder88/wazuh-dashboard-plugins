@@ -9,6 +9,7 @@ import {
   AgentConfEdit,
   FimRule,
   LocatedRule,
+  RuleMeta,
   editAgentConf,
   parseRules,
   ruleKey,
@@ -127,6 +128,15 @@ export interface GroupStep {
   edit?: AgentConfEdit;
 }
 
+/**
+ * Same audit fields typed in the form. The author and time are stamped on each
+ * save, so they are left out: a rule whose options and audit fields did not
+ * change is not rewritten, and its agents do not restart.
+ */
+const sameAudit = (a?: RuleMeta, b?: RuleMeta) =>
+  JSON.stringify(a ? [a.reason, a.ticket, a.owner] : null) ===
+  JSON.stringify(b ? [b.reason, b.ticket, b.owner] : null);
+
 const targetGroups = (t?: RuleTargets) =>
   t ? [...t.groups, ...t.hostIds.map(hostGroup)] : [];
 
@@ -148,8 +158,7 @@ export const buildPlan = (
       was.has(group) &&
       will.has(group) &&
       change.before!.key === ruleKey(change.after!.rule) &&
-      JSON.stringify(change.before!.rule.meta) ===
-        JSON.stringify(change.after!.rule.meta);
+      sameAudit(change.before!.rule.meta, change.after!.rule.meta);
     const edit: AgentConfEdit = {};
     if (!unchanged) {
       edit.remove = change.before && was.has(group) ? [change.before.key] : [];
