@@ -15,6 +15,8 @@ SCRIPT = os.path.join(HERE, "..", "bin", "ciscat-refresh.sh")
 RULES = os.path.join(HERE, "..", "rules", "ciscat_rules.xml")
 CONF = 'BENCHMARK_FILE="x-xccdf.xml"\nPROFILE_LIST="l1_server|P"\nSPLAY_MAX_SEC="0"\n'
 FAKE_ASSESSOR = """#!/bin/sh
+echo "         Welcome to CIS-CAT Pro Assessor; built on 06/25/2026 00:47 AM"
+echo "  This is the Center for Internet Security Configuration Assessment Tool, v4.64.0"
 mkdir -p reports
 cp "$FAKE_ARF" reports/host-ARF.xml
 """
@@ -91,6 +93,8 @@ class Refresh(unittest.TestCase):
             self.assertIn("benchmark: " + k, log)
             with open(os.path.join(self.data, "reports-cache", k, "l1_server", "results.txt")) as f:
                 self.assertEqual(f.read(), "1.1:pass\n")
+        # the version from the Assessor's banner, not the date of its build
+        self.assertEqual(log.count("CIS-CAT version: 4.64.0"), 1, log)
         # the single refresh.conf of an older manager is not used next to conf.d
         self.assertFalse(os.path.exists(os.path.join(self.cache, "results.txt")))
 

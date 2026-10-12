@@ -189,8 +189,8 @@ function Invoke-Benchmark($run) {
             ForEach-Object {
                 Log "  ciscat> $_"
                 # the CIS-CAT version, to see which agents still run an older Assessor
-                if (-not $script:ciscatVersion -and "$_" -match 'Assessor[^0-9]{0,40}(\d+\.\d+\.\d+)') {
-                    $script:ciscatVersion = $Matches[1]
+                if (-not $script:ciscatVersion -and "$_" -match '(Assessment Tool|Assessor)[^0-9]{0,40}v?(\d+\.\d+\.\d+)') {
+                    $script:ciscatVersion = $Matches[2]
                     Log "CIS-CAT version: $($script:ciscatVersion)"
                 }
             }

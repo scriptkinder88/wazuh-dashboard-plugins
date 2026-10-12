@@ -246,8 +246,9 @@ for k in $KEYS; do
         [ "$rc" -ne 0 ] && { log "WARNING: Assessor exited ${rc} for profile: ${P_NAME}"; exit_code=1; }
         # the CIS-CAT version in the AR log, to see which agents still run an older Assessor
         if [ -z "${ciscat_version:-}" ]; then
-            ciscat_version=$(grep -m1 -oE 'Assessor[^0-9]{0,40}[0-9]+\.[0-9]+\.[0-9]+' "$RUN_LOG" 2>/dev/null |
-                grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            # banner: "...Configuration Assessment Tool, v4.64.0"
+            ciscat_version=$(grep -m1 -oE '(Assessment Tool|Assessor)[^0-9]{0,40}v?[0-9]+\.[0-9]+\.[0-9]+' \
+                "$RUN_LOG" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
             [ -n "$ciscat_version" ] && log "CIS-CAT version: ${ciscat_version}"
         fi
 
