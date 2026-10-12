@@ -130,6 +130,21 @@ class Bootstrap(unittest.TestCase):
                   os.path.join(self.assessor, "benchmarks-other", "z.xml")):
             self.assertFalse(os.path.exists(p), p)
 
+    def test_license_is_decoded_byte_for_byte(self):
+        content = b"<license>\r\n<sig>x</sig>\n</license>"
+        dest = os.path.join(self.assessor, "license", "license.xml")
+        self.publish("ciscat-license.xml.b64", dest + ":b64", base64.encodebytes(content))
+        rc, out = self.run_bootstrap()
+        self.assertEqual(rc, 0, out)
+        with open(dest, "rb") as f:
+            self.assertEqual(f.read(), content)
+        # only to the Assessor's license file
+        self.lines = []
+        self.publish("ciscat-license.xml.b64", os.path.join(self.assessor, "x.xml") + ":b64",
+                     base64.encodebytes(content))
+        rc, out = self.run_bootstrap()
+        self.assertEqual(rc, 2, out)
+
     def test_unsigned_manifest_is_refused(self):
         bench = os.path.join(self.assessor, "benchmarks", "x-xccdf.xml")
         self.publish("x-xccdf.xml", bench)

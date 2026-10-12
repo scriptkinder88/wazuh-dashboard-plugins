@@ -244,6 +244,12 @@ for k in $KEYS; do
             -p "$P_NAME" -nts >> "$RUN_LOG" 2>&1 )
         rc=$?
         [ "$rc" -ne 0 ] && { log "WARNING: Assessor exited ${rc} for profile: ${P_NAME}"; exit_code=1; }
+        # the CIS-CAT version in the AR log, to see which agents still run an older Assessor
+        if [ -z "${ciscat_version:-}" ]; then
+            ciscat_version=$(grep -m1 -oE 'Assessor[^0-9]{0,40}[0-9]+\.[0-9]+\.[0-9]+' "$RUN_LOG" 2>/dev/null |
+                grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            [ -n "$ciscat_version" ] && log "CIS-CAT version: ${ciscat_version}"
+        fi
 
         # The Assessor writes <hostname>-...-ARF.xml into its reports dir.
         report=$(ls -1t "${CISCAT_PATH}/reports"/*-ARF.xml 2>/dev/null | head -1)

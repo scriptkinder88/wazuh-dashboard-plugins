@@ -186,7 +186,14 @@ function Invoke-Benchmark($run) {
     $ErrorActionPreference = "Continue"
     try {
         & $assessor -b "$custom" -p "$($run.Profile)" -nts -csv -rd "$reportDir" 2>&1 |
-            ForEach-Object { Log "  ciscat> $_" }
+            ForEach-Object {
+                Log "  ciscat> $_"
+                # the CIS-CAT version, to see which agents still run an older Assessor
+                if (-not $script:ciscatVersion -and "$_" -match 'Assessor[^0-9]{0,40}(\d+\.\d+\.\d+)') {
+                    $script:ciscatVersion = $Matches[1]
+                    Log "CIS-CAT version: $($script:ciscatVersion)"
+                }
+            }
         $assessorExit = $LASTEXITCODE
     } catch {
         Log "ERROR: CIS-CAT execution failed: $($_.Exception.Message)"

@@ -149,6 +149,9 @@ PATHS = {
     "run_dir": "/opt/ciscat/run",
     # agent scripts the master publishes to the Windows agents (installed by the installer)
     "agent_dir": "/opt/ciscat/agent/active-response",
+    # CIS-CAT Pro license: when present, every agent gets it through the signed manifest (renewal:
+    # copy the new file here and apply)
+    "license_file": "/opt/ciscat/license/license.xml",
 }
 # where the Windows agent installs what the manifest lists (C:\CIS: Assessor and bridge files)
 WINDOWS_BENCH = "C:\\CIS\\Assessor\\benchmarks\\"
@@ -455,6 +458,27 @@ def key_fingerprint():
     return hashlib.sha256(der).hexdigest()
 
 
+LICENSE_NAME = "ciscat-license.xml.b64"
+
+
+def publish_license(gdir, windows):
+    """The license as base64 text (byte-exact through the agents' text-mode copy), or None when
+    the master has no license file. Returns the manifest line."""
+    src = PATHS["license_file"]
+    path = os.path.join(gdir, LICENSE_NAME)
+    if not os.path.isfile(src):
+        if os.path.isfile(path) and not os.path.islink(path):
+            os.remove(path)  # the master's license was removed: the agents keep theirs
+        return None
+    with open(src, "rb") as f:
+        data = base64.encodebytes(f.read()).decode()
+    write_atomic(path, data)
+    if windows:
+        return "{0};{1};C:\\CIS\\Assessor\\license\\license.xml:b64".format(
+            LICENSE_NAME, windows_sha256(path))
+    return "{0};{1};/opt/ciscat/Assessor/license/license.xml:b64".format(LICENSE_NAME, sha256(path))
+
+
 def sign_manifest(path):
     """<manifest>.sig: base64 of the RSA/SHA-256 signature of the manifest as written (LF)."""
     sig = openssl("dgst", "-sha256", "-sign", signing_key(), path)
@@ -624,6 +648,11 @@ def publish_linux(os_key, cfg, art):
         names.append(name)
         lines.append("{0};{1};{2}".format(name, sha256(os.path.join(gdir, name)), dest))
         print("    published: {0}".format(name))
+    lic = publish_license(gdir, windows=False)
+    if lic:
+        lines.append(lic)
+        names.append(LICENSE_NAME)
+        print("    published: CIS-CAT license")
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     names.append(sign_manifest(os.path.join(gdir, manifest)))
     own_dir(gdir)
@@ -674,6 +703,9 @@ def publish_windows(os_key, cfg, art, exc_csv):
         os_key, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())), "# name;sha256;dest"]
     for name, dest in entries:
         lines.append("{0};{1};{2}".format(name, windows_sha256(os.path.join(gdir, name)), dest))
+    lic = publish_license(gdir, windows=True)
+    if lic:
+        lines.append(lic)
     manifest = OS_MANIFEST.format(os_key)
     write_atomic(os.path.join(gdir, manifest), "\n".join(lines) + "\n")
     signature = sign_manifest(os.path.join(gdir, manifest))
@@ -682,7 +714,8 @@ def publish_windows(os_key, cfg, art, exc_csv):
         len(WINDOWS_SCRIPTS) - len(missing)))
     own_dir(gdir)
     # a Windows benchmark may come without OVAL/CPE files (the agent's CIS-CAT bundle has them)
-    return missing, [name for name, _ in entries] + [manifest, signature]
+    return missing, [name for name, _ in entries] + [manifest, signature] + (
+        [LICENSE_NAME] if lic else [])
 
 
 def policy_enabled(group, policy_file):

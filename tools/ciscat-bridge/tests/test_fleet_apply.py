@@ -161,6 +161,27 @@ class FleetApply(unittest.TestCase):
         self.assertIn("<interval>1h</interval>", conf)
         self.assertNotIn("<policies>", conf)
 
+    def test_license_of_the_master_goes_to_the_agents(self):
+        self.companions()
+        lic = os.path.join(self.root, "license.xml")
+        content = b"<license>\r\n<sig>x</sig>\n</license>"  # sent byte for byte
+        with open(lic, "wb") as f:
+            f.write(content)
+        self.env["CISCAT_PATHS_JSON"] = json.dumps(dict(json.loads(self.env["CISCAT_PATHS_JSON"]),
+                                                        license_file=lic))
+        self.fleet("apply")
+        gdir = os.path.join(self.paths["shared_dir"], "os-rhel7")
+        with open(os.path.join(gdir, "ciscat-manifest-rhel7.csv")) as f:
+            line = [ln for ln in f.read().splitlines() if ln.startswith("ciscat-license.xml.b64;")]
+        self.assertEqual(len(line), 1)
+        self.assertTrue(line[0].endswith(";/opt/ciscat/Assessor/license/license.xml:b64"))
+        with open(os.path.join(gdir, "ciscat-license.xml.b64")) as f:
+            self.assertEqual(base64.b64decode(f.read()), content)
+        # no license on the master: nothing published, the agents keep theirs
+        os.remove(lic)
+        self.fleet("apply")
+        self.assertFalse(os.path.exists(os.path.join(gdir, "ciscat-license.xml.b64")))
+
     def test_missing_benchmark_files_fail_the_apply(self):
         out = self.fleet("apply", rc=1)
         self.assertIn("MISSING", out)

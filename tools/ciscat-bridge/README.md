@@ -230,6 +230,9 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   Waves are capped (200 agents, 60 s pause minimum), at most 5 "Run now" requests start per
   scheduler tick, and the handled requests are kept in a root-only file. An API without api_ca
   must be on the master itself.
+  The CIS-CAT Pro license can be kept on the master (`/opt/ciscat/license/license.xml`): it then
+  reaches every agent through the signed manifest, byte for byte (renewal: replace the file and
+  apply). Each run logs the CIS-CAT version used.
 
 - **2.2.9:** apply: an OS that is switched off, or whose group was removed, gives up its combo
   groups, so the agents left in them stop receiving its policy.

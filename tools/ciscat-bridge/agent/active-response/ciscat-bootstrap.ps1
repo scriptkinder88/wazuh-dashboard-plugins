@@ -77,10 +77,12 @@ if (-not $owned) {
 # the only places a manifest may install to (no "..", no other folder)
 $RunDir = Join-Path $Root "run"
 $Stage = Join-Path $Root "staging"
+$licenseDest = Join-Path $Root "Assessor\license\license.xml"
 $allowed = @((Join-Path $Root "Assessor\benchmarks"), (Join-Path $Root "bin"), $RunDir) |
     ForEach-Object { [System.IO.Path]::GetFullPath($_).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar }
 function Allowed($dest) {
     if ($dest -match '\.\.') { return $false }
+    if ($dest -ieq $licenseDest) { return $true }
     $full = [System.IO.Path]::GetFullPath($dest)
     foreach ($a in $allowed) { if ($full.StartsWith($a, [System.StringComparison]::OrdinalIgnoreCase)) { return $true } }
     return $false
@@ -141,6 +143,8 @@ foreach ($m in $manifests) {
         $parts = $line.Split(";")
         if ($parts.Count -lt 3 -or -not $parts[2]) { continue }
         $name, $expected, $dest = $parts[0], $parts[1].ToUpper(), $parts[2]
+        $b64 = $dest.EndsWith(":b64")
+        if ($b64) { $dest = $dest.Substring(0, $dest.Length - 4) }
         if ($name -notmatch '^[A-Za-z0-9._-]+$') { Log "REFUSED (not a plain file name): $name"; $refused++; continue }
         if (-not (Allowed $dest)) { Log "REFUSED (destination not allowed): $name -> $dest"; $refused++; continue }
         $src = Join-Path $SharedDir $name
@@ -151,7 +155,17 @@ foreach ($m in $manifests) {
         $actual = (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash
         if ($actual -ne $expected) { Log "REFUSED (sha256 mismatch): $name"; $refused++; continue }
         New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-        Copy-Item -LiteralPath $copy -Destination $dest -Force
+        if ($b64) {
+            # base64 text (the license): decoded byte for byte
+            try {
+                $bytes = [Convert]::FromBase64String(((Get-Content -LiteralPath $copy -Raw) -replace '\s', ''))
+                [System.IO.File]::WriteAllBytes($dest + ".new", $bytes)
+                Move-Item -LiteralPath ($dest + ".new") -Destination $dest -Force
+                Log "installed (base64): $name -> $dest"
+            } catch { Log "REFUSED (base64 decoding failed): $name"; $refused++; continue }
+        } else {
+            Copy-Item -LiteralPath $copy -Destination $dest -Force
+        }
         $installed++
     }
 }

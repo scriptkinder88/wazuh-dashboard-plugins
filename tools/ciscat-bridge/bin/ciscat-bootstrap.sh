@@ -34,6 +34,7 @@ trap '' PIPE
 AGENT_SHARED="${CISCAT_AGENT_SHARED:-/var/ossec/etc/shared}"   # merged group files land here
 DATA_ROOT="${CISCAT_DATA_DIR:-/var/lib/wazuh-ciscat}"
 ASSESSOR_BENCH="${CISCAT_PATH:-/opt/ciscat/Assessor}/benchmarks"
+ASSESSOR_LICENSE="${CISCAT_PATH:-/opt/ciscat/Assessor}/license/license.xml"
 REFRESH_DEST="${CISCAT_AR_BIN:-/var/ossec/active-response/bin}/ciscat-refresh.sh"
 LOG_TAG="ciscat-bootstrap"
 # the master's public key, put here (root only) by the agent installer: every manifest must be
@@ -57,7 +58,7 @@ fail() { log "ERROR: $1"; exit 1; }
 dest_allowed() {
     case "$1" in
         *..*) return 1 ;;
-        "$ASSESSOR_BENCH"/?*|"$DATA_ROOT"/?*|"$REFRESH_DEST") return 0 ;;
+        "$ASSESSOR_BENCH"/?*|"$DATA_ROOT"/?*|"$REFRESH_DEST"|"$ASSESSOR_LICENSE") return 0 ;;
     esac
     return 1
 }
@@ -108,7 +109,8 @@ while IFS=';' read -r name expected dest; do
             continue
             ;;
     esac
-    if ! dest_allowed "${dest%:gz}"; then
+    real="${dest%:gz}"; real="${real%:b64}"
+    if ! dest_allowed "$real"; then
         log "REFUSED (destination not allowed): $name -> $dest"
         refused=$((refused + 1))
         continue
@@ -135,6 +137,21 @@ while IFS=';' read -r name expected dest; do
     # A dest ending in ':gz' means the shared file is gzip-compressed and must
     # be decompressed to the real path (large XML files travel compressed).
     case "$dest" in
+        *:b64)
+            # base64 text (the license): decoded byte for byte
+            real_dest=${dest%:b64}
+            mkdir -p "$(dirname "$real_dest")" 2>/dev/null
+            if tr -d ' \r\n' < "$src" | base64 -d > "${real_dest}.new" 2>/dev/null && [ -s "${real_dest}.new" ]; then
+                chmod 640 "${real_dest}.new" && mv -f "${real_dest}.new" "$real_dest"
+                log "installed (base64): $name -> $real_dest"
+                installed=$((installed + 1))
+            else
+                rm -f "${real_dest}.new"
+                log "REFUSED (base64 decoding failed): $name"
+                refused=$((refused + 1))
+            fi
+            continue
+            ;;
         *:gz)
             real_dest=${dest%:gz}
             dest_dir=$(dirname "$real_dest")
