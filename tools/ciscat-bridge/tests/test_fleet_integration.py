@@ -193,7 +193,7 @@ class FleetDiscovery(FleetIntegration):
 
     def test_sync_apply_combos_and_trigger(self):
         u = self.UBUNTU
-        out = self.fleet("sync")
+        out = self.fleet("sync", "-v")
         self.assertIn(u + ": new OS from " + LINUX, out)
         oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
         ubuntu = oskeys[u]
@@ -209,7 +209,9 @@ class FleetDiscovery(FleetIntegration):
             excl(os_key=u, scope="host", scope_value="web-02", rule="1.1.1.2"),
         ]), self.paths["lists_dir"])
         out = self.fleet("apply")
-        self.assertIn("[skip] group os-windows_server_2022_v9_9_9 does not exist", out)
+        self.assertRegex(out, r"\[skip\] \d+ OS without their group yet.*os-windows_server_2022_v9_9_9")
+        self.assertIn("[skip] group os-windows_server_2022_v9_9_9 does not exist",
+                      self.fleet("plan", "-v"))
         self.assertNotIn("os-windows_server_2022_v9_9_9", self.fake.groups)
         pid = "cis_{0}_tailored_l1_server".format(u)
         base = self.policy_rules("ciscat-{0}-base".format(u), pid)
@@ -283,7 +285,7 @@ class FleetStig(FleetIntegration):
         import benchmark_to_sheet as sheet
         import xccdf_to_sca_policy as gen
         k = self.KEY
-        out = self.fleet("sync")
+        out = self.fleet("sync", "-v")
         self.assertIn("{0}: new OS from {1} (role STIG, profiles SEVERITY_CAT_I + SEVERITY_CAT_II)"
                       .format(k, self.STIG), out)
         oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])

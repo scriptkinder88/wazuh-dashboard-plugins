@@ -191,6 +191,7 @@ def linux_results(os_key, profile_key):
 
 # filled by main(): importing this module reads nothing
 OS_LIBRARY, DISCOVERY_NOTES = {}, []
+VERBOSE = False  # -v: one line per benchmark found and per OS without a group
 
 
 # ----------------------------------------------------------------- helpers
@@ -705,8 +706,14 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
 # ----------------------------------------------------------------- sync (dashboard data)
 def act_sync():
     failed = False
+    found = [n for n in DISCOVERY_NOTES if ": new OS from " in n]
+    skipped = [n for n in DISCOVERY_NOTES if n.endswith(", skipped")]
     for note in DISCOVERY_NOTES:
-        print("[discovery] " + note)
+        if VERBOSE or (note not in found and note not in skipped):
+            print("[discovery] " + note)
+    if not VERBOSE and (found or skipped):
+        print("[discovery] {0} OS offered from the benchmarks folder, {1} benchmark(s) not usable "
+              "by an agent (details: sync -v)".format(len(found), len(skipped)))
     oskeys = {}
     for os_key, cfg in OS_LIBRARY.items():
         bench = os.path.join(PATHS["benchmarks_dir"], cfg["benchmark"])
@@ -738,7 +745,8 @@ def act_sync():
             entry["version"] = version
         oskeys[os_key] = entry
     store.write_list(store.OSKEYS, oskeys, PATHS["lists_dir"])
-    print("OS list published: {0}".format(", ".join(sorted(oskeys))))
+    print("OS list published: {0}".format(", ".join(sorted(oskeys)) if VERBOSE else
+                                          "{0} OS (names: sync -v)".format(len(oskeys))))
     return 1 if failed else 0
 
 
@@ -883,15 +891,20 @@ def plan_apply(apply_, restart, request):
         # stays in that group publishes its own on a clean folder
         withdraw_published(published, applied)
         write_published(published)
+    no_group = []
     for os_key, cfg in OS_LIBRARY.items():
-        print("[{0}] group={1} active={2}".format(os_key, cfg["group"], cfg["active"]))
+        if cfg["active"] and cfg["group"] not in groups and not VERBOSE:
+            no_group.append(cfg["group"])
+        else:
+            print("[{0}] group={1} active={2}".format(os_key, cfg["group"], cfg["active"]))
         if not cfg["active"]:
             print("  [skip] inactive in library")
             retire_combos(os_key, groups, token, apply_)
             continue
         if cfg["group"] not in groups:
             # a benchmark nobody uses yet: create the group and add agents to it
-            print("  [skip] group {0} does not exist".format(cfg["group"]))
+            if VERBOSE:
+                print("  [skip] group {0} does not exist".format(cfg["group"]))
             status["per_os"][os_key] = {"agents": 0, "skipped": "no group " + cfg["group"]}
             retire_combos(os_key, groups, token, apply_)
             continue
@@ -918,6 +931,10 @@ def plan_apply(apply_, restart, request):
             status["errors"].append("{0}: benchmark files missing on the master, not published: "
                                     "{1}".format(os_key, ", ".join(summary["missing"])))
             failed = True
+    if no_group:
+        print("[skip] {0} OS without their group yet, nothing published (create the group to "
+              "use one; list: plan -v): {1}".format(len(no_group), ", ".join(sorted(no_group)[:8]) +
+                                                   (", ..." if len(no_group) > 8 else "")))
     if apply_:
         write_group_legacy(published, groups_seen)
     # rejected exclusion records are reported but do not fail the apply
@@ -1297,9 +1314,13 @@ def main():
                     help="trigger: seconds between waves (default %(default)s)")
     ap.add_argument("--job", help="trigger: schedule job key, for ciscat-status")
     ap.add_argument("--request", help="apply: request key, for ciscat-status")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="sync/plan/apply: one line per benchmark found and per OS without a group")
     ap.add_argument("--day", help="history: day of the snapshot (YYYY-MM-DD, default today)")
     ap.add_argument("--file", help="baseline: JSON file of the groups owned by infrastructure code")
     args = ap.parse_args()
+    global VERBOSE
+    VERBOSE = args.verbose
     if args.action == "version":
         print(VERSION)
         return 0

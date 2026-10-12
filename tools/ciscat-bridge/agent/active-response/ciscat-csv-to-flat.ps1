@@ -35,7 +35,9 @@ foreach ($r in $rows) {
         # "Total,Pass: ...", "Actual Pass: ...,Score: ...") or genuinely malformed (which
         # would mean a real control was lost). Distinguish them so the log is self-documenting
         # for audit: summary is benign, malformed>0 must be investigated.
-        $firstField = if ($rule) { $rule } elseif ($r.c1) { $r.c1 } else { "" }
+        # the summary text is in the first non-empty column ("Total,Pass: 293,..." starts in c0)
+        $firstField = @($r.PSObject.Properties.Value | Where-Object { $_ }) | Select-Object -First 1
+        if (-not $firstField) { $firstField = "" }
         if ($firstField -match '^(Total|Actual Pass)') { $n_summary++ }
         else { $n_malformed++; $manual.Add(("MALFORMED`t{0}" -f (($r.PSObject.Properties.Value) -join ','))) }
         continue
