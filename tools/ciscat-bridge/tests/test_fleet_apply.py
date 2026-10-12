@@ -161,6 +161,26 @@ class FleetApply(unittest.TestCase):
         self.assertIn("<interval>1h</interval>", conf)
         self.assertNotIn("<policies>", conf)
 
+    def test_wazuh_sca_policies_are_switched_off_on_assessed_agents(self):
+        self.companions()
+        self.fake.sca = {"001": {"cis_rhel7_linux": "t", "cis_rhel7_tailored_l1_server": "t",
+                                 "site_custom": "t"}}
+        out = self.fleet("apply")
+        self.assertIn("Wazuh SCA policies switched off on these agents: cis_rhel7_linux", out)
+        conf_path = os.path.join(self.paths["shared_dir"], "ciscat-rhel7-base", "agent.conf")
+        with open(conf_path) as f:
+            conf = f.read()
+        self.assertIn('<policy enabled="no">ruleset/sca/cis_rhel7_linux.yml</policy>', conf)
+        self.assertIn("<policy>etc/shared/cis_rhel7_tailored_l1_server.yml</policy>", conf)
+        self.assertNotIn("site_custom", conf)
+        self.assertEqual(conf.count("<policies>"), 1)
+        # keep_default_sca=yes keeps them
+        with open(os.path.join(self.etc, "ciscat-orchestrator.conf"), "a") as f:
+            f.write("keep_default_sca=yes\n")
+        self.fleet("apply")
+        with open(conf_path) as f:
+            self.assertNotIn('enabled="no"', f.read())
+
     def test_license_of_the_master_goes_to_the_agents(self):
         self.companions()
         lic = os.path.join(self.root, "license.xml")

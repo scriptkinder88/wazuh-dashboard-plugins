@@ -254,6 +254,10 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   The CIS-CAT Pro license can be kept on the master (`/opt/ciscat/license/license.xml`): it then
   reaches every agent through the signed manifest, byte for byte (renewal: replace the file and
   apply). Each run logs the CIS-CAT version used.
+  Wazuh's own SCA policies (ruleset/sca) are switched off on the agents the bridge assesses, in
+  their combo group's agent.conf, so the dashboard shows the CIS-CAT score only (on a newer OS
+  Wazuh would apply an older benchmark, e.g. Server 2022 on Server 2025); `keep_default_sca=yes`
+  in `ciscat-orchestrator.conf` keeps them.
   `assign` puts every agent into the group of its OS benchmark (every hour with
   `auto_assign=yes`).
 

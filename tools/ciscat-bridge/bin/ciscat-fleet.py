@@ -749,12 +749,39 @@ if not re.match(r"^[1-9][0-9]{0,4}[smhdw]$", SCA_INTERVAL):
     SCA_INTERVAL = "1h"
 
 
-def sca_agent_conf(cfg, policy_file, load_policy=True):
-    """agent.conf of a combo group (owned by the bridge): the SCA scan interval, and the SCA
-    policy shipped with the group unless the OS group's own agent.conf already loads it."""
+# Wazuh's own SCA policies (ruleset/sca) on the agents the bridge assesses: their scores would sit
+# next to the CIS-CAT one in the dashboard, and on a newer OS they come from an older benchmark
+# (Windows Server 2025 gets the 2022 policy). keep_default_sca=yes in the conf keeps them.
+DEFAULT_SCA_RE = re.compile(r"^(cis|sca)_[a-z0-9_]{1,80}$")
+
+
+def default_sca_policies(token, agent_ids):
+    """Ids of the Wazuh SCA policies a few agents of an OS run, the bridge's own aside."""
+    if read_conf().get("keep_default_sca", "").lower() in ("yes", "true", "1"):
+        return []
+    ours = {c.get("policy_id") for c in OS_LIBRARY.values()}
+    found = set()
+    for aid in agent_ids[:5]:
+        try:
+            items = api_json("GET", "/sca/{0}?select=policy_id&limit=100".format(aid), token)
+        except Exception:
+            continue
+        for p in items.get("affected_items", []):
+            pid = str(p.get("policy_id", ""))
+            if pid not in ours and "tailored" not in pid and DEFAULT_SCA_RE.match(pid):
+                found.add(pid)
+    return sorted(found)
+
+
+def sca_agent_conf(cfg, policy_file, load_policy=True, disabled=()):
+    """agent.conf of a combo group (owned by the bridge): the SCA scan interval, the SCA policy
+    shipped with the group unless the OS group's own agent.conf already loads it, and Wazuh's own
+    policies switched off."""
     path = ("shared/" if cfg["family"] == "windows" else "etc/shared/") + policy_file
-    policies = ("    <policies>\n      <policy>{0}</policy>\n    </policies>\n".format(path)
-                if load_policy else "")
+    lines = ["      <policy>{0}</policy>\n".format(path)] if load_policy else []
+    lines += ['      <policy enabled="no">ruleset/sca/{0}.yml</policy>\n'.format(p)
+              for p in disabled]
+    policies = "    <policies>\n{0}    </policies>\n".format("".join(lines)) if lines else ""
     return ("<!-- managed by the CIS-CAT bridge: SCA policy {0} -->\n"
             "<agent_config>\n  <sca>\n    <enabled>yes</enabled>\n"
             "    <scan_on_start>yes</scan_on_start>\n    <interval>{1}</interval>\n"
@@ -820,8 +847,12 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
     # The combo groups load the policy, unless the OS group's agent.conf already does (an OS set up
     # by hand before the bridge), and always set the SCA interval: the results of a run are read
     # within the interval instead of at the next default scan (12 hours)
+    defaults = default_sca_policies(token, [aid for c in combos.values() for aid, _, _ in c["agents"]])
+    if defaults:
+        print("    Wazuh SCA policies switched off on these agents: {0}".format(", ".join(defaults)))
     sca_conf = sca_agent_conf(cfg, policy_file,
-                              load_policy=not policy_enabled(cfg["group"], policy_file))
+                              load_policy=not policy_enabled(cfg["group"], policy_file),
+                              disabled=defaults)
     for cid, b in built.items():
         g = combo_group(os_key, cid)
         if g not in existing:

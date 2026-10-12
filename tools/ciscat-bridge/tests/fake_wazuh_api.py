@@ -80,6 +80,9 @@ class FakeWazuh:
             aid = path.split("/")[2]
             policy = query.get("q", "").split("=", 1)[-1]
             scans = self.sca.get(aid, {})
+            if not policy:
+                items = [{"policy_id": p, "end_scan": e} for p, e in sorted(scans.items())]
+                return {"affected_items": items, "total_affected_items": len(items)}, False
             items = [{"policy_id": policy, "end_scan": scans[policy]}] if policy in scans else []
             return {"affected_items": items, "total_affected_items": len(items)}, False
         if method == "PUT" and path == "/active-response":
