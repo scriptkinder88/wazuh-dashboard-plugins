@@ -38,14 +38,32 @@ without a Level 1 or STIG profile. GPO benchmarks (Firefox ESR, VS Code) are Win
 
 ## How it works
 
-```
-dashboard (CIS-CAT tab) ──Wazuh API /lists/files──▶ etc/lists/ciscat-*  (CONTRACT.md)
-                                                         │
-master: cron */5 ciscat-scheduler.py ──▶ ciscat-fleet.py apply / trigger
-   ├─ os-<os> group:               custom XCCDF (OS + global exclusions), companions, scripts
-   └─ ciscat-<os>-<combo> groups:  the SCA policy for agents sharing the same agent/group exclusions
-agent: Active Response → Assessor → flatten file → SCA policy → results in Wazuh
-```
+![CIS-CAT bridge: who does what](docs/how-it-works.svg)
+
+| # | Who | What | Where |
+|---|-----|------|-------|
+| 1 | Operator | Chooses the benchmark of each OS, the exclusions (reason, ticket, owner), a schedule or "Run now" on agents, agent lists or groups | Dashboard, Configuration Assessment > CIS-CAT |
+| 2 | Dashboard (CIS-CAT page) | Saves the choices as Wazuh CDB lists through the Wazuh API ([CONTRACT.md](CONTRACT.md)) | `/var/ossec/etc/lists/ciscat-*` on the master |
+| 3 | Master: `ciscat-scheduler.py` (root cron, every 5 min) | Reads and validates the lists, starts apply and runs; waves of at most 200 agents, at most 5 "Run now" per tick | `/opt/ciscat/bin` |
+| 4 | Master: `ciscat-fleet.py apply` | Builds the tailored XCCDF (benchmark minus exclusions) and the SCA policy of each OS, writes them with a manifest (file, SHA-256, destination) to the agent groups | `/var/ossec/etc/shared/<group>` |
+| 5 | Master | Signs each manifest with its private key, which never leaves the master | `/opt/ciscat/etc` (root only) |
+| 6 | Wazuh agent | Synchronizes the files of its groups | `ossec-agent\shared`, `/var/ossec/etc/shared` |
+| 7 | Master: `ciscat-fleet.py trigger` | Sends the Active Response to the chosen agents through the Wazuh API (user `ciscat-bridge`, least privilege); a Windows benchmark never goes to a Linux agent and the other way round | Wazuh API |
+| 8 | Agent: launcher and bootstrap | Start in the background so the agent's Active Response is released at once | `ciscat-assessment.cmd` + `ciscat-bootstrap.ps1`, `ciscat-bootstrap.sh` |
+| 9 | Agent: bootstrap | Verifies the manifest signature with the master's public key, checks each file's SHA-256 in a protected staging folder, installs it | `C:\CIS`, `/opt/ciscat`, `/var/lib/wazuh-ciscat` |
+| 10 | Agent: CIS-CAT Pro Assessor | Runs the tailored benchmark; the bridge turns its report into the results file | `C:\CIS\Assessor`, `/opt/ciscat/Assessor` |
+| 11 | Agent: Wazuh SCA module | Reads the results file every hour and when the agent starts, and evaluates the SCA policy against it | `C:\CIS\results`, `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>` |
+| 12 | Wazuh manager | Stores the SCA results; the bridge records the job status and a daily coverage snapshot; rule 100952 alerts when CIS-CAT or its license is missing on an agent | Indexer, `ciscat-status`, `ciscat-history` |
+| 13 | Operator | Reads the SCA score per agent and benchmark, the job status and the coverage trend | Dashboard |
+
+Who installs what, once:
+
+| Where | What | Installed by |
+|-------|------|--------------|
+| Master | Bridge scripts, cron, rule, API user `ciscat-bridge`, signing key, plugin | `ciscat-master-setup.sh` |
+| Windows agent | `C:\CIS` (ACL, owner), CIS-CAT Pro in `C:\CIS\Assessor`, launcher and bootstrap, master public key | `install-windows-agent.ps1` |
+| Linux agent | `/opt/ciscat/Assessor` (root), bootstrap, master public key, SELinux labels | `install-linux-agent.sh` |
+| Every run | Benchmarks, OVAL/CPE, assessment and conversion scripts, settings | the master, through the signed manifest |
 
 - **Benchmark files:** the `os-<os>` group carries the custom XCCDF and, under their original
   names, the benchmark's OVAL and CPE files (`-oval.xml`, `-cpe-oval.xml`,
