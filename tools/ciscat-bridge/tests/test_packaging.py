@@ -22,7 +22,7 @@ class Packaging(unittest.TestCase):
         out = os.path.join(self.d, "out")
         r = subprocess.run([sys.executable, BUILD, "--plugin", "plugin.zip", "--plugin-sha256",
                             SHA, "--out", out] + list(extra), stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, text=True)
+                           stderr=subprocess.STDOUT, universal_newlines=True)
         return r, out
 
     def build(self, *extra):
