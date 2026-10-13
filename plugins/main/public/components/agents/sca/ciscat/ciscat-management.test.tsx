@@ -111,7 +111,7 @@ jest.mock('./lib/lists-api', () => {
     fetchRunAgents: () =>
       Promise.resolve([
         { id: '001', name: 'web-01', platform: 'rhel' },
-        { id: '003', name: 'play-cb-wxi001', platform: 'windows' },
+        { id: '003', name: 'win-01', platform: 'windows' },
       ]),
     fetchCurrentUserName: () => Promise.resolve('alice'),
   };
@@ -403,7 +403,7 @@ describe('CIS-CAT management tab', () => {
       expect(within(box).getByText('001 · web-01 (rhel)')).toBeTruthy();
     });
     expect(
-      within(box).getByText('003 · play-cb-wxi001 (windows)'),
+      within(box).getByText('003 · win-01 (windows)'),
     ).toBeTruthy();
     expect(screen.getByText('Unknown agents: nope')).toBeTruthy();
     fireEvent.click(screen.getByTestId('ciscat-save-job'));
