@@ -1,6 +1,7 @@
 """A wrong API password gives an actionable message, not a traceback."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ from fake_wazuh_api import FakeWazuh  # noqa: E402
 class FleetAuth(unittest.TestCase):
     def test_wrong_password_names_its_source(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         fake = FakeWazuh(os.path.join(d, "shared"), {})
         fake.reject_auth = True
         url = fake.serve()

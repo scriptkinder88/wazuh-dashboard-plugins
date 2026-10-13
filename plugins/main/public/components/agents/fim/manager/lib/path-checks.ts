@@ -11,7 +11,13 @@
  *   an sregex with type="sregex". An sregex only knows ^ (start), $ (end) and
  *   | (or): there is no wildcard, and every other character is literal.
  */
-import { FimRule, RuleKind } from './agent-conf';
+import {
+  FimRule,
+  RuleKind,
+  isExclusionKind,
+  isMonitorKind,
+  isRegistryKind,
+} from './agent-conf';
 import { RuleRow } from './plan';
 
 export interface HintFix {
@@ -25,7 +31,6 @@ export interface Hint {
   fixes?: HintFix[];
 }
 
-const EXCLUSIONS: RuleKind[] = ['ignore', 'nodiff', 'registry_ignore'];
 const WILDCARD = /[*?]/;
 const SENSITIVE = new RegExp(
   [
@@ -36,15 +41,9 @@ const SENSITIVE = new RegExp(
   'i',
 );
 
-export const isExclusion = (kind: RuleKind) => EXCLUSIONS.includes(kind);
-const isRegistry = (kind: RuleKind) => kind.includes('registry');
-
 /** The paths of a rule: monitor rules accept several, comma-separated. */
 export const rulePaths = (kind: RuleKind, path: string) =>
-  (kind === 'directories' || kind === 'windows_registry'
-    ? path.split(',')
-    : [path]
-  )
+  (isMonitorKind(kind) ? path.split(',') : [path])
     .map(p => p.trim())
     .filter(Boolean);
 
@@ -129,7 +128,7 @@ export const pathHints = (form: RuleForm): Hint[] => {
     return hints;
   }
 
-  if (isExclusion(form.kind) && paths.some(p => WILDCARD.test(p))) {
+  if (isExclusionKind(form.kind) && paths.some(p => WILDCARD.test(p))) {
     hints.push({
       id: 'wildcard-exclusion',
       message: form.sregex
@@ -165,8 +164,8 @@ export const pathHints = (form: RuleForm): Hint[] => {
     }
   }
 
-  if (!(isExclusion(form.kind) && form.sregex)) {
-    if (isRegistry(form.kind)) {
+  if (!(isExclusionKind(form.kind) && form.sregex)) {
+    if (isRegistryKind(form.kind)) {
       const bad = paths.filter(p => !/^HKEY_/i.test(p));
       if (bad.length) {
         hints.push({
@@ -211,7 +210,7 @@ export const pathHints = (form: RuleForm): Hint[] => {
   }
 
   if (
-    (form.kind === 'directories' || form.kind === 'windows_registry') &&
+    isMonitorKind(form.kind) &&
     form.reportChanges &&
     paths.some(p => SENSITIVE.test(p))
   ) {
@@ -246,7 +245,7 @@ export const overlapHints = (
 ): Hint[] => {
   const hints: Hint[] = [];
   const paths = rulePaths(rule.kind, rule.path).filter(p => !WILDCARD.test(p));
-  if (!paths.length || (isExclusion(rule.kind) && rule.sregex)) {
+  if (!paths.length || (isExclusionKind(rule.kind) && rule.sregex)) {
     return hints;
   }
   const seen = new Set<string>();
