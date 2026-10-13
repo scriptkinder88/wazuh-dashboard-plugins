@@ -218,6 +218,26 @@ class Packaging(unittest.TestCase):
             info = z.getinfo("master/ciscat-master-setup.sh")
         self.assertEqual((info.external_attr >> 16) & 0o777, 0o755)
 
+    def test_a_download_with_a_second_archive_inside_or_no_launcher(self):
+        inner = self.download("inner.zip", True)
+        outer = os.path.join(self.d, "CIS-CAT-Assessor-Windows-jre-v4.67.0.zip")
+        with zipfile.ZipFile(outer, "w") as z:
+            z.write(inner, "CIS-CAT Pro Assessor/Assessor-v4.67.0.zip")
+            z.writestr("CIS-CAT Pro Assessor/README.txt", "x")
+        out, names = self.build("--assessor-windows", outer)
+        self.assertIn("ciscat-agent-windows-2.3.1-assessor-4.67.0.zip", names)
+        with zipfile.ZipFile(os.path.join(out, names[names.index(
+                "ciscat-agent-windows-2.3.1-assessor-4.67.0.zip")])) as z:
+            self.assertIn("agent-windows/Assessor/Assessor-CLI.bat", z.namelist())
+        # no launcher at all: the error shows what the download holds
+        empty = os.path.join(self.d, "CIS-CAT-Assessor-Windows-jre-v4.68.0.zip")
+        with zipfile.ZipFile(empty, "w") as z:
+            z.writestr("Tool/Assessor-GUI.exe", "x")
+        r, out = self.run_build("--assessor-windows", empty)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("no Assessor-CLI.bat in " + empty, r.stdout)
+        self.assertIn("Tool/Assessor-GUI.exe", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

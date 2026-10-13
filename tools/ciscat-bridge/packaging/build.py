@@ -152,12 +152,40 @@ def unpack(archive, dest):
         sys.exit("not a folder, .zip or .tar.gz: " + archive)
 
 
-def assessor_root(folder, cli):
-    """The folder that holds the Assessor launcher (the archives wrap it in Assessor/)."""
-    found = sorted(root for root, dirs, files in os.walk(folder) if cli in files)
+ARCHIVE_RE = re.compile(r"\.(zip|tar\.gz|tgz)$", re.I)
+
+
+def find_launcher(folder, cli):
+    """Folders holding the launcher (any letter case), the shallowest first."""
+    found = [(root.count(os.sep), root, f) for root, dirs, files in os.walk(folder)
+             for f in files if f.lower() == cli.lower()]
+    return sorted(found)
+
+
+def assessor_root(folder, cli, source):
+    """The folder that holds the Assessor launcher. The downloads wrap it in a folder, or in a
+    second archive inside the first: those are unpacked too."""
+    found = find_launcher(folder, cli)
     if not found:
-        sys.exit("no {0} in {1}".format(cli, folder))
-    return found[0]
+        nested = sorted(os.path.join(r, f) for r, dirs, files in os.walk(folder)
+                        for f in files if ARCHIVE_RE.search(f))
+        for i, archive in enumerate(nested):
+            unpack(archive, os.path.join(folder, "_nested{0}".format(i)))
+        found = find_launcher(folder, cli)
+    if not found:
+        listing = []
+        for r, dirs, files in os.walk(folder):
+            dirs.sort()
+            rel = os.path.relpath(r, folder)
+            if rel.count(os.sep) > 2:
+                continue
+            listing += [os.path.join(rel, n).replace(os.sep, "/") for n in sorted(dirs + files)]
+        sys.exit("no {0} in {1}; it holds (first levels):\n  {2}".format(
+            cli, source, "\n  ".join(listing[:60]) or "nothing"))
+    depth, root, name = found[0]
+    if name != cli and not cli.endswith(".bat"):
+        sys.exit("{0}: the launcher is {1}, {2} expected".format(source, name, cli))
+    return root
 
 
 def copy_assessor(src, dest, windows, tmp):
@@ -166,11 +194,12 @@ def copy_assessor(src, dest, windows, tmp):
     out, relative to the Assessor."""
     if not os.path.exists(src):
         sys.exit("Assessor not found: " + src)
+    source = src
     if not os.path.isdir(src):
         folder = tempfile.mkdtemp(dir=tmp)
         unpack(src, folder)
         src = folder
-    root = assessor_root(src, "Assessor-CLI.bat" if windows else "Assessor-CLI.sh")
+    root = assessor_root(src, "Assessor-CLI.bat" if windows else "Assessor-CLI.sh", source)
     # exact names from the folder listing: Cygwin finds java.exe when asked for java
     bindir = os.path.join(root, "jre", "bin")
     names = set(os.listdir(bindir)) if os.path.isdir(bindir) else set()
