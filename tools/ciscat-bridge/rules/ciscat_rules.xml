@@ -1,6 +1,7 @@
 <!--
   CIS-CAT bridge (tools/ciscat-bridge): alerts raised from the agent scripts
-  ciscat-refresh.sh (Linux) and ciscat-assessment.ps1 (Windows), which log to
+  ciscat-refresh.sh, ciscat-bootstrap.sh (Linux), ciscat-assessment.ps1 and
+  ciscat-bootstrap.ps1 (Windows), which log to
   the active-responses.log every Wazuh agent monitors by default.
   In the "sca" group so they also show in Configuration Assessment > Events.
 -->
@@ -9,5 +10,15 @@
     <match>CIS-CAT Pro not found on </match>
     <description>CIS-CAT Pro or its license not found on the agent: CIS-CAT assessment stopped and previous results withdrawn from SCA</description>
     <group>ciscat_not_installed,</group>
+  </rule>
+  <rule id="100951" level="10">
+    <match>ciscat-bootstrap: REFUSED</match>
+    <description>CIS-CAT bridge: the agent refused a file or a manifest from the master (signature, checksum or destination not valid)</description>
+    <group>ciscat_integrity,</group>
+  </rule>
+  <rule id="100952" level="12">
+    <match>differs from the kept one</match>
+    <description>CIS-CAT bridge: the public key in the agent's groups differs from the master key the agent keeps (ignored)</description>
+    <group>ciscat_integrity,</group>
   </rule>
 </group>

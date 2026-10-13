@@ -1,6 +1,8 @@
 """ciscat-fleet.py apply and trigger against the fake Wazuh API, with a small synthetic benchmark:
 the combo groups it owns, the apply lock, missing benchmark files, API tokens and credentials."""
 import base64
+import csv
+import io
 import fcntl
 import hashlib
 import json
@@ -180,6 +182,23 @@ class FleetApply(unittest.TestCase):
         self.fleet("apply")
         with open(conf_path) as f:
             self.assertNotIn('enabled="no"', f.read())
+
+    def test_exclusion_register_is_exported_as_csv(self):
+        recs = {}
+        for rule, scope, value in (("1.1.2", "os", "rhel7"), ("1.1.10", "host", "web-01")):
+            rec = store.validate_exclusion({"os_key": "rhel7", "scope": scope, "scope_value": value,
+                                            "level": "L1", "rule": rule, "reason": "app needs it",
+                                            "ticket": "CHG-1", "owner": "unix team",
+                                            "updated_by": "alice",
+                                            "updated_at": "2026-10-01T10:00:00+02:00"})
+            recs[store.exclusion_key(rec)] = rec
+        store.write_list(store.EXCLUSIONS, recs, self.paths["lists_dir"])
+        rows = list(csv.reader(io.StringIO(self.fleet("exclusions"))))
+        self.assertEqual(rows[0][:3], ["os_key", "scope", "scope_value"])
+        self.assertEqual(rows[0][-2:], ["updated_by", "updated_at"])
+        self.assertEqual([r[5] for r in rows[1:]], ["1.1.10", "1.1.2"])  # host before os
+        self.assertEqual(rows[1][6:], ["app needs it", "CHG-1", "unix team", "alice",
+                                       "2026-10-01T10:00:00+02:00"])
 
     def test_license_of_the_master_goes_to_the_agents(self):
         self.companions()

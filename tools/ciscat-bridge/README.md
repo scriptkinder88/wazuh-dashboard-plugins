@@ -49,6 +49,16 @@ Database Engine role. Benchmarks without `Level 1 - <role>` profiles are handled
 managed Kubernetes, cloud and SaaS services, ESXi), macOS (not handled by the bridge) and those
 without a Level 1 or STIG profile. GPO benchmarks (Firefox ESR, VS Code) are Windows ones.
 
+## Documentation
+
+- [`docs/overview.md`](docs/overview.md): what the bridge does and who does what, without the
+  technical detail.
+- [`docs/operations.md`](docs/operations.md): installation, routine checks, updates, common
+  problems.
+- [`docs/compliance.md`](docs/compliance.md): SWIFT CSCF controls it supports, evidence for SWIFT,
+  ISO 27001, FINMA and other audits.
+- [`packaging/README.md`](packaging/README.md): release packages and Ansible rollout.
+
 ## How it works
 
 ![CIS-CAT bridge: who does what](docs/how-it-works.svg)
@@ -66,7 +76,7 @@ without a Level 1 or STIG profile. GPO benchmarks (Firefox ESR, VS Code) are Win
 | 9   | Agent: bootstrap                                       | Verifies the manifest signature with the master's public key, checks each file's SHA-256 in a protected staging folder, installs it                                                   | `C:\CIS`, `/opt/ciscat`, `/var/lib/wazuh-ciscat`                        |
 | 10  | Agent: CIS-CAT Pro Assessor                            | Runs the tailored benchmark; the bridge turns its report into the results file                                                                                                        | `C:\CIS\Assessor`, `/opt/ciscat/Assessor`                               |
 | 11  | Agent: Wazuh SCA module                                | Reads the results file every hour and when the agent starts, and evaluates the SCA policy against it                                                                                  | `C:\CIS\results`, `/var/lib/wazuh-ciscat/reports-cache/<os>/<profile>`  |
-| 12  | Wazuh manager                                          | Stores the SCA results; the bridge records the job status and a daily coverage snapshot; rule 100952 alerts when CIS-CAT or its license is missing on an agent                        | Indexer, `ciscat-status`, `ciscat-history`                              |
+| 12  | Wazuh manager                                          | Stores the SCA results; the bridge records the job status and a daily coverage snapshot; rule 100950 alerts when CIS-CAT or its license is missing on an agent, 100951 and 100952 when an agent refuses a file or a key from the master                        | Indexer, `ciscat-status`, `ciscat-history`                              |
 | 13  | Operator                                               | Reads the SCA score per agent and benchmark, the job status and the coverage trend                                                                                                    | Dashboard                                                               |
 
 Who installs what, once:
@@ -161,6 +171,7 @@ ciscat-fleet.py trigger --targets rhel7,windows_server_2025 --wave-size 50 --wav
 ciscat-fleet.py trigger --agents 003,017          # chosen agents
 ciscat-fleet.py trigger --groups web-prod,os-rhel7  # agents of OS or custom groups
 ciscat-fleet.py assign [--apply]                    # agents into the group of their OS benchmark
+ciscat-fleet.py exclusions > exclusions.csv          # exclusion register (audit evidence)
 ciscat-scheduler.py            # what cron runs every 5 minutes
 ```
 

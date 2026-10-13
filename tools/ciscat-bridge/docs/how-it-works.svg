@@ -77,7 +77,7 @@
   <text class="t" x="390" y="783" font-weight="600">Wazuh manager stores the results</text>
   <text class="s" x="390" y="802">SCA checks per agent (indexer), job status</text>
   <text class="s" x="390" y="818">in ciscat-status, daily coverage snapshot,</text>
-  <text class="s" x="390" y="834">rule 100952 for an agent without CIS-CAT</text>
+  <text class="s" x="390" y="834">rule 100950 for an agent without CIS-CAT</text>
   <text class="s" x="390" y="850">or license</text>
 
   <!-- agent lane -->

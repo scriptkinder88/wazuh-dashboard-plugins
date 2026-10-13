@@ -23,6 +23,7 @@ Actions:
   baseline  groups owned by infrastructure code (Terraform): create them, write their agent.conf,
             add the listed agents (--file baseline.json)
   report    SCA scores per agent
+  exclusions  the exclusion register as CSV (audit evidence), with who changed each and when
 """
 import argparse
 import base64
@@ -558,7 +559,7 @@ def load_exclusions():
         raw, errors = store.read_list(store.EXCLUSIONS, PATHS["lists_dir"])
         valid, verrors = store.validate_exclusions(raw)
         for e in errors + verrors:
-            print("  [REJECTED exclusion] {0}".format(e))
+            print("  [REJECTED exclusion] {0}".format(e), file=sys.stderr)
         return valid, "list", errors + verrors
     records, errors = {}, []
     for os_key in OS_LIBRARY:
@@ -569,6 +570,22 @@ def load_exclusions():
             records.update(recs)
             errors += ["{0}: {1}".format(os.path.basename(p), e) for e in errs]
     return records, "csv", errors
+
+
+EXCLUSION_FIELDS = ("os_key", "scope", "scope_value", "level", "role", "rule", "reason", "ticket",
+                    "owner", "updated_by", "updated_at")
+
+
+def act_exclusions():
+    """The exclusion register, every OS, as CSV on stdout."""
+    exclusions, _, errors = load_exclusions()
+    out = csv.writer(sys.stdout, lineterminator="\n")
+    out.writerow(EXCLUSION_FIELDS)
+    for r in sorted(exclusions.values(), key=lambda r: (
+            r["os_key"], r["scope"], r["scope_value"].lower(),
+            [int(p) for p in r["rule"].split(".")])):
+        out.writerow([r.get(f, "") for f in EXCLUSION_FIELDS])
+    return 1 if errors else 0
 
 
 def write_exclusions_csv(exclusions, os_key):
@@ -1293,7 +1310,7 @@ def act_trigger(targets=None, wave_size=store.DEFAULT_WAVE_SIZE,
     result["finished_at"] = now_iso()
     if job:
         update_status("job-" + job, result)
-    print("\nAssessments run with splay (up to 30 min) on Linux; Windows runs immediately.")
+    print("\nThe assessments start on the agents now; the waves spread the load.")
     return 0 if result["state"] == "ok" else 1
 
 
@@ -1585,7 +1602,7 @@ def load_api_credentials(args):
 def main():
     ap = argparse.ArgumentParser(description="CIS-CAT / Wazuh SCA fleet orchestrator")
     ap.add_argument("action", choices=["sync", "plan", "apply", "trigger", "history", "baseline",
-                                       "assign", "key", "report", "version"])
+                                       "assign", "key", "report", "exclusions", "version"])
     ap.add_argument("--password", help="deprecated, visible in ps: use the password file")
     ap.add_argument("--password-file", help="file with the API password (default: api_pass_file "
                     "in " + ORCH_CONF + ")")
@@ -1647,6 +1664,8 @@ def main():
             sys.exit("trigger: {0}".format(e))
         return act_trigger(scope["targets"], args.wave_size, args.wave_pause, args.job,
                            agents=scope["agents"], groups=scope["groups"])
+    if args.action == "exclusions":
+        return act_exclusions()
     if args.action == "assign":
         return act_assign(args.apply or args.auto, auto=args.auto)
     if args.action == "baseline":
