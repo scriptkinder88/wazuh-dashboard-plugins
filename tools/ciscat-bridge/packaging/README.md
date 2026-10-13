@@ -31,9 +31,10 @@ python3 build.py --plugin <plugin zip name> --plugin-sha256 <sha256> --out /srv/
 
 - The version comes from the file name; otherwise give `--assessor-version X.Y.Z` (both) or
   `--assessor-version-windows` / `--assessor-version-linux`.
-- The `license`, `benchmarks`, `reports` and `logs` folders are left out: the master sends the
-  license and the benchmarks. `assessor-left-out-<platform>.txt` lists what was left out (names
-  only), as the record that no licensed content went into the package.
+- The whole Assessor goes in, every folder and file, as in the download, except the files of
+  its `license` and `benchmarks` folders (the folders stay, empty): the master sends the license
+  and the benchmarks. `assessor-left-out-<platform>.txt` lists the files left out (names only),
+  as the record that no license or benchmark went into the package.
 - The build stops if a license or benchmark file is still found anywhere in a package (read back
   from the package itself), if an Assessor is not for its platform (`jre/bin/java.exe` on
   Windows, `jre/bin/java` on Linux), or if an archive holds an absolute or `..` path or a link.

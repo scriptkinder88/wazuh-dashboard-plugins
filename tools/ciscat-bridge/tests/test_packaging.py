@@ -36,8 +36,9 @@ class Packaging(unittest.TestCase):
                  "config/assessor-cli.properties", "license/license.xml",
                  "benchmarks/CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v4.0.0-xccdf.xml",
                  "benchmarks/CIS_Microsoft_Windows_Server_2025_Benchmark_v1.0.0-xccdf.xml",
+                 "benchmarks/oval/CIS_Microsoft_Windows_Server_2025_Benchmark_v1.0.0-oval.xml",
                  "jre/bin/java.exe" if windows else "jre/bin/java", "jre/legal/LICENSE",
-                 "reports/old.html"] + list(extra)
+                 "reports/old.html", "logs/"] + list(extra)
         if not windows:
             files.append("jre/lib/jspawnhelper")
         path = os.path.join(self.d, name)
@@ -46,7 +47,9 @@ class Packaging(unittest.TestCase):
                 info = zipfile.ZipInfo((wrap + "/" if wrap else "") + f)
                 # made on Windows: no unix mode, no exec bit
                 info.external_attr = (0o100755 << 16) if modes else 0
-                z.writestr(info, "x")
+                if f.endswith("/"):  # an empty folder
+                    info.external_attr = (0o040755 << 16) | 0x10
+                z.writestr(info, "" if f.endswith("/") else "x")
         return path
 
     def test_light_packages(self):
@@ -62,7 +65,7 @@ class Packaging(unittest.TestCase):
         self.assertIn(b"\r\n", ps1)
         self.assertNotIn(b"Assessor/", b"".join(n.encode() for n in z.namelist()))
 
-    def test_full_packages_leave_the_license_out(self):
+    def test_full_packages_leave_only_the_license_and_benchmarks_out(self):
         for os_name, cli, java in (("win", "Assessor-CLI.bat", "jre/bin/java.exe"),
                                    ("lin", "Assessor-CLI.sh", "jre/bin/java")):
             for sub in ("license", "benchmarks", "reports", "jre/bin"):
@@ -78,12 +81,18 @@ class Packaging(unittest.TestCase):
             members = t.getnames()
         self.assertIn("agent-linux/Assessor/Assessor-CLI.sh", members)
         self.assertIn("agent-linux/ASSESSOR_VERSION", members)
-        self.assertFalse([m for m in members if "/license" in m or "/reports" in m
-                          or "/benchmarks" in m])
+        self.assertIn("agent-linux/Assessor/reports/r.csv", members)
+        self.assertIn("agent-linux/Assessor/license", members)
+        self.assertIn("agent-linux/Assessor/benchmarks", members)
+        self.assertFalse([m for m in members if "/benchmarks/" in m or "/license/" in m])
         with zipfile.ZipFile(os.path.join(out, "ciscat-agent-windows-2.3.1-assessor-4.62.0.zip")) as z:
             members = z.namelist()
         self.assertIn("agent-windows/Assessor/Assessor-CLI.bat", members)
-        self.assertFalse([m for m in members if "/license" in m or "/reports" in m])
+        self.assertIn("agent-windows/Assessor/reports/r.csv", members)
+        self.assertIn("agent-windows/Assessor/license/", members)
+        self.assertIn("agent-windows/Assessor/benchmarks/", members)
+        self.assertFalse([m for m in members if not m.endswith("/") and (
+            "/benchmarks/" in m or "/license/" in m)])
 
     def test_full_packages_from_the_cis_downloads(self):
         win = self.download("CIS-CAT-Assessor-windows-v4.64.0.zip", True)
@@ -97,21 +106,31 @@ class Packaging(unittest.TestCase):
         self.assertEqual(version, b"4.64.0\n")
         for f in ("Assessor-CLI.sh", "jre/bin/java", "jre/lib/jspawnhelper"):
             self.assertEqual(members["agent-linux/Assessor/" + f].mode & 0o777, 0o755, f)
-        self.assertIn("agent-linux/Assessor/jre/legal/LICENSE", members)
-        self.assertIn("agent-linux/Assessor/config/assessor-cli.properties", members)
-        for m in members:
-            self.assertNotRegex(m, r"/Assessor/(license|benchmarks|reports)(/|$)|CIS_")
+        for f in ("jre/legal/LICENSE", "config/assessor-cli.properties", "reports/old.html",
+                  "lib/assessor.jar", "license", "benchmarks", "benchmarks/oval", "logs"):
+            self.assertIn("agent-linux/Assessor/" + f, members)
+        for m, info in members.items():
+            if info.isfile():
+                self.assertNotRegex(m, r"/Assessor/(license|benchmarks)/|CIS_|license\.xml|oval")
         with zipfile.ZipFile(os.path.join(out, "ciscat-agent-windows-2.3.1-assessor-4.64.0.zip")) as z:
             members = z.namelist()
             sums = z.read("agent-windows/SHA256SUMS").decode()
+        # the folders stay, empty: license, benchmarks and its subfolders, logs
+        for d in ("license/", "benchmarks/", "benchmarks/oval/", "logs/"):
+            self.assertIn("agent-windows/Assessor/" + d, members)
         self.assertIn("agent-windows/Assessor/jre/bin/java.exe", members)
-        self.assertFalse([m for m in members if "/license/" in m or "CIS_" in m])
+        self.assertIn("agent-windows/Assessor/reports/old.html", members)
+        self.assertIn("agent-windows/Assessor/jre/legal/LICENSE", members)
+        self.assertFalse([m for m in members if not m.endswith("/") and (
+            "/benchmarks/" in m or "/license/" in m or "CIS_" in m or "oval" in m)])
         self.assertIn("Assessor/lib/assessor.jar", sums)
         with open(os.path.join(out, "assessor-left-out-linux.txt")) as f:
             left = f.read().split()
-        self.assertIn("license/license.xml", left)
-        self.assertIn("reports/old.html", left)
-        self.assertEqual(len([n for n in left if n.startswith("benchmarks/")]), 2)
+        self.assertEqual(sorted(left), [
+            "benchmarks/CIS_Microsoft_Windows_Server_2025_Benchmark_v1.0.0-xccdf.xml",
+            "benchmarks/CIS_Red_Hat_Enterprise_Linux_7_Benchmark_v4.0.0-xccdf.xml",
+            "benchmarks/oval/CIS_Microsoft_Windows_Server_2025_Benchmark_v1.0.0-oval.xml",
+            "license/license.xml"])
         self.assertFalse(os.path.exists(os.path.join(out, "tmp")))
 
     def test_versions_per_platform_and_tar_downloads(self):
@@ -130,17 +149,27 @@ class Packaging(unittest.TestCase):
         self.assertIn("ciscat-agent-windows-2.3.1-assessor-4.63.0.zip", names)
         self.assertIn("ciscat-agent-linux-2.3.1-assessor-4.65.1.tar.gz", names)
 
-    def test_a_licensed_file_left_elsewhere_stops_the_build(self):
+    def test_a_license_or_benchmark_left_elsewhere_stops_the_build(self):
         lin = self.download("CIS-CAT-Assessor-linux-v4.64.0.zip", False,
                             extra=["misc/CIS_Ubuntu_Linux_24.04_LTS_Benchmark_v1.0.0.xml"])
         r, out = self.run_build("--assessor-linux", lin)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("licensed CIS file(s)", r.stdout)
+        self.assertIn("license or benchmark file(s)", r.stdout)
         self.assertIn("misc/CIS_Ubuntu", r.stdout)
         lin = self.download("CIS-CAT-Assessor-linux-v4.64.1.zip", False,
                             extra=["config/license.xml"])
         r, out = self.run_build("--assessor-linux", lin)
+        self.assertNotEqual(r.returncode, 0)
         self.assertIn("config/license.xml", r.stdout)
+        for name in ("misc/windows-oval.xml", "misc/oval.xml"):
+            lin = self.download("CIS-CAT-Assessor-linux-v4.64.2.zip", False, extra=[name])
+            r, out = self.run_build("--assessor-linux", lin)
+            self.assertNotEqual(r.returncode, 0, name)
+            self.assertIn(name, r.stdout)
+        lin = self.download("CIS-CAT-Assessor-linux-v4.64.3.zip", False,
+                            extra=["config/removal.xml"])
+        r, out = self.run_build("--assessor-linux", lin)
+        self.assertEqual(r.returncode, 0, r.stdout)
 
     def test_the_wrong_platform_or_an_unsafe_archive_is_refused(self):
         win = self.download("CIS-CAT-Assessor-windows-v4.64.0.zip", True,

@@ -718,11 +718,20 @@ def publish_windows(os_key, cfg, art, exc_csv):
     # OVAL and CPE companions under their original names: the XCCDF checks reference them by href,
     # and the agent's CIS-CAT may not ship this benchmark (a newer version, a STIG)
     pfx = cfg["benchmark"][:-len("-xccdf.xml")]
+    try:
+        with open(art["custom"], encoding="utf-8", errors="replace") as f:
+            xccdf = f.read()
+    except OSError:
+        xccdf = ""
     for suf in ("-oval.xml", "-cpe-oval.xml", "-cpe-dictionary.xml"):
         src = os.path.join(PATHS["benchmarks_dir"], pfx + suf)
         if os.path.isfile(src):
             copy_for_windows(src, os.path.join(gdir, pfx + suf))
             entries.append((pfx + suf, WINDOWS_BENCH + pfx + suf))
+        elif pfx + suf in xccdf:
+            # the agents' Assessor has no benchmarks folder of its own: only the master sends them
+            print("    WARNING: the benchmark refers to {0}, not in {1}: copy it there".format(
+                pfx + suf, PATHS["benchmarks_dir"]))
     missing = []
     for script in WINDOWS_SCRIPTS:
         src = os.path.join(PATHS["agent_dir"], script)
@@ -747,7 +756,7 @@ def publish_windows(os_key, cfg, art, exc_csv):
         tailoring, len(entries) - 3 - (len(WINDOWS_SCRIPTS) - len(missing)),
         len(WINDOWS_SCRIPTS) - len(missing)))
     own_dir(gdir)
-    # a Windows benchmark may come without OVAL/CPE files (the agent's CIS-CAT bundle has them)
+    # a Windows benchmark may come without OVAL/CPE files (then it does not refer to them)
     return missing, [name for name, _ in entries] + [manifest, signature, pubkey] + (
         [LICENSE_NAME] if lic else [])
 
