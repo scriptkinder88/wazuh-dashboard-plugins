@@ -443,6 +443,25 @@ class FleetApply(unittest.TestCase):
         self.assertNotIn("aks-custom-xccdf.xml", files)
         self.assertIn("aks-custom-xccdf.xml", os.listdir(aks_dir))
 
+    def test_a_windows_benchmark_without_its_oval_on_the_master_is_reported(self):
+        """The agents' Assessor has no benchmarks of its own: the OVAL must come from the master."""
+        with open(os.path.join(self.paths["benchmarks_dir"], PREFIX + "-xccdf.xml"), "w") as f:
+            f.write(BENCH.replace('<check system="oval"/>', (
+                '<xccdf:check system="http://oval.mitre.org/XMLSchema/oval-definitions-5">'
+                '<xccdf:check-content-ref href="{0}-oval.xml" name="oval:1"/></xccdf:check>'
+            ).format(PREFIX)))
+        win = entry(family="windows", group="os-rhel7", base="win-custom", policy_id="cis_win_l1",
+                    group_source="dashboard", flat_path="C:\\r\\win.ciscat-flat")
+        self.library({"win": win})
+        out = self.fleet("apply", rc=None)
+        self.assertIn("WARNING: the benchmark refers to {0}-oval.xml".format(PREFIX), out)
+        self.assertNotIn("{0}-cpe-dictionary.xml, not in".format(PREFIX), out)
+        self.companions()
+        out = self.fleet("apply", rc=None)
+        self.assertNotIn("WARNING: the benchmark refers to", out)
+        with open(os.path.join(self.paths["shared_dir"], "os-rhel7", "ciscat-manifest-win.csv")) as f:
+            self.assertIn("C:\\CIS\\Assessor\\benchmarks\\{0}-oval.xml".format(PREFIX), f.read())
+
     def test_trigger_without_assessment_command_fails_cleanly(self):
         lib = entry()
         del lib["ar_refresh"]

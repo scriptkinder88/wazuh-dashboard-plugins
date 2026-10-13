@@ -7,9 +7,10 @@
 
 With --assessor-windows / --assessor-linux (the CIS-CAT Pro Assessor as downloaded from CIS,
 a .zip or .tar.gz, or its unpacked folder) the agent packages also carry the Assessor, installed
-or updated by the agent installer. Its license, benchmarks, reports and logs are left out (the
-master sends the license and the benchmarks), and the build stops if a license or benchmark file
-is still found anywhere in a package. The version is read from the archive name (e.g.
+or updated by the agent installer. The whole Assessor goes in, every folder and file, except the
+files of its license and benchmarks folders (the master sends both); the build stops if a
+license or benchmark file is still found anywhere in a package. The version is read from the
+archive name (e.g.
 CIS-CAT-Assessor-linux-v4.64.0.zip) unless given. The packages contain licensed CIS software:
 keep them in the internal release store, never in a repository.
 
@@ -35,13 +36,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.dirname(HERE)
 AGENT = os.path.join(BRIDGE, "agent", "active-response")
 WAZUH = "4.14.7"
-# folders of the Assessor that never go into a package: the license and the benchmarks come
-# from the master, reports and logs are local to each host
-SKIP_DIRS = {"license", "benchmarks", "reports", "logs"}
-# licensed CIS files that must not be anywhere else in a package
+# folders of the Assessor whose files never go into a package (the folders stay, empty): the
+# master sends the license and the benchmarks
+MASTER_DIRS = {"license", "benchmarks"}
+# license and benchmark files, which must not be anywhere in a package
+# (benchmarks: the XCCDF files and their OVAL and CPE files)
 LICENSED_RE = re.compile(
-    r"^(license|benchmarks)/|(^|/)license\.xml$|\.lic$|(^|/)CIS_[^/]*\.(xml|zip)$|"
-    r"-(xccdf|oval|cpe-dictionary|cpe-oval)\.xml$", re.I)
+    r"^(license|benchmarks)/.|(^|/)license\.xml$|\.lic$|(^|/)CIS_[^/]*\.(xml|zip)$|"
+    r"-(xccdf|oval|cpe-dictionary|cpe-oval)\.xml$|(^|/|[-_.])oval([-_.][^/]*)?\.xml$", re.I)
 # File modes in the packages come from the build, not from the disk: on Windows (Cygwin,
 # MobaXterm, Git Bash) the disk does not keep them. Paths not listed get 0644 there.
 MODES = {}
@@ -159,8 +161,9 @@ def assessor_root(folder, cli):
 
 
 def copy_assessor(src, dest, windows, tmp):
-    """The Assessor of src (archive or folder) into dest, without the SKIP_DIRS folders.
-    Returns the paths left out, relative to the Assessor."""
+    """The whole Assessor of src (archive or folder) into dest but the files of its license and
+    benchmarks folders (those folders and their subfolders stay, empty). Returns the paths left
+    out, relative to the Assessor."""
     if not os.path.exists(src):
         sys.exit("Assessor not found: " + src)
     if not os.path.isdir(src):
@@ -177,14 +180,21 @@ def copy_assessor(src, dest, windows, tmp):
             src, " and ".join(sorted(names & {"java", "java.exe"})) or "no java",
             "Windows" if windows else "Linux"))
     left_out = []
-    for name in sorted(os.listdir(root)):
-        if name.lower() in SKIP_DIRS and os.path.isdir(os.path.join(root, name)):
-            for r, dirs, files in os.walk(os.path.join(root, name)):
-                left_out += [os.path.relpath(os.path.join(r, f), root) for f in sorted(files)]
+    bench = [n for n in os.listdir(root)
+             if n.lower() in MASTER_DIRS and os.path.isdir(os.path.join(root, n))]
+    for name in bench:
+        for r, dirs, files in os.walk(os.path.join(root, name)):
+            dirs.sort()
+            left_out += [os.path.relpath(os.path.join(r, f), root) for f in sorted(files)]
+
+    master_dirs = [os.path.abspath(os.path.join(root, n)) for n in bench]
 
     def ignore(folder, names):
-        return [n for n in names if os.path.abspath(folder) == os.path.abspath(root)
-                and n.lower() in SKIP_DIRS]
+        # in the license and benchmarks folders: the files go, every folder stays
+        folder = os.path.abspath(folder)
+        if any(folder == d or folder.startswith(d + os.sep) for d in master_dirs):
+            return [n for n in names if not os.path.isdir(os.path.join(folder, n))]
+        return []
     shutil.copytree(root, dest, ignore=ignore, symlinks=False)
     # modes of the source (archive or disk); on Linux the launcher, the scripts and the JRE are
     # executable whatever the source says (archives made on Windows carry no exec bits)
@@ -205,8 +215,8 @@ def licensed(where, names):
     """Stops the build when a license or benchmark file is among names."""
     bad = [n for n in names if LICENSED_RE.search(n.replace("\\", "/"))]
     if bad:
-        sys.exit("licensed CIS file(s) in {0}, remove them and build again:\n  {1}".format(
-            where, "\n  ".join(bad[:20])))
+        sys.exit("license or benchmark file(s) in {0} (the master sends them), remove them and "
+                 "build again:\n  {1}".format(where, "\n  ".join(bad[:20])))
 
 
 def assessor_version(given, src):
@@ -238,6 +248,10 @@ def zip_folder(folder, out):
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for p, name, is_dir in walk(folder):
             if is_dir:
+                # every folder has its entry, so empty ones (license, benchmarks) stay
+                info = zipfile.ZipInfo(name + "/", (2026, 1, 1, 0, 0, 0))
+                info.external_attr = (0o040755 << 16) | 0x10
+                zf.writestr(info, b"")
                 continue
             info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
             info.external_attr = (0o100000 | mode_of(p)) << 16
@@ -353,10 +367,10 @@ def main():
         # what was packed, read back from the package itself
         if path.endswith(".zip"):
             with zipfile.ZipFile(path) as zf:
-                names = zf.namelist()
+                names = [n for n in zf.namelist() if not n.endswith("/")]
         else:
             with tarfile.open(path) as tf:
-                names = tf.getnames()
+                names = [m.name for m in tf.getmembers() if m.isfile()]
         licensed(os.path.basename(path), [n.split("/Assessor/", 1)[1] for n in names
                                           if "/Assessor/" in n])
         lines.append("{0}  {1}".format(sha(path), os.path.basename(path)))
@@ -369,7 +383,7 @@ def main():
               "".join(f.replace("\\", "/") + "\n" for f in files))
     print("\n".join(lines))
     for platform, files in sorted(removed.items()):
-        print("{0} Assessor: {1} file(s) left out (license, benchmarks, reports, logs): "
+        print("{0} Assessor: {1} license and benchmark file(s) left out: "
               "assessor-left-out-{0}.txt".format(platform, len(files)))
     if removed:
         print("contains CIS-CAT Pro (licensed): internal release store only")
