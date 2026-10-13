@@ -127,7 +127,8 @@ def signature_ok(manifest, pub):
         t.write(sig)
         t.flush()
         r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", pub, "-signature", t.name,
-                            manifest], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                            manifest], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True)
     return "valid" if r.returncode == 0 else "not valid: " + r.stdout.strip()[:120]
 
 
