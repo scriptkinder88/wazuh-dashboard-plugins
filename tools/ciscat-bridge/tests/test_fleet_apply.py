@@ -176,6 +176,11 @@ class FleetApply(unittest.TestCase):
         self.assertIn("<policy>etc/shared/cis_rhel7_tailored_l1_server.yml</policy>", conf)
         self.assertNotIn("site_custom", conf)
         self.assertEqual(conf.count("<policies>"), 1)
+        # switched off, the policy is no longer reported: it stays off at the next apply
+        self.fake.sca = {}
+        self.fleet("apply")
+        with open(conf_path) as f:
+            self.assertIn("ruleset/sca/cis_rhel7_linux.yml", f.read())
         # keep_default_sca=yes keeps them
         with open(os.path.join(self.etc, "ciscat-orchestrator.conf"), "a") as f:
             f.write("keep_default_sca=yes\n")
@@ -187,7 +192,9 @@ class FleetApply(unittest.TestCase):
         recs = {}
         for rule, scope, value in (("1.1.2", "os", "rhel7"), ("1.1.10", "host", "web-01")):
             rec = store.validate_exclusion({"os_key": "rhel7", "scope": scope, "scope_value": value,
-                                            "level": "L1", "rule": rule, "reason": "app needs it",
+                                            "level": "L1", "rule": rule,
+                                            "reason": "=HYPERLINK(1)" if rule == "1.1.2" else
+                                            "app needs it",
                                             "ticket": "CHG-1", "owner": "unix team",
                                             "updated_by": "alice",
                                             "updated_at": "2026-10-01T10:00:00+02:00"})
@@ -199,6 +206,8 @@ class FleetApply(unittest.TestCase):
         self.assertEqual([r[5] for r in rows[1:]], ["1.1.10", "1.1.2"])  # host before os
         self.assertEqual(rows[1][6:], ["app needs it", "CHG-1", "unix team", "alice",
                                        "2026-10-01T10:00:00+02:00"])
+        # never a formula when the CSV is opened in a spreadsheet
+        self.assertEqual(rows[2][6], "'=HYPERLINK(1)")
 
     def test_license_of_the_master_goes_to_the_agents(self):
         self.companions()

@@ -126,17 +126,16 @@ describe('CIS-CAT exclusion register report', () => {
     );
   });
 
-  it('returns an empty register when the list does not exist yet', async () => {
+  it('fails rather than reporting no exclusions when the list is not visible', async () => {
     const request = jest
       .fn()
       .mockResolvedValue({ data: { data: { affected_items: [] } } });
     const context = {
       wazuh: { api: { client: { asCurrentUser: { request } } } },
     };
-    expect(await fetchExclusionRegister(context, 'api1')).toEqual({
-      exclusions: [],
-      rejected: 0,
-    });
+    await expect(fetchExclusionRegister(context, 'api1')).rejects.toThrow(
+      'lists:read',
+    );
     expect(request).toHaveBeenCalledTimes(1);
   });
 });

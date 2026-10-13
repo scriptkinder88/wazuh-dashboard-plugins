@@ -88,9 +88,14 @@ time it receives it and from then on only accepts packages signed with that key.
 - Show the key and its fingerprint: `ciscat-fleet.py key`.
 - Never copy `manifest-signing.key` anywhere. It is not part of backups exported with
   `ciscat-export-config.sh`.
-- Pinning at install (optional, stronger): put `ciscat-manifest.pub` next to the Linux installer
-  or `ciscat-manifest.pub.xml` next to the Windows one, or set `ciscat_pin_pubkey: true` in
-  Ansible.
+- **Recommended: pin the key at install.** With Ansible, set `ciscat_master_host` (the master,
+  as a host of the inventory): the playbook reads the key on the master and installs it with
+  each agent, nothing to copy by hand. By hand: put `ciscat-manifest.pub` next to the Linux
+  installer or `ciscat-manifest.pub.xml` next to the Windows one.
+- Without pinning, an agent keeps the first key it finds in its group files. Those files can be
+  written by the `wazuh` user on the master (and on a Linux agent), so whoever controls that
+  user before an agent's first run could give it another key. Alert 100953 records each first
+  use with the key's sha256: compare it with the master's (`ciscat-fleet.py key`).
 - Changing the key: generate a new one on the master (move the old key files away and run
   `ciscat-fleet.py key`), then reinstall the agents with the new public key, or delete the key
   they keep (`/var/lib/wazuh-ciscat/ciscat-manifest.pub`, `C:\CIS\ciscat-manifest.pub.xml`).
@@ -107,6 +112,8 @@ time it receives it and from then on only accepts packages signed with that key.
    - **100950**: CIS-CAT Pro or its licence missing on an agent.
    - **100951**: an agent refused a file from the master (signature, checksum or destination).
    - **100952**: an agent received a public key different from the one it keeps.
+   - **100953**: an agent kept the master key it received (first run without pinning): check
+     the sha256 in the alert against the master's.
      100951 and 100952 must never appear in normal operation: treat them as security events.
 
 **Monthly**: `ciscat-fleet.py report` (scores per agent) and a review of the exclusions

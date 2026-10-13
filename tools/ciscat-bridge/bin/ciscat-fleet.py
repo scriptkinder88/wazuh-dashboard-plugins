@@ -584,7 +584,9 @@ def act_exclusions():
     for r in sorted(exclusions.values(), key=lambda r: (
             r["os_key"], r["scope"], r["scope_value"].lower(),
             [int(p) for p in r["rule"].split(".")])):
-        out.writerow([r.get(f, "") for f in EXCLUSION_FIELDS])
+        # a text starting with = + - @ would run as a formula in a spreadsheet
+        out.writerow(["'" + v if v[:1] in ("=", "+", "-", "@") else v
+                      for v in (str(r.get(f, "")) for f in EXCLUSION_FIELDS)])
     return 1 if errors else 0
 
 
@@ -772,12 +774,23 @@ if not re.match(r"^[1-9][0-9]{0,4}[smhdw]$", SCA_INTERVAL):
 DEFAULT_SCA_RE = re.compile(r"^(cis|sca)_[a-z0-9_]{1,80}$")
 
 
-def default_sca_policies(token, agent_ids):
-    """Ids of the Wazuh SCA policies a few agents of an OS run, the bridge's own aside."""
+DISABLED_SCA_RE = re.compile(r'<policy enabled="no">ruleset/sca/([a-z0-9_]{1,84})\.yml</policy>')
+
+
+def default_sca_policies(token, agent_ids, groups=()):
+    """Ids of the Wazuh SCA policies to switch off on the agents of an OS: those a few of its
+    agents report, plus those already switched off in its combo groups (a switched-off policy
+    is no longer reported, and must stay off at the next apply)."""
     if read_conf().get("keep_default_sca", "").lower() in ("yes", "true", "1"):
         return []
     ours = {c.get("policy_id") for c in OS_LIBRARY.values()}
     found = set()
+    for g in groups:
+        try:
+            with open(os.path.join(PATHS["shared_dir"], g, "agent.conf"), encoding="utf-8") as f:
+                found.update(p for p in DISABLED_SCA_RE.findall(f.read()) if p not in ours)
+        except OSError:
+            pass
     for aid in agent_ids[:5]:
         try:
             items = api_json("GET", "/sca/{0}?select=policy_id&limit=100".format(aid), token)
@@ -864,7 +877,8 @@ def apply_os(os_key, cfg, exclusions, token, apply_):
     # The combo groups load the policy, unless the OS group's agent.conf already does (an OS set up
     # by hand before the bridge), and always set the SCA interval: the results of a run are read
     # within the interval instead of at the next default scan (12 hours)
-    defaults = default_sca_policies(token, [aid for c in combos.values() for aid, _, _ in c["agents"]])
+    defaults = default_sca_policies(token, [aid for c in combos.values() for aid, _, _ in c["agents"]],
+                                    [combo_group(os_key, cid) for cid in combos])
     if defaults:
         print("    Wazuh SCA policies switched off on these agents: {0}".format(", ".join(defaults)))
     sca_conf = sca_agent_conf(cfg, policy_file,
@@ -1352,7 +1366,7 @@ def assign_plan(token):
     os_groups = {}  # group -> base OS products of the library entries applied to it
     for key, cfg in OS_LIBRARY.items():
         product = assign.os_product(cfg)
-        if product and cfg.get("active"):
+        if product:
             os_groups.setdefault(cfg["group"], set()).add(product)
     adds, notes, ok, unmatched = [], [], 0, {}
     for a in sorted(agents, key=lambda x: x["id"]):

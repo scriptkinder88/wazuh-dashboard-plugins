@@ -77,8 +77,12 @@ export const fetchExclusionRegister = async (
   const exists = (files?.data?.data?.affected_items || []).some(
     (item: { filename?: string }) => item.filename === name,
   );
+  // The bridge installer creates the list: when it is not visible, the user
+  // may not read it, and an empty register would be false evidence.
   if (!exists) {
-    return { exclusions: [], rejected: 0 };
+    throw new Error(
+      `${name} cannot be read: check that your Wazuh API role allows lists:read on it`,
+    );
   }
   const content = await api.request(
     'GET',

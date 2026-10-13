@@ -46,9 +46,11 @@ Points to settle with the assessor and to record in the architecture documentati
   (hardening, privileged access, logging, its own patching);
 - that the manager's signing key and root access are governed like other privileged credentials
   of the secure zone;
-- for a stricter setup: install the master's public key on secure-zone agents at installation
-  time (`--pubkey`, `-PublicKey`, or `ciscat_pin_pubkey: true` in Ansible) instead of letting them
-  receive it with the group files.
+- that secure-zone agents get the master's public key pinned at installation (Ansible with
+  `ciscat_master_host`, or `--pubkey` / `-PublicKey`). Without pinning, an agent keeps the first
+  key found in its group files, which the `wazuh` user of the master can write: an attacker
+  holding that account before an agent's first run could have it accept their key. Alert 100953
+  records every key kept this way, with its sha256.
 
 ## 3. CSCF v2026 controls the bridge supports
 

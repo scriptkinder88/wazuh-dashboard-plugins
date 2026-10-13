@@ -1,4 +1,16 @@
 ---
+- name: Master public keys, read on the master
+  ansible.builtin.slurp:
+    src: '/opt/ciscat/etc/{{ item }}'
+  loop:
+    - ciscat-manifest.pub
+    - ciscat-manifest.pub.xml
+  delegate_to: '{{ ciscat_master_host }}'
+  become: true
+  run_once: true
+  register: ciscat_master_keys
+  when: ciscat_master_host | length > 0
+
 - name: Linux agent
   ansible.builtin.include_tasks: linux.yml
   when: ansible_os_family != "Windows"

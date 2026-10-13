@@ -101,6 +101,7 @@ function Get-TextSha($text) {
 $sharedKey = Join-Path $SharedDir "ciscat-manifest.pub.xml"
 $sharedItem = Get-Item -LiteralPath $sharedKey -Force -ErrorAction SilentlyContinue
 if ($sharedItem -and -not ($sharedItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+  try {
     $received = Get-KeyText $sharedKey
     if (-not (Test-Path -LiteralPath $PublicKey)) {
         try {
@@ -114,9 +115,13 @@ if ($sharedItem -and -not ($sharedItem.Attributes -band [System.IO.FileAttribute
         } catch {
             Log "WARNING: $sharedKey not kept: $($_.Exception.Message)"
         }
-    } elseif ($received -ne (Get-KeyText $PublicKey)) {
+    } elseif ($received -cne (Get-KeyText $PublicKey)) {
         Log "WARNING: the group's public key (key sha256 $(Get-TextSha $received)) differs from the kept one (key sha256 $(Get-TextSha (Get-KeyText $PublicKey))): ignored"
     }
+  } catch {
+    # the agent may be rewriting the group files: the kept key, if any, still applies
+    Log "WARNING: cannot read the public key in the group files now: $($_.Exception.Message)"
+  }
 }
 if (-not (Test-Path -LiteralPath $PublicKey)) {
     Log "ERROR: public key $PublicKey not found and none received from the master yet"
