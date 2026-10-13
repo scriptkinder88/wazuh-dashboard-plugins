@@ -227,6 +227,12 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
 
 ## Changes
 
+- **2.3.1:** full agent packages built from the CIS-CAT Pro downloads as they are (zip or
+  tar.gz): license, benchmarks, reports and logs left out, the build stops if a license or
+  benchmark file is left in a package, and records what it left out. An Assessor update keeps the
+  benchmarks sent by the master as well as the license. The Ansible role can download the
+  packages from a Red Hat Satellite file repository (SHA-256 checked), and no longer fails
+  without `ciscat_master_host` on recent Ansible versions.
 - **2.3.0:** runs on chosen agents, lists of agents and OS or custom groups, from the dashboard
   and `trigger --agents/--groups`; the job status gives the reason for each agent not reached.
   A benchmark only goes to agents of its platform (Windows, or Linux and other Unix-like), for

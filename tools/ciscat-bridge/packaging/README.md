@@ -17,9 +17,60 @@ python3 build.py --plugin <dashboard plugin zip name> --plugin-sha256 <sha256> [
 ```
 
 The agent installers embed the launcher and bootstrap scripts of this tree, with their SHA-256.
-With `--assessor-windows <folder> --assessor-linux <folder> --assessor-version X.Y.Z` the agent
-packages also carry CIS-CAT Pro Assessor (its `license`, `reports` and `logs` folders are left
-out). Those packages contain licensed CIS software: keep them in the internal release store.
+
+### Full agent packages (with CIS-CAT Pro Assessor)
+
+Give the Assessor downloads from the CIS WorkBench as they are (the `.zip`, or a `.tar.gz`, or
+an unpacked folder):
+
+```sh
+python3 build.py --plugin <plugin zip name> --plugin-sha256 <sha256> --out /srv/ciscat-release \
+    --assessor-windows CIS-CAT-Assessor-windows-v4.64.0.zip \
+    --assessor-linux   CIS-CAT-Assessor-linux-v4.64.0.zip
+```
+
+- The version comes from the file name; otherwise give `--assessor-version X.Y.Z` (both) or
+  `--assessor-version-windows` / `--assessor-version-linux`.
+- The `license`, `benchmarks`, `reports` and `logs` folders are left out: the master sends the
+  license and the benchmarks. `assessor-left-out-<platform>.txt` lists what was left out (names
+  only), as the record that no licensed content went into the package.
+- The build stops if a license or benchmark file is still found anywhere in a package (read back
+  from the package itself), if an Assessor is not for its platform (`jre/bin/java.exe` on
+  Windows, `jre/bin/java` on Linux), or if an archive holds an absolute or `..` path or a link.
+- On Linux the launcher, `jre/bin/*` and `jre/lib/jspawnhelper` are made executable (archives
+  made on Windows carry no exec bits).
+- Output: `ciscat-agent-windows-<v>-assessor-<a>.zip`, `ciscat-agent-linux-<v>-assessor-<a>.tar.gz`
+  and `SHA256SUMS`.
+
+The full packages contain licensed CIS software (CIS-CAT Pro Assessor): keep them in the
+internal release store (Satellite, below), never in a repository. Build them on an internal
+host: the Assessor downloads never leave the internal network.
+
+### Distribution through Red Hat Satellite
+
+1. In Satellite, a product (e.g. `CIS-CAT bridge`) with a repository of type **file**, upload
+   protection on, no upstream URL.
+2. Upload the agent packages and `SHA256SUMS`:
+   `hammer repository upload-content --product "CIS-CAT bridge" --name agent-packages --organization <org> --path <file>`.
+3. Add the repository to a content view, publish and promote it to the lifecycle environments of
+   the agents.
+4. Roll out with the Ansible role (Satellite remote execution, or Ansible against the inventory),
+   the agents downloading from Satellite:
+
+   ```sh
+   ansible-playbook -i inventory.ini ansible/ciscat-agents.yml \
+     -e ciscat_package_url=https://<satellite>/pulp/content/<org>/<environment>/<content view>/custom/<product>/<repo> \
+     -e ciscat_package_linux=ciscat-agent-linux-<v>-assessor-<a>.tar.gz \
+     -e ciscat_package_sha256_linux=<sha256 from SHA256SUMS> \
+     -e ciscat_package_windows=ciscat-agent-windows-<v>-assessor-<a>.zip \
+     -e ciscat_package_sha256_windows=<sha256 from SHA256SUMS>
+   ```
+
+   A package whose SHA-256 differs is not installed. RHEL hosts registered to Satellite trust
+   its CA; Windows hosts need the Satellite CA in their trusted roots (or copy the package from
+   the controller: leave `ciscat_package_url` empty and set `ciscat_release_dir`).
+
+The master package does not carry the Assessor: install it on the master by hand.
 
 Release attachments: the three packages, `SHA256SUMS`, and the dashboard plugin zip of the same
 commit.

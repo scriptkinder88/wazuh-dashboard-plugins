@@ -19,8 +19,8 @@ The installer warns when the folder can be changed by non-administrators.
    (CIS-CAT Pro elsewhere on the host: add -CopyAssessorFrom "<folder of Assessor-CLI.bat>")
    - C:\CIS owned by Administrators, writable only by SYSTEM and Administrators;
    - CIS-CAT Pro in C:\CIS\Assessor: installed or updated from the package when it carries the
-     Assessor (ASSESSOR_VERSION), keeping the license; a new version that does not start is
-     rolled back;
+     Assessor (ASSESSOR_VERSION), keeping the license and the benchmarks; a new version that
+     does not start is rolled back;
    - exit.on.invalid.signature=false (the tailored benchmark is unsigned);
    - ciscat-assessment.cmd and ciscat-bootstrap.ps1 in ossec-agent\active-response\bin;
    - files of earlier versions moved to C:\CIS\backup-<date>.

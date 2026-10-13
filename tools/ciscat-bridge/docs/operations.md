@@ -130,13 +130,13 @@ tail -50 /opt/ciscat/log/ciscat-scheduler.log
 
 ## 5. Updates
 
-| What changes                | What to do                                                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Bridge (new release)        | Run the master setup of the new package; agents get the new scripts by themselves                                            |
-| Launcher or bootstrap       | Roll out the new agent package (by hand or Ansible)                                                                          |
-| CIS benchmark (new version) | Copy the file to `/opt/ciscat/benchmarks`; it shows up in the dashboard within the hour                                      |
-| CIS-CAT Pro Assessor        | Roll out the full agent package (with `ASSESSOR_VERSION`); the licence is kept, a version that does not start is rolled back |
-| Licence renewal             | Replace `/opt/ciscat/license/license.xml`, run `ciscat-fleet.py apply`                                                       |
+| What changes                | What to do                                                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bridge (new release)        | Run the master setup of the new package; agents get the new scripts by themselves                                                                                                                            |
+| Launcher or bootstrap       | Roll out the new agent package (by hand or Ansible)                                                                                                                                                          |
+| CIS benchmark (new version) | Copy the file to `/opt/ciscat/benchmarks`; it shows up in the dashboard within the hour                                                                                                                      |
+| CIS-CAT Pro Assessor        | Build the full agent packages from the CIS downloads, load them into Satellite, roll them out (`packaging/README.md`); the licence and the benchmarks are kept, a version that does not start is rolled back |
+| Licence renewal             | Replace `/opt/ciscat/license/license.xml`, run `ciscat-fleet.py apply`                                                                                                                                       |
 
 Every master installation makes a backup in `/opt/ciscat/backup`. To go back:
 `sh ciscat-bridge-install-<version>.sh --rollback /opt/ciscat/backup/ciscat-bridge-<date>.tgz`.
