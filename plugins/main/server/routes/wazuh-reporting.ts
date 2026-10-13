@@ -12,6 +12,7 @@
 import { WazuhReportingCtrl } from '../controllers';
 import { IRouter } from 'opensearch_dashboards/server';
 import { schema } from '@osd/config-schema';
+import { SCA_REPORT_MAX_AGENTS } from '../../common/sca/report-limits';
 
 export function WazuhReportingRoutes(router: IRouter) {
   const ctrl = new WazuhReportingCtrl();
@@ -73,7 +74,10 @@ export function WazuhReportingRoutes(router: IRouter) {
           agents: schema.maybe(
             schema.oneOf([
               agentIDValidation,
-              schema.arrayOf(agentIDValidation),
+              schema.arrayOf(agentIDValidation, {
+                minSize: 1,
+                maxSize: SCA_REPORT_MAX_AGENTS,
+              }),
               schema.boolean(),
             ]),
           ),
@@ -106,6 +110,20 @@ export function WazuhReportingRoutes(router: IRouter) {
     },
     (context, request, response) =>
       ctrl.createReportsModules(context, request, response),
+  );
+
+  router.post(
+    {
+      path: '/reports/ciscat/exclusions',
+      validate: {
+        body: schema.object({
+          browserTimezone: schema.string({ maxLength: 64 }),
+          apiId: schema.string({ maxLength: 256 }),
+        }),
+      },
+    },
+    (context, request, response) =>
+      ctrl.createReportCiscatExclusions(context, request, response),
   );
 
   router.post(

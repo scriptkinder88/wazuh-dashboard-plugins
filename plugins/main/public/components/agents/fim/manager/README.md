@@ -22,7 +22,8 @@ Everything else in the file is kept byte for byte: other modules, syscheck setti
   `<agent_config os="...">`. Rules imported from a block with another filter keep that filter.
 - **Audit:** each rule written here is preceded by `<!-- wz-fim <base64 JSON> -->`, which holds its
   reason, ticket, owner, author and date. Rules that were already in the groups are shown as
-  imported.
+  imported. These fields are informational: the dashboard writes them, and anyone who can edit
+  `agent.conf` can change them. They are not an audit trail; the Wazuh server API logs are.
 
 ## Checks while writing a rule
 
@@ -48,7 +49,8 @@ Terraform` are written by the Terraform module of the CIS-CAT bridge
   next `terraform apply`.
 
 **Test the path** shows, for up to 5 agents of the chosen groups and servers, how many entries of
-their FIM inventory are under the path and when their last scan ended.
+their FIM inventory are under the path and when their last scan ended. At most 500 inventory
+entries are read per agent; a count followed by `+` means there can be more.
 
 ## Applying a change
 
@@ -57,9 +59,14 @@ their FIM inventory are under the path and when their last scan ended.
    options. The group assigned last wins.
 2. **Concurrent changes:** before writing, the tab reads the file again. If it changed since the
    preview (for example from the XML editor of Server management), the write is refused.
-3. **History:** the previous version of each group is saved in the `fim-history` CDB list (the last
-   10 per group). The History tab can view and restore it.
-4. **Validation:** the manager validates the file (`PUT /groups/{id}/configuration`). The agents
+3. **History:** the previous version of each group is saved in the `fim-history` CDB list: the last
+   10 per group, at most 300 versions and 4 MiB in all, the oldest dropped first. The History tab
+   can view and restore them. A restore replaces the whole `agent.conf` and asks to check the diff
+   first: the list can be edited by anyone with `lists:update`, and the user and note saved with
+   each version are informational.
+4. **Failures:** groups are written one at a time; when a step fails, the following groups are not
+   touched, and the preview lists what was done for each group.
+5. **Validation:** the manager validates the file (`PUT /groups/{id}/configuration`). The agents
    apply it within a few minutes, and the Agents tab shows when each one is synchronized.
 
 The Agents tab also shows the syscheck configuration an agent is running. Paths that no group
@@ -68,6 +75,8 @@ defines come from the agent's local `ossec.conf`. They cannot be removed central
 
 ## Permissions
 
-The dashboard user needs these Wazuh RBAC actions: `group:read`, `group:create`,
+The tab is shown to users with `group:read`, `agent:read` and `lists:read`; the buttons that change
+rules need `group:update_config` and `lists:update`. To use every feature, the dashboard user needs
+these Wazuh RBAC actions: `group:read`, `group:create`,
 `group:update_config`, `group:delete`, `agent:read`, `agent:modify_group`, `lists:read` and
 `lists:update`.
