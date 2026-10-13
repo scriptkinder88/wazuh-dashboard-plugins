@@ -177,6 +177,11 @@ class Packaging(unittest.TestCase):
         r, out = self.run_build("--assessor-linux", win)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("not the Linux Assessor", r.stdout)
+        # the Linux download given as the Windows one
+        lin = self.download("CIS-CAT-Assessor-Linux-jre-v4.67.0.zip", False)
+        r, out = self.run_build("--assessor-windows", lin)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("it is the Linux Assessor, give it as --assessor-linux", r.stdout)
         # both JREs in one folder (or a shell that finds java.exe when asked for java)
         both = self.download("CIS-CAT-Assessor-linux-v4.64.2.zip", False,
                              extra=["jre/bin/java.exe"])

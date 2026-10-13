@@ -166,6 +166,11 @@ def assessor_root(folder, cli, source):
     """The folder that holds the Assessor launcher. The downloads wrap it in a folder, or in a
     second archive inside the first: those are unpacked too."""
     found = find_launcher(folder, cli)
+    other = "Assessor-CLI.sh" if cli.endswith(".bat") else "Assessor-CLI.bat"
+    if not found and find_launcher(folder, other):
+        sys.exit("{0} holds {1} but no {2}: it is the {3} Assessor, give it as --assessor-{4}".format(
+            source, other, cli, *(("Linux", "linux") if cli.endswith(".bat") else
+                                  ("Windows", "windows"))))
     if not found:
         nested = sorted(os.path.join(r, f) for r, dirs, files in os.walk(folder)
                         for f in files if ARCHIVE_RE.search(f))
