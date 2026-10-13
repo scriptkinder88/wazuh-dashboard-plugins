@@ -1,12 +1,13 @@
-/**
- * @jest-environment node
- */
+import { TextDecoder, TextEncoder } from 'util';
 import { renderList } from '../../../common/encoded-list';
 import {
   addExclusionRegisterToReport,
   fetchExclusionRegister,
   parseExclusionRegister,
 } from './ciscat-exclusions-report';
+
+// jsdom (the test environment) lacks TextEncoder, which every browser and Node have
+Object.assign(globalThis, { TextEncoder, TextDecoder });
 
 const exclusion = (rule: string, extra: Record<string, string> = {}) => ({
   v: 1,
