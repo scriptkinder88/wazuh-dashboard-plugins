@@ -227,13 +227,16 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
 
 ## Changes
 
-- **2.3.1:** full agent packages built from the CIS-CAT Pro downloads as they are (zip or
-  tar.gz): the whole Assessor but the files of its license and benchmarks folders (the master
-  sends both), the build stops if a license or benchmark file is left in a package and records
-  what it left out; same packages when built on Windows (Cygwin). An Assessor update keeps the
-  license and the benchmarks sent by the master. The Ansible role can download the
-  packages from a Red Hat Satellite file repository (SHA-256 checked), and no longer fails
-  without `ciscat_master_host` on recent Ansible versions.
+- **2.3.1:** final agent packages built from the CIS-CAT Pro downloads as they are (zip or
+  tar.gz): a tar.gz unpacked in `/` (Linux and Unix-like) and a zip unpacked in `C:\`, with no
+  installer to run, holding the whole Assessor but the files of its license and benchmarks
+  folders (the master sends both), the bootstrap and the list of the Assessor's files. At its
+  first run with a new package the bootstrap checks the Assessor against that list (a file that
+  differs stops the assessments), moves aside the files of an earlier Assessor and sets its
+  rights; on Windows it keeps `C:\CIS` writable only by SYSTEM and Administrators. The build
+  stops if a license or benchmark file is left in a package and gives the same packages when
+  run on Windows (Cygwin). The Ansible role unpacks the final packages and can download them
+  from a Red Hat Satellite file repository (SHA-256 checked).
 - **2.3.0:** runs on chosen agents, lists of agents and OS or custom groups, from the dashboard
   and `trigger --agents/--groups`; the job status gives the reason for each agent not reached.
   A benchmark only goes to agents of its platform (Windows, or Linux and other Unix-like), for

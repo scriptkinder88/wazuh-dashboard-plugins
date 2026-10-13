@@ -3,7 +3,8 @@
 # controller: the agent packages (and master/agent-keys/ciscat-manifest.pub{,.xml} when pinned)
 ciscat_version: '2.3.1'
 ciscat_release_dir: '{{ playbook_dir }}/release'
-# package file names (the full packages carry the Assessor: -assessor-<version>)
+# package file names. A final package (with the Assessor: -assessor-<version>) is unpacked as
+# it is in / or C:\ (no installer); the others are unpacked and their installer run.
 ciscat_package_linux: 'ciscat-agent-linux-{{ ciscat_version }}.tar.gz'
 ciscat_package_windows: 'ciscat-agent-windows-{{ ciscat_version }}.zip'
 # Download the packages on each agent from this URL (e.g. a Red Hat Satellite file repository:

@@ -17,6 +17,13 @@
      C:\CIS\run (parameters and tailoring). Nothing of a manifest that does not verify is used.
   4. Run C:\CIS\bin\ciscat-assessment.ps1 on the parameters in C:\CIS\run.
 
+  A final agent package (unpacked in C:\) lays down C:\CIS\Assessor and, next to this script, the
+  list of the Assessor's files (ciscat-assessor.sha256). Every run C:\CIS is made writable by
+  SYSTEM and Administrators only (a folder unpacked in C:\ inherits the rights of C:\, where
+  users may change files); at the first run with a new list the Assessor is checked against it:
+  a file that differs stops the run, files that are not in the list (left by an earlier Assessor
+  version) are moved aside. The license, benchmarks, reports, logs and settings are not checked.
+
   Logs go to ossec-agent\active-response\active-responses.log.
 #>
 param(
@@ -65,13 +72,61 @@ if ($Detach) {
     }
 }
 
-Log "=== start (running as $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)) ==="
+$who = try { [System.Security.Principal.WindowsIdentity]::GetCurrent().Name } catch { "$env:USERDOMAIN\$env:USERNAME" }
+Log "=== start (running as $who) ==="
 $lock = New-Object System.Threading.Mutex($false, "Global\ciscat-assessment")
 $owned = $false
 try { $owned = $lock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 if (-not $owned) {
     Log "ERROR: another CIS-CAT assessment is running on this agent; this run is skipped"
     exit 1
+}
+
+# C:\CIS: owned by Administrators, writable only by SYSTEM and Administrators, read by Users
+if (Test-Path -LiteralPath $Root) {
+    & icacls.exe $Root /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /C /Q | Out-Null
+}
+
+# the Assessor of a final agent package, checked once per package against the list of its files
+$assessorList = Join-Path $PSScriptRoot "ciscat-assessor.sha256"
+$assessorChecked = Join-Path $Root "assessor-checked"
+if (Test-Path -LiteralPath $assessorList) {
+    $listSha = (Get-FileHash -LiteralPath $assessorList -Algorithm SHA256).Hash
+    $done = if (Test-Path -LiteralPath $assessorChecked) { (Get-Content -LiteralPath $assessorChecked -Raw).Trim() } else { "" }
+    if ($done -ne $listSha) {
+        Remove-Item -LiteralPath $assessorChecked -Force -ErrorAction SilentlyContinue
+        $assessorDir = Join-Path $Root "Assessor"
+        if (-not (Test-Path -LiteralPath $assessorDir)) { Log "ERROR: $assessorDir not found: unpack the agent package"; exit 3 }
+        & icacls.exe $Root /setowner "*S-1-5-32-544" /T /C /Q | Out-Null
+        $want = @{}
+        foreach ($line in Get-Content -LiteralPath $assessorList) {
+            if ($line -match '^([0-9a-fA-F]{64})  (.+)$') { $want[$Matches[2]] = $Matches[1].ToUpper() }
+        }
+        $bad = @()
+        foreach ($rel in $want.Keys) {
+            $p = Join-Path $assessorDir $rel
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash -ne $want[$rel]) { $bad += $rel }
+        }
+        if ($bad) {
+            $bad | Select-Object -First 20 | ForEach-Object { Log "REFUSED (Assessor file differs from the package): $_" }
+            Log "ERROR: the Assessor in $assessorDir is not the one of the agent package ($($bad.Count) file(s)): assessment not run"
+            exit 3
+        }
+        $backupDir = Join-Path $Root ("backup-assessor-" + (Get-Date -Format "yyyyMMddHHmmss"))
+        $moved = 0
+        foreach ($f in @(Get-ChildItem -LiteralPath $assessorDir -Recurse -File -Force)) {
+            $rel = $f.FullName.Substring($assessorDir.Length + 1).Replace('\', '/')
+            if ($rel -match '^(license|benchmarks|reports|logs|config)/' -or $rel -match '^\.bridge-' -or $want.ContainsKey($rel)) { continue }
+            $to = Join-Path $backupDir $rel
+            New-Item -ItemType Directory -Force -Path (Split-Path $to) | Out-Null
+            Move-Item -LiteralPath $f.FullName -Destination $to -Force
+            $moved++
+        }
+        if ($moved) { Log "moved $moved file(s) of an earlier Assessor to $backupDir" }
+        Set-Content -LiteralPath $assessorChecked -Value $listSha -Encoding ASCII
+        Log "Assessor checked against the agent package: $($want.Count) file(s) OK"
+    }
 }
 
 # the only places a manifest may install to (no "..", no other folder)
@@ -88,7 +143,11 @@ function Allowed($dest) {
     return $false
 }
 
-if (-not $PublicKey) { $PublicKey = Join-Path $Root "ciscat-manifest.pub.xml" }
+if (-not $PublicKey) {
+    # pinned by a final agent package next to this script, else kept in C:\CIS
+    $pinned = Join-Path $PSScriptRoot "ciscat-manifest.pub.xml"
+    $PublicKey = if (Test-Path -LiteralPath $pinned) { $pinned } else { Join-Path $Root "ciscat-manifest.pub.xml" }
+}
 # The master's public key comes with the group files. Without a key of its own (installed with
 # -PublicKey) the agent keeps the first valid one it receives (trust on first use); from then on
 # only the kept key counts, and a different key in the group is ignored. New master key: reinstall

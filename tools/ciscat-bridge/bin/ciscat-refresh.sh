@@ -107,6 +107,14 @@ if [ ! -x "${CISCAT_PATH}/Assessor-CLI.sh" ]; then
     fail "CIS-CAT Pro not found on $(hostname): ${CISCAT_PATH}/Assessor-CLI.sh is missing. Assessment stopped; previous results withdrawn from SCA."
 fi
 
+# An Assessor laid down by a final agent package runs only once ciscat-bootstrap.sh has checked
+# it against the list of its files (ciscat-assessor.sha256 in active-response/bin).
+ASSESSOR_LIST="${CISCAT_AR_BIN:-$(dirname "$0")}/ciscat-assessor.sha256"
+if [ -f "$ASSESSOR_LIST" ] && [ "$(cat "${DATA_DIR}/assessor-checked" 2>/dev/null)" != \
+        "$(sha256sum "$ASSESSOR_LIST" | awk '{print $1}')" ]; then
+    fail "the Assessor in ${CISCAT_PATH} is not checked against the agent package yet (ciscat-bootstrap.sh checks it; see its log). Assessment stopped."
+fi
+
 # CIS-CAT Pro needs its license: the file named by ciscat.license.filepath in its settings, else a
 # file in its license folder. Without it the Assessor would fail on every benchmark.
 license_ok() {

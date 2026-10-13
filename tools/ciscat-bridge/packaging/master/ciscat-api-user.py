@@ -83,6 +83,9 @@ def call(method, path, token=None, body=None, basic=None):
             data = r.read().decode()
     except urllib.error.HTTPError as e:
         raise SystemExit("STOP: API {0} {1}: {2} {3}".format(method, path, e.code, e.read().decode()[:300]))
+    except (urllib.error.URLError, OSError) as e:
+        raise SystemExit("STOP: the Wazuh API at {0} cannot be reached ({1}): is wazuh-manager "
+                         "running?".format(API, getattr(e, "reason", e)))
     if path.startswith("/security/user/authenticate"):
         return data.strip()
     out = json.loads(data)

@@ -70,6 +70,57 @@ dest_allowed() {
 
 log "invoked (bootstrap start)"
 
+mkdir -p "$DATA_ROOT" 2>/dev/null
+chmod 700 "$DATA_ROOT" 2>/dev/null
+
+# A final agent package lays down the Assessor with the list of its files (ciscat-assessor.sha256,
+# next to this script). At the first run with a new list the Assessor is checked against it:
+# a file that differs stops the assessments (ciscat-refresh.sh runs only an Assessor checked
+# here), files that are not in the list (left by an earlier Assessor version) are moved aside,
+# and the Assessor is made root's only. The license, benchmarks, reports, logs and settings are
+# written on the agent and not checked.
+ASSESSOR_DIR="${CISCAT_PATH:-/opt/ciscat/Assessor}"
+ASSESSOR_LIST="${CISCAT_AR_BIN:-/var/ossec/active-response/bin}/ciscat-assessor.sha256"
+ASSESSOR_CHECKED="${DATA_ROOT}/assessor-checked"
+check_assessor() {
+    [ -f "$ASSESSOR_LIST" ] || return 0
+    list_sha=$(sha256sum "$ASSESSOR_LIST" | awk '{print $1}')
+    [ "$(cat "$ASSESSOR_CHECKED" 2>/dev/null)" = "$list_sha" ] && return 0
+    rm -f "$ASSESSOR_CHECKED"
+    [ -d "$ASSESSOR_DIR" ] || fail "${ASSESSOR_DIR} not found: unpack the agent package"
+    chown -R root:root "$ASSESSOR_DIR" 2>/dev/null
+    chmod 700 "$ASSESSOR_DIR"
+    work="${DATA_ROOT}/assessor-check.$$"
+    mkdir -m 700 "$work" || fail "cannot create ${work}"
+    grep -v '^#' "$ASSESSOR_LIST" | tr -d '\r' > "${work}/list"
+    ( cd "$ASSESSOR_DIR" && sha256sum -c "${work}/list" 2>/dev/null ) | \
+        grep -v ': OK$' | sed 's/: [A-Z].*$//' > "${work}/bad"
+    if [ -s "${work}/bad" ]; then
+        head -20 "${work}/bad" | while IFS= read -r f; do
+            log "REFUSED (Assessor file differs from the package): ${f}"
+        done
+        nbad=$(wc -l < "${work}/bad" | tr -d ' ')
+        rm -rf "$work"
+        fail "the Assessor in ${ASSESSOR_DIR} is not the one of the agent package (${nbad} file(s)): assessments stopped"
+    fi
+    sed 's/^[0-9a-fA-F]*  //' "${work}/list" | sort > "${work}/want"
+    ( cd "$ASSESSOR_DIR" && find . -type f | sed 's#^\./##' ) | \
+        grep -Ev '^(license|benchmarks|reports|logs|config)/|^\.bridge-' | sort > "${work}/have"
+    moved=0
+    backup="${DATA_ROOT}/backup-assessor-$(date +%Y%m%d%H%M%S)"
+    comm -23 "${work}/have" "${work}/want" > "${work}/extra"
+    while IFS= read -r f; do
+        mkdir -p "${backup}/$(dirname "$f")" && mv -f "${ASSESSOR_DIR}/${f}" "${backup}/${f}" && \
+            moved=$((moved + 1))
+    done < "${work}/extra"
+    [ "$moved" -gt 0 ] && log "moved ${moved} file(s) of an earlier Assessor to ${backup}"
+    echo "$list_sha" > "$ASSESSOR_CHECKED"
+    chmod 600 "$ASSESSOR_CHECKED"
+    log "Assessor checked against the agent package: $(wc -l < "${work}/want") file(s) OK"
+    rm -rf "$work"
+}
+check_assessor
+
 # The agent unpacks the files of its groups into the shared folder itself (writable by the
 # wazuh user): everything is copied to a root-only staging folder first, and checked there.
 MANIFESTS=""
@@ -79,8 +130,6 @@ done
 [ -n "$MANIFESTS" ] || fail "no ciscat-manifest-*.csv in ${AGENT_SHARED} (group sync pending?)"
 command -v openssl >/dev/null 2>&1 || fail "openssl not found: manifests cannot be verified"
 
-mkdir -p "$DATA_ROOT" 2>/dev/null
-chmod 700 "$DATA_ROOT" 2>/dev/null
 
 # The master's public key comes with the group files. Without a key of its own (installed with
 # --pubkey) the agent keeps the first valid one it receives (trust on first use); from then on

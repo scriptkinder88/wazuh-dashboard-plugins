@@ -82,8 +82,10 @@ function Pre {
     $acl = (Get-Acl -LiteralPath $Root -ErrorAction SilentlyContinue).Access | Where-Object {
         $_.AccessControlType -eq "Allow" -and ($_.FileSystemRights -match "Write|Modify|FullControl") -and
         $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @("S-1-5-18", "S-1-5-32-544") }
-    Check "W3" "$Root writable only by SYSTEM and Administrators (scripts there run as SYSTEM)" "no other write access" ($(if ($acl) { ($acl | ForEach-Object { "$($_.IdentityReference): $($_.FileSystemRights)" }) -join "; " } else { "ok" })) (-not $acl -and (Test-Path -LiteralPath $Root))
-    $key = Join-Path $Root "ciscat-manifest.pub.xml"
+    Check "W3" "$Root writable only by SYSTEM and Administrators (scripts there run as SYSTEM; set by the bootstrap at each run)" "no other write access" ($(if ($acl) { ($acl | ForEach-Object { "$($_.IdentityReference): $($_.FileSystemRights)" }) -join "; " } else { "ok" })) (-not $acl -and (Test-Path -LiteralPath $Root))
+    # pinned by a final agent package next to the bootstrap, else kept in C:\CIS
+    $key = Join-Path $Bin "ciscat-manifest.pub.xml"
+    if (-not (Test-Path -LiteralPath $key)) { $key = Join-Path $Root "ciscat-manifest.pub.xml" }
     $sharedKey = Join-Path $Shared "ciscat-manifest.pub.xml"
     $keyText = { param($p) ((Get-Content -LiteralPath $p -Raw) -replace '\s', '') }
     $keyOk = $true

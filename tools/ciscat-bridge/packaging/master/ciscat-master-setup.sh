@@ -118,7 +118,12 @@ if [ -n "$IMPORT" ]; then
     done
     rm -rf "$X"
 else
-    say "== 3. no import: copy the CIS benchmarks (xccdf, oval, cpe) to /opt/ciscat/benchmarks"
+    n=$(ls /opt/ciscat/benchmarks 2>/dev/null | grep -c . || true)
+    if [ "$n" -gt 0 ]; then
+        say "== 3. no import: $n file(s) in /opt/ciscat/benchmarks"
+    else
+        say "== 3. no import: copy the CIS benchmarks (xccdf, oval, cpe) to /opt/ciscat/benchmarks"
+    fi
 fi
 
 say "== 4. Wazuh API user of the bridge"

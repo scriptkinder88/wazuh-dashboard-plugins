@@ -13,7 +13,7 @@
   </rule>
   <rule id="100951" level="10">
     <match>ciscat-bootstrap: REFUSED</match>
-    <description>CIS-CAT bridge: the agent refused a file or a manifest from the master (signature, checksum or destination not valid)</description>
+    <description>CIS-CAT bridge: the agent refused a file or a manifest from the master (signature, checksum or destination not valid), or an Assessor file that differs from the agent package</description>
     <group>ciscat_integrity,</group>
   </rule>
   <rule id="100952" level="12">

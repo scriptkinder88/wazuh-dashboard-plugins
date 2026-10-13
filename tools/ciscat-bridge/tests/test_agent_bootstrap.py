@@ -71,6 +71,64 @@ class Bootstrap(unittest.TestCase):
         with open(self.ar_log) as f:
             return r.returncode, f.read()
 
+    def package_assessor(self, files):
+        """An Assessor laid down by a final agent package, with the list of its files."""
+        lines = ["# CIS-CAT Pro Assessor 4.67.0: files of the package (sha256  path)"]
+        for rel, content in files.items():
+            path = os.path.join(self.assessor, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(content)
+            lines.append("{0}  {1}".format(hashlib.sha256(content).hexdigest(), rel))
+        self.listing = os.path.join(self.ar_bin, "ciscat-assessor.sha256")
+        with open(self.listing, "w") as f:
+            f.write("\n".join(lines) + "\n")
+
+    def test_the_assessor_of_the_package_is_checked_once(self):
+        self.package_assessor({"Assessor-CLI.sh": b"#!/bin/sh\n", "lib/assessor 4.67.jar": b"new"})
+        # left by the earlier Assessor, or written on the agent
+        for rel in ("lib/assessor-4.63.jar", "license/license.xml", "benchmarks/b-xccdf.xml",
+                    "config/assessor-cli.properties", "reports/r.html"):
+            os.makedirs(os.path.join(self.assessor, os.path.dirname(rel)), exist_ok=True)
+            with open(os.path.join(self.assessor, rel), "w") as f:
+                f.write("x")
+        rc, out = self.run_bootstrap()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("Assessor checked against the agent package: 2 file(s) OK", out)
+        self.assertIn("moved 1 file(s) of an earlier Assessor", out)
+        self.assertFalse(os.path.exists(os.path.join(self.assessor, "lib", "assessor-4.63.jar")))
+        backups = [d for d in os.listdir(self.data) if d.startswith("backup-assessor-")]
+        self.assertTrue(os.path.isfile(os.path.join(self.data, backups[0], "lib",
+                                                    "assessor-4.63.jar")))
+        for rel in ("license/license.xml", "benchmarks/b-xccdf.xml",
+                    "config/assessor-cli.properties", "reports/r.html", "lib/assessor 4.67.jar"):
+            self.assertTrue(os.path.isfile(os.path.join(self.assessor, rel)), rel)
+        self.assertEqual(os.stat(self.assessor).st_mode & 0o777, 0o700)
+        with open(os.path.join(self.data, "assessor-checked")) as f, open(self.listing, "rb") as l:
+            self.assertEqual(f.read().strip(), hashlib.sha256(l.read()).hexdigest())
+        # checked once per package
+        open(self.ar_log, "w").close()
+        rc, out = self.run_bootstrap()
+        self.assertNotIn("Assessor checked", out)
+
+    def test_the_assessor_is_checked_before_the_group_files_arrive(self):
+        self.package_assessor({"Assessor-CLI.sh": b"#!/bin/sh\n"})
+        rc, out = self.run_bootstrap(manifest=False)
+        self.assertIn("Assessor checked against the agent package: 1 file(s) OK", out)
+        self.assertIn("no ciscat-manifest-", out)
+
+    def test_an_assessor_that_differs_from_the_package_stops_the_assessments(self):
+        self.package_assessor({"Assessor-CLI.sh": b"#!/bin/sh\n", "lib/a.jar": b"a"})
+        with open(os.path.join(self.assessor, "lib", "a.jar"), "wb") as f:
+            f.write(b"changed")
+        rc, out = self.run_bootstrap()
+        self.assertNotEqual(rc, 0)
+        self.assertIn("ciscat-bootstrap: REFUSED (Assessor file differs from the package): lib/a.jar",
+                      out)
+        self.assertIn("is not the one of the agent package (1 file(s)): assessments stopped", out)
+        self.assertFalse(os.path.exists(os.path.join(self.data, "assessor-checked")))
+        self.assertNotIn("installed=", out)
+
     def test_files_of_the_bridge_are_installed(self):
         bench = os.path.join(self.assessor, "benchmarks", "rhel7-custom-xccdf.xml")
         self.publish("rhel7-custom-xccdf.xml", bench)
