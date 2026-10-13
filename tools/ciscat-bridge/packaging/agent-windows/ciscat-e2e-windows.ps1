@@ -64,8 +64,13 @@ function Pre {
     Write-Host "== host $env:COMPUTERNAME  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     $svc = Get-Service -Name WazuhSvc -ErrorAction SilentlyContinue
     Check "W1" "Wazuh agent service" "Running" ($(if ($svc) { $svc.Status } else { "not found" })) ($svc -and $svc.Status -eq "Running")
+    # VERSION (older agents), VERSION.json (4.8 and later), else the version of wazuh-agent.exe
     $ver = Get-Content -LiteralPath (Join-Path $Agent "VERSION") -TotalCount 1 -ErrorAction SilentlyContinue
-    Info "W1" "agent version: $ver"
+    if (-not $ver) {
+        try { $ver = (Get-Content -LiteralPath (Join-Path $Agent "VERSION.json") -Raw -ErrorAction Stop | ConvertFrom-Json).version } catch { }
+    }
+    if (-not $ver) { $ver = (Get-Item -LiteralPath (Join-Path $Agent "wazuh-agent.exe") -ErrorAction SilentlyContinue).VersionInfo.ProductVersion }
+    Info "W1" "agent version: $(if ($ver) { $ver } else { 'not found' })"
 
     $ar = Get-Content -LiteralPath (Join-Path $Shared "ar.conf") -ErrorAction SilentlyContinue | Where-Object { $_ -match '^ciscat-assessment0 ' }
     Check "W2" "the master maps ciscat-assessment0 to the launcher" "ciscat-assessment0 - ciscat-assessment.cmd - 0" ($(if ($ar) { $ar } else { "missing in shared\ar.conf" })) ($ar -match ' - ciscat-assessment\.cmd - ')
