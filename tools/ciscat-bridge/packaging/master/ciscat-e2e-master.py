@@ -25,7 +25,7 @@ OSSEC = os.environ.get("E2E_OSSEC", "/var/ossec")
 SHARED = os.environ.get("E2E_SHARED", OSSEC + "/etc/shared")
 STATE = os.environ.get("E2E_STATE", "/opt/ciscat/run/e2e-last.json")
 VERSION_FILE = os.environ.get("E2E_VERSION_FILE", "/opt/ciscat/VERSION")
-EXPECTED_VERSION = "2.3.0"
+EXPECTED_VERSION = "2.3.1"
 AR_EXPECTED = {
     "ciscat-assessment0": "ciscat-assessment.cmd",
     "ciscat-bootstrap-linux0": "ciscat-bootstrap.sh",

@@ -5,12 +5,18 @@
   ciscat-agent-windows-<v>.zip   Windows agent: installer (launcher + bootstrap embedded), e2e test
   ciscat-agent-linux-<v>.tar.gz  Linux agent: installer (bootstrap embedded), e2e test
 
-With --assessor-windows / --assessor-linux (a CIS-CAT Pro Assessor folder, without its license)
-the agent packages also carry the Assessor, installed or updated by the agent installer. They
-contain licensed CIS software: keep them in the internal release store, never in a repository.
+With --assessor-windows / --assessor-linux (the CIS-CAT Pro Assessor as downloaded from CIS,
+a .zip or .tar.gz, or its unpacked folder) the agent packages also carry the Assessor, installed
+or updated by the agent installer. Its license, benchmarks, reports and logs are left out (the
+master sends the license and the benchmarks), and the build stops if a license or benchmark file
+is still found anywhere in a package. The version is read from the archive name (e.g.
+CIS-CAT-Assessor-linux-v4.64.0.zip) unless given. The packages contain licensed CIS software:
+keep them in the internal release store, never in a repository.
 
   python3 build.py --plugin <plugin zip name> --plugin-sha256 <sha256> [--out DIR]
-                   [--assessor-windows DIR --assessor-linux DIR --assessor-version X.Y.Z]
+                   [--assessor-windows ZIP|DIR] [--assessor-linux ZIP|TAR.GZ|DIR]
+                   [--assessor-version X.Y.Z | --assessor-version-windows X.Y.Z
+                    --assessor-version-linux X.Y.Z]
 """
 import argparse
 import base64
@@ -18,17 +24,25 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.dirname(HERE)
 AGENT = os.path.join(BRIDGE, "agent", "active-response")
 WAZUH = "4.14.10"
-# files of an Assessor folder that never go into a package
-SKIP_DIRS = {"license", "reports", "logs"}
+# folders of the Assessor that never go into a package: the license and the benchmarks come
+# from the master, reports and logs are local to each host
+SKIP_DIRS = {"license", "benchmarks", "reports", "logs"}
+# licensed CIS files that must not be anywhere else in a package
+LICENSED_RE = re.compile(
+    r"^(license|benchmarks)/|(^|/)license\.xml$|\.lic$|(^|/)CIS_[^/]*\.(xml|zip)$|"
+    r"-(xccdf|oval|cpe-dictionary|cpe-oval)\.xml$", re.I)
+VERSION_RE = re.compile(r"(?<![0-9.])v?(\d+\.\d+\.\d+)(?![0-9])")
 
 
 def version():
@@ -82,15 +96,107 @@ def sums(folder):
     write(os.path.join(folder, "SHA256SUMS"), "\n".join(lines) + "\n")
 
 
-def copy_assessor(src, dest):
-    """The Assessor folder without license, reports and logs."""
+def unpack(archive, dest):
+    """A .zip or .tar.gz into dest: no absolute path, no "..", no link or device file."""
+    def safe(name):
+        parts = name.replace("\\", "/").split("/")
+        if name.startswith(("/", "\\")) or ".." in parts or re.match(r"^[A-Za-z]:", name):
+            sys.exit("unsafe path in {0}: {1}".format(archive, name))
+        return os.path.join(dest, *[x for x in parts if x not in ("", ".")])
+    if zipfile.is_zipfile(archive):
+        with zipfile.ZipFile(archive) as zf:
+            for info in zf.infolist():
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    sys.exit("link in {0}: {1}".format(archive, info.filename))
+                path = safe(info.filename)
+                if info.is_dir():
+                    os.makedirs(path, exist_ok=True)
+                    continue
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with zf.open(info) as src, open(path, "wb") as f:
+                    shutil.copyfileobj(src, f)
+                os.chmod(path, (mode & 0o755) or 0o644)
+    elif tarfile.is_tarfile(archive):
+        with tarfile.open(archive) as tf:
+            for ti in tf.getmembers():
+                path = safe(ti.name)
+                if ti.isdir():
+                    os.makedirs(path, exist_ok=True)
+                elif ti.isfile():
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with tf.extractfile(ti) as src, open(path, "wb") as f:
+                        shutil.copyfileobj(src, f)
+                    os.chmod(path, (ti.mode & 0o755) or 0o644)
+                else:
+                    sys.exit("link or special file in {0}: {1}".format(archive, ti.name))
+    else:
+        sys.exit("not a folder, .zip or .tar.gz: " + archive)
+
+
+def assessor_root(folder, cli):
+    """The folder that holds the Assessor launcher (the archives wrap it in Assessor/)."""
+    found = sorted(root for root, dirs, files in os.walk(folder) if cli in files)
+    if not found:
+        sys.exit("no {0} in {1}".format(cli, folder))
+    return found[0]
+
+
+def copy_assessor(src, dest, windows, tmp):
+    """The Assessor of src (archive or folder) into dest, without the SKIP_DIRS folders.
+    Returns the paths left out, relative to the Assessor."""
+    if not os.path.exists(src):
+        sys.exit("Assessor not found: " + src)
     if not os.path.isdir(src):
-        sys.exit("Assessor folder not found: " + src)
+        folder = tempfile.mkdtemp(dir=tmp)
+        unpack(src, folder)
+        src = folder
+    root = assessor_root(src, "Assessor-CLI.bat" if windows else "Assessor-CLI.sh")
+    java = os.path.join(root, "jre", "bin", "java.exe" if windows else "java")
+    if not os.path.isfile(java):
+        sys.exit("{0}: no {1}: not the {2} Assessor".format(
+            src, os.path.relpath(java, root), "Windows" if windows else "Linux"))
+    left_out = []
+    for name in sorted(os.listdir(root)):
+        if name.lower() in SKIP_DIRS and os.path.isdir(os.path.join(root, name)):
+            for r, dirs, files in os.walk(os.path.join(root, name)):
+                left_out += [os.path.relpath(os.path.join(r, f), root) for f in sorted(files)]
 
     def ignore(folder, names):
-        return [n for n in names if os.path.abspath(folder) == os.path.abspath(src)
+        return [n for n in names if os.path.abspath(folder) == os.path.abspath(root)
                 and n.lower() in SKIP_DIRS]
-    shutil.copytree(src, dest, ignore=ignore, symlinks=False)
+    shutil.copytree(root, dest, ignore=ignore, symlinks=False)
+    if not windows:
+        # archives made on Windows carry no exec bits: the launcher and the JRE need them
+        execs = [os.path.join(dest, "Assessor-CLI.sh"),
+                 os.path.join(dest, "jre", "lib", "jspawnhelper")]
+        bindir = os.path.join(dest, "jre", "bin")
+        execs += [os.path.join(bindir, n) for n in os.listdir(bindir)]
+        for p in execs:
+            if os.path.isfile(p):
+                os.chmod(p, 0o755)
+    licensed(dest, [os.path.relpath(os.path.join(r, f), dest)
+                    for r, dirs, files in os.walk(dest) for f in files])
+    return left_out
+
+
+def licensed(where, names):
+    """Stops the build when a license or benchmark file is among names."""
+    bad = [n for n in names if LICENSED_RE.search(n.replace("\\", "/"))]
+    if bad:
+        sys.exit("licensed CIS file(s) in {0}, remove them and build again:\n  {1}".format(
+            where, "\n  ".join(bad[:20])))
+
+
+def assessor_version(given, src):
+    if given:
+        if not re.match(r"^\d+(\.\d+)+$", given):
+            sys.exit("Assessor version X.Y.Z expected, got: " + given)
+        return given
+    m = VERSION_RE.search(os.path.basename(os.path.normpath(src)))
+    if not m:
+        sys.exit("no version in the name {0}: give --assessor-version".format(src))
+    return m.group(1)
 
 
 def zip_folder(folder, out):
@@ -122,20 +228,29 @@ def main():
     ap.add_argument("--plugin", required=True, help="file name of the dashboard plugin zip")
     ap.add_argument("--plugin-sha256", required=True, help="sha256 of the plugin zip")
     ap.add_argument("--out", default=os.path.join(HERE, "out"))
-    ap.add_argument("--assessor-windows", help="CIS-CAT Pro Assessor folder for Windows")
-    ap.add_argument("--assessor-linux", help="CIS-CAT Pro Assessor folder for Linux")
-    ap.add_argument("--assessor-version", help="version of those Assessor folders, e.g. 4.62.0")
+    ap.add_argument("--assessor-windows", help="CIS-CAT Pro Assessor for Windows (zip or folder)")
+    ap.add_argument("--assessor-linux",
+                    help="CIS-CAT Pro Assessor for Linux (zip, tar.gz or folder)")
+    ap.add_argument("--assessor-version", help="version of both Assessors, e.g. 4.64.0")
+    ap.add_argument("--assessor-version-windows", help="version of the Windows Assessor")
+    ap.add_argument("--assessor-version-linux", help="version of the Linux Assessor")
     a = ap.parse_args()
     if not re.match(r"^[0-9a-f]{64}$", a.plugin_sha256):
         sys.exit("--plugin-sha256: 64 hex characters expected")
-    if (a.assessor_windows or a.assessor_linux) and not re.match(r"^\d+(\.\d+)+$",
-                                                                 a.assessor_version or ""):
-        sys.exit("--assessor-version X.Y.Z is needed with an Assessor folder")
+    wver = lver = None
+    if a.assessor_windows:
+        wver = assessor_version(a.assessor_version_windows or a.assessor_version,
+                                a.assessor_windows)
+    if a.assessor_linux:
+        lver = assessor_version(a.assessor_version_linux or a.assessor_version, a.assessor_linux)
     v = version()
     subs = {"VERSION": v, "WAZUH": WAZUH}
     out = os.path.abspath(a.out)
     shutil.rmtree(out, ignore_errors=True)
     work = os.path.join(out, "work")
+    tmp = os.path.join(out, "tmp")
+    os.makedirs(tmp)
+    removed = {}
 
     # bridge installer (embeds bin/, agent/, rules/)
     subprocess.run([sys.executable, os.path.join(BRIDGE, "installer", "build.py")], check=True,
@@ -167,8 +282,9 @@ def main():
     for name in ("install-windows-agent.ps1", "ciscat-e2e-windows.ps1", "README.txt"):
         write(os.path.join(w, name), render(os.path.join(src, name), wsubs, crlf=True))
     if a.assessor_windows:
-        copy_assessor(a.assessor_windows, os.path.join(w, "Assessor"))
-        write(os.path.join(w, "ASSESSOR_VERSION"), a.assessor_version + "\r\n")
+        removed["windows"] = copy_assessor(a.assessor_windows, os.path.join(w, "Assessor"), True,
+                                           tmp)
+        write(os.path.join(w, "ASSESSOR_VERSION"), wver + "\r\n")
     sums(w)
 
     # Linux agent
@@ -180,26 +296,42 @@ def main():
                        ("README.txt", 0o644)):
         write(os.path.join(li, name), render(os.path.join(src, name), lsubs), mode)
     if a.assessor_linux:
-        copy_assessor(a.assessor_linux, os.path.join(li, "Assessor"))
-        write(os.path.join(li, "ASSESSOR_VERSION"), a.assessor_version + "\n")
+        removed["linux"] = copy_assessor(a.assessor_linux, os.path.join(li, "Assessor"), False, tmp)
+        write(os.path.join(li, "ASSESSOR_VERSION"), lver + "\n")
     sums(li)
 
-    suffix = "-assessor-" + a.assessor_version if a.assessor_version else ""
     results = [
         (m, os.path.join(out, "ciscat-master-{0}.zip".format(v)), zip_folder),
         (w, os.path.join(out, "ciscat-agent-windows-{0}{1}.zip".format(
-            v, suffix if a.assessor_windows else "")), zip_folder),
+            v, "-assessor-" + wver if wver else "")), zip_folder),
         (li, os.path.join(out, "ciscat-agent-linux-{0}{1}.tar.gz".format(
-            v, suffix if a.assessor_linux else "")), tar_folder),
+            v, "-assessor-" + lver if lver else "")), tar_folder),
     ]
     lines = []
     for folder, path, pack in results:
         pack(folder, path)
+        # what was packed, read back from the package itself
+        if path.endswith(".zip"):
+            with zipfile.ZipFile(path) as zf:
+                names = zf.namelist()
+        else:
+            with tarfile.open(path) as tf:
+                names = tf.getnames()
+        licensed(os.path.basename(path), [n.split("/Assessor/", 1)[1] for n in names
+                                          if "/Assessor/" in n])
         lines.append("{0}  {1}".format(sha(path), os.path.basename(path)))
     shutil.rmtree(work)
+    shutil.rmtree(tmp)
     write(os.path.join(out, "SHA256SUMS"), "\n".join(lines) + "\n")
+    for platform, files in sorted(removed.items()):
+        # record of what the package leaves out of the CIS download (no content, names only)
+        write(os.path.join(out, "assessor-left-out-{0}.txt".format(platform)),
+              "".join(f.replace("\\", "/") + "\n" for f in files))
     print("\n".join(lines))
-    if a.assessor_windows or a.assessor_linux:
+    for platform, files in sorted(removed.items()):
+        print("{0} Assessor: {1} file(s) left out (license, benchmarks, reports, logs): "
+              "assessor-left-out-{0}.txt".format(platform, len(files)))
+    if removed:
         print("contains CIS-CAT Pro (licensed): internal release store only")
     return 0
 

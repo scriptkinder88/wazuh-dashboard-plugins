@@ -56,7 +56,7 @@ import ciscat_xccdf as xccdf  # noqa: E402
 import csv_to_custom_xccdf as tailor  # noqa: E402
 import xccdf_to_sca_policy as gen  # noqa: E402
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 ETC_DIR = os.environ.get("CISCAT_ETC_DIR", "/opt/ciscat/etc")
 OS_LIBRARY_FILE = os.path.join(ETC_DIR, "os-library.json")
 ORCH_CONF = os.path.join(ETC_DIR, "ciscat-orchestrator.conf")

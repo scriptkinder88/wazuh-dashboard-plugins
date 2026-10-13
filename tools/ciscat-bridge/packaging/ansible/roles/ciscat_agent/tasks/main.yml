@@ -1,11 +1,20 @@
 ---
+- name: A package URL needs the SHA-256 of the packages
+  ansible.builtin.assert:
+    that:
+      - ciscat_package_sha256_linux is match('^[0-9a-fA-F]{64}$') or ansible_os_family == "Windows"
+      - ciscat_package_sha256_windows is match('^[0-9a-fA-F]{64}$') or ansible_os_family != "Windows"
+    fail_msg: 'set ciscat_package_sha256_linux / ciscat_package_sha256_windows (SHA256SUMS of the release)'
+  when: ciscat_package_url | length > 0
+
 - name: Master public keys, read on the master
   ansible.builtin.slurp:
     src: '/opt/ciscat/etc/{{ item }}'
   loop:
     - ciscat-manifest.pub
     - ciscat-manifest.pub.xml
-  delegate_to: '{{ ciscat_master_host }}'
+  # the fallback only keeps recent Ansible from refusing an empty name: the task is skipped then
+  delegate_to: '{{ ciscat_master_host | default(inventory_hostname, true) }}'
   become: true
   run_once: true
   register: ciscat_master_keys
