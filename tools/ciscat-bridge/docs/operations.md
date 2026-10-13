@@ -55,6 +55,11 @@ then run `/opt/ciscat/bin/ciscat-fleet.py apply`. The agents get the benchmarks 
 only from the master: the Assessor of the agent packages has empty `benchmarks` and `license`
 folders. `apply` warns when a benchmark refers to an OVAL or CPE file that is not there.
 
+**Master in one go** (production): the build kit's `ciscat-prod-<version>.tar.gz` holds the master
+package, plugin, CIS benchmarks, license and agent packages; unpack it in
+`/opt/ciscat/install/bundle` and run `sh install-prod.sh` (see `packaging/README.md`). It does
+the steps above, then `apply`.
+
 **Agents, final packages** (with CIS-CAT Pro, built from the CIS downloads, see
 `packaging/README.md`; distributed through Satellite or Ansible):
 

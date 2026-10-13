@@ -73,6 +73,28 @@ The final packages contain licensed CIS software (CIS-CAT Pro Assessor): keep th
 internal release store (Satellite, below), never in a repository. Build them on an internal
 host: the Assessor downloads never leave the internal network.
 
+### Production bundle (one file for a Wazuh master)
+
+The build kit (`kit/`: `build-full-packages.sh`, `build-prod-bundle.sh`, `prod_bundle.py`,
+`install-prod.sh`, run on an internal host or on Windows with MobaXterm) makes, from the two CIS
+downloads, one `ciscat-prod-<v>.tar.gz` with the master package, the dashboard plugin (checked
+against the release sha256), every CIS benchmark of the downloads (XCCDF, OVAL, CPE), the license,
+the configuration exported from another master (`ciscat-config-<date>.tgz`, imported by the
+setup) when they are next to the downloads, the final agent packages (`agents/`), and
+`install-prod.sh`. The master's key files are refused there: the agents take the key from
+their master. On the master, as root:
+
+```sh
+install -d -m 0700 /opt/ciscat/install/bundle
+tar -xzf ciscat-prod-<v>.tar.gz -C /opt/ciscat/install/bundle
+cd /opt/ciscat/install/bundle/ciscat-prod-<v> && sh install-prod.sh
+```
+
+It checks the bundle, unpacks the master package, copies benchmarks and license, runs the master
+setup (`--auto-assign`, with `--import` when a configuration is there) and `ciscat-fleet.py apply`.
+The only question is, the first time, a Wazuh API administrator to create the bridge's API user
+(never stored).
+
 ### Distribution through Red Hat Satellite
 
 1. In Satellite, a product (e.g. `CIS-CAT bridge`) with a repository of type **file**, upload
