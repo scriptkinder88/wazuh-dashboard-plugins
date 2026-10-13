@@ -85,6 +85,17 @@ class Refresh(unittest.TestCase):
         for k in (keys if sent is None else sent):
             open(os.path.join(self.shared, "ciscat-refresh-{0}.conf".format(k)), "w").close()
 
+    def test_an_assessor_not_checked_by_the_bootstrap_is_not_run(self):
+        ar_bin = os.path.join(self.d, "ar-bin")
+        os.makedirs(ar_bin)
+        with open(os.path.join(ar_bin, "ciscat-assessor.sha256"), "w") as f:
+            f.write("# list\n")
+        self.env["CISCAT_AR_BIN"] = ar_bin
+        rc, log = self.run_refresh()
+        self.assertNotEqual(rc, 0)
+        self.assertIn("not checked against the agent package yet", log)
+        self.assertFalse(os.path.exists(os.path.join(self.cache, "results.txt")))
+
     def test_every_benchmark_of_the_agent_runs_with_its_own_results(self):
         self.benchmarks("rhel7", "aks")
         rc, log = self.run_refresh(arf(rule_result("1.1", "pass")))

@@ -1,5 +1,7 @@
 """packaging/build.py: the three release packages, complete and without licensed files."""
+import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -79,18 +81,19 @@ class Packaging(unittest.TestCase):
                                 "--assessor-version", "4.62.0")
         with tarfile.open(os.path.join(out, "ciscat-agent-linux-2.3.1-assessor-4.62.0.tar.gz")) as t:
             members = t.getnames()
-        self.assertIn("agent-linux/Assessor/Assessor-CLI.sh", members)
-        self.assertIn("agent-linux/ASSESSOR_VERSION", members)
-        self.assertIn("agent-linux/Assessor/reports/r.csv", members)
-        self.assertIn("agent-linux/Assessor/license", members)
-        self.assertIn("agent-linux/Assessor/benchmarks", members)
+        self.assertIn("opt/ciscat/Assessor/Assessor-CLI.sh", members)
+        self.assertIn("opt/ciscat/Assessor/.bridge-assessor-version", members)
+        self.assertIn("opt/ciscat/Assessor/reports/r.csv", members)
+        self.assertIn("opt/ciscat/Assessor/license", members)
+        self.assertIn("opt/ciscat/Assessor/benchmarks", members)
+        self.assertNotIn("agent-linux/install-linux-agent.sh", members)  # final: no installer
         self.assertFalse([m for m in members if "/benchmarks/" in m or "/license/" in m])
         with zipfile.ZipFile(os.path.join(out, "ciscat-agent-windows-2.3.1-assessor-4.62.0.zip")) as z:
             members = z.namelist()
-        self.assertIn("agent-windows/Assessor/Assessor-CLI.bat", members)
-        self.assertIn("agent-windows/Assessor/reports/r.csv", members)
-        self.assertIn("agent-windows/Assessor/license/", members)
-        self.assertIn("agent-windows/Assessor/benchmarks/", members)
+        self.assertIn("CIS/Assessor/Assessor-CLI.bat", members)
+        self.assertIn("CIS/Assessor/reports/r.csv", members)
+        self.assertIn("CIS/Assessor/license/", members)
+        self.assertIn("CIS/Assessor/benchmarks/", members)
         self.assertFalse([m for m in members if not m.endswith("/") and (
             "/benchmarks/" in m or "/license/" in m)])
 
@@ -102,28 +105,29 @@ class Packaging(unittest.TestCase):
         self.assertIn("ciscat-agent-linux-2.3.1-assessor-4.64.0.tar.gz", names)
         with tarfile.open(os.path.join(out, "ciscat-agent-linux-2.3.1-assessor-4.64.0.tar.gz")) as t:
             members = {m.name: m for m in t.getmembers()}
-            version = t.extractfile("agent-linux/ASSESSOR_VERSION").read()
+            version = t.extractfile("opt/ciscat/Assessor/.bridge-assessor-version").read()
         self.assertEqual(version, b"4.64.0\n")
         for f in ("Assessor-CLI.sh", "jre/bin/java", "jre/lib/jspawnhelper"):
-            self.assertEqual(members["agent-linux/Assessor/" + f].mode & 0o777, 0o755, f)
+            self.assertEqual(members["opt/ciscat/Assessor/" + f].mode & 0o777, 0o755, f)
         for f in ("jre/legal/LICENSE", "config/assessor-cli.properties", "reports/old.html",
                   "lib/assessor.jar", "license", "benchmarks", "benchmarks/oval", "logs"):
-            self.assertIn("agent-linux/Assessor/" + f, members)
+            self.assertIn("opt/ciscat/Assessor/" + f, members)
         for m, info in members.items():
             if info.isfile():
                 self.assertNotRegex(m, r"/Assessor/(license|benchmarks)/|CIS_|license\.xml|oval")
         with zipfile.ZipFile(os.path.join(out, "ciscat-agent-windows-2.3.1-assessor-4.64.0.zip")) as z:
             members = z.namelist()
-            sums = z.read("agent-windows/SHA256SUMS").decode()
+            sums = z.read("Program Files (x86)/ossec-agent/active-response/bin/"
+                          "ciscat-assessor.sha256").decode()
         # the folders stay, empty: license, benchmarks and its subfolders, logs
         for d in ("license/", "benchmarks/", "benchmarks/oval/", "logs/"):
-            self.assertIn("agent-windows/Assessor/" + d, members)
-        self.assertIn("agent-windows/Assessor/jre/bin/java.exe", members)
-        self.assertIn("agent-windows/Assessor/reports/old.html", members)
-        self.assertIn("agent-windows/Assessor/jre/legal/LICENSE", members)
+            self.assertIn("CIS/Assessor/" + d, members)
+        self.assertIn("CIS/Assessor/jre/bin/java.exe", members)
+        self.assertIn("CIS/Assessor/reports/old.html", members)
+        self.assertIn("CIS/Assessor/jre/legal/LICENSE", members)
         self.assertFalse([m for m in members if not m.endswith("/") and (
             "/benchmarks/" in m or "/license/" in m or "CIS_" in m or "oval" in m)])
-        self.assertIn("Assessor/lib/assessor.jar", sums)
+        self.assertRegex(sums, r"(?m)^[0-9a-f]{64}  lib/assessor.jar\r$")
         with open(os.path.join(out, "assessor-left-out-linux.txt")) as f:
             left = f.read().split()
         self.assertEqual(sorted(left), [
@@ -177,6 +181,11 @@ class Packaging(unittest.TestCase):
         r, out = self.run_build("--assessor-linux", win)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("not the Linux Assessor", r.stdout)
+        # the Linux download given as the Windows one
+        lin = self.download("CIS-CAT-Assessor-Linux-jre-v4.67.0.zip", False)
+        r, out = self.run_build("--assessor-windows", lin)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("it is the Linux Assessor, give it as --assessor-linux", r.stdout)
         # both JREs in one folder (or a shell that finds java.exe when asked for java)
         both = self.download("CIS-CAT-Assessor-linux-v4.64.2.zip", False,
                              extra=["jre/bin/java.exe"])
@@ -208,15 +217,92 @@ class Packaging(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         with tarfile.open(os.path.join(out, "ciscat-agent-linux-2.3.1-assessor-4.64.0.tar.gz")) as t:
             modes = {m.name: m.mode & 0o777 for m in t.getmembers()}
-        for name, mode in (("install-linux-agent.sh", 0o755), ("ciscat-e2e-linux.sh", 0o755),
-                           ("README.txt", 0o644), ("Assessor/Assessor-CLI.sh", 0o755),
-                           ("Assessor/jre/bin/java", 0o755), ("Assessor/jre/lib/jspawnhelper", 0o755),
-                           ("Assessor/misc/helper", 0o755), ("Assessor/lib/assessor.jar", 0o644),
-                           ("Assessor", 0o755)):
-            self.assertEqual(modes["agent-linux/" + name], mode, name)
+        for name, mode in (("var/ossec/active-response/bin/ciscat-bootstrap.sh", 0o750),
+                           ("var/ossec/active-response/bin/ciscat-assessor.sha256", 0o640),
+                           ("opt/ciscat", 0o755), ("opt/ciscat/Assessor", 0o700),
+                           ("opt/ciscat/Assessor/Assessor-CLI.sh", 0o755),
+                           ("opt/ciscat/Assessor/jre/bin/java", 0o755),
+                           ("opt/ciscat/Assessor/jre/lib/jspawnhelper", 0o755),
+                           ("opt/ciscat/Assessor/misc/helper", 0o755),
+                           ("opt/ciscat/Assessor/lib/assessor.jar", 0o644),
+                           ("var/lib/wazuh-ciscat", 0o700)):
+            self.assertEqual(modes[name], mode, name)
         with zipfile.ZipFile(os.path.join(out, "ciscat-master-2.3.1.zip")) as z:
             info = z.getinfo("master/ciscat-master-setup.sh")
         self.assertEqual((info.external_attr >> 16) & 0o777, 0o755)
+
+    def test_a_download_with_a_second_archive_inside_or_no_launcher(self):
+        inner = self.download("inner.zip", True)
+        outer = os.path.join(self.d, "CIS-CAT-Assessor-Windows-jre-v4.67.0.zip")
+        with zipfile.ZipFile(outer, "w") as z:
+            z.write(inner, "CIS-CAT Pro Assessor/Assessor-v4.67.0.zip")
+            z.writestr("CIS-CAT Pro Assessor/README.txt", "x")
+        out, names = self.build("--assessor-windows", outer)
+        self.assertIn("ciscat-agent-windows-2.3.1-assessor-4.67.0.zip", names)
+        with zipfile.ZipFile(os.path.join(out, names[names.index(
+                "ciscat-agent-windows-2.3.1-assessor-4.67.0.zip")])) as z:
+            self.assertIn("CIS/Assessor/Assessor-CLI.bat", z.namelist())
+        # no launcher at all: the error shows what the download holds
+        empty = os.path.join(self.d, "CIS-CAT-Assessor-Windows-jre-v4.68.0.zip")
+        with zipfile.ZipFile(empty, "w") as z:
+            z.writestr("Tool/Assessor-GUI.exe", "x")
+        r, out = self.run_build("--assessor-windows", empty)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("no Assessor-CLI.bat in " + empty, r.stdout)
+        self.assertIn("Tool/Assessor-GUI.exe", r.stdout)
+
+    def test_final_packages_unpack_in_place(self):
+        """Unpacked in / and C:\\ as they are: no installer, no entry for folders that exist."""
+        keys = os.path.join(self.d, "agent-keys")
+        os.makedirs(keys)
+        for n in ("ciscat-manifest.pub", "ciscat-manifest.pub.xml"):
+            with open(os.path.join(keys, n), "w") as f:
+                f.write("KEY " + n)
+        win = self.download("CIS-CAT-Assessor-Windows-jre-v4.67.0.zip", True)
+        lin = self.download("CIS-CAT-Assessor-Linux-jre-v4.67.0.zip", False)
+        out, names = self.build("--assessor-windows", win, "--assessor-linux", lin,
+                                "--master-keys", keys)
+        self.assertEqual([n for n in names if n.startswith("ciscat-")], [
+            "ciscat-agent-linux-2.3.1-assessor-4.67.0.tar.gz",
+            "ciscat-agent-windows-2.3.1-assessor-4.67.0.zip",
+            "ciscat-e2e-linux.sh", "ciscat-e2e-windows.ps1", "ciscat-master-2.3.1.zip"])
+        with tarfile.open(os.path.join(out, "ciscat-agent-linux-2.3.1-assessor-4.67.0.tar.gz")) as t:
+            members = {m.name: m for m in t.getmembers()}
+            listing = t.extractfile("var/ossec/active-response/bin/ciscat-assessor.sha256").read()
+            boot = t.extractfile("var/ossec/active-response/bin/ciscat-bootstrap.sh").read()
+            props = t.extractfile("opt/ciscat/Assessor/config/assessor-cli.properties").read()
+            files = {n: t.extractfile(m).read() for n, m in members.items() if m.isfile()}
+        # only the bridge's own folders: unpacking in / leaves /var, /var/ossec, ... as they are
+        dirs = sorted(n for n, m in members.items() if m.isdir())
+        self.assertEqual([d for d in dirs if not d.startswith("opt/ciscat")],
+                         ["var/lib/wazuh-ciscat"])
+        self.assertTrue(all(n.startswith(("opt/ciscat/", "var/ossec/active-response/bin/",
+                                          "var/lib/wazuh-ciscat/")) for n in files))
+        b = members["var/ossec/active-response/bin/ciscat-bootstrap.sh"]
+        self.assertEqual((b.uname, b.gname, b.mode), ("root", "wazuh", 0o750))
+        with open(os.path.join(HERE, "..", "bin", "ciscat-bootstrap.sh"), "rb") as f:
+            self.assertEqual(boot, f.read())
+        self.assertEqual(files["var/lib/wazuh-ciscat/ciscat-manifest.pub"], b"KEY ciscat-manifest.pub")
+        self.assertTrue(props.endswith(b"exit.on.invalid.signature=false\n"))
+        # the list holds every Assessor file but the settings, with its sha256
+        listed = {}
+        for line in listing.decode().splitlines()[1:]:
+            digest, rel = line.split("  ", 1)
+            listed[rel] = digest
+        expected = {n[len("opt/ciscat/Assessor/"):]: hashlib.sha256(c).hexdigest()
+                    for n, c in files.items() if n.startswith("opt/ciscat/Assessor/")
+                    and not re.search(r"Assessor/(config|reports|logs)/|/\.bridge-", n)}
+        self.assertEqual(listed, expected)
+        self.assertIn("Assessor-CLI.sh", listed)
+        with zipfile.ZipFile(os.path.join(out, "ciscat-agent-windows-2.3.1-assessor-4.67.0.zip")) as z:
+            names = z.namelist()
+        binw = "Program Files (x86)/ossec-agent/active-response/bin/"
+        for n in ("ciscat-assessment.cmd", "ciscat-bootstrap.ps1", "ciscat-assessor.sha256",
+                  "ciscat-manifest.pub.xml"):
+            self.assertIn(binw + n, names)
+        self.assertIn("CIS/Assessor/Assessor-CLI.bat", names)
+        self.assertTrue(all(n.startswith(("CIS/", binw)) for n in names))
+        self.assertFalse([n for n in names if n.endswith("/") and n.startswith("Program Files")])
 
 
 if __name__ == "__main__":
