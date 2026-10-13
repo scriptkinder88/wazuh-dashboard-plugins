@@ -1,4 +1,9 @@
 ---
+- name: Final package or installer
+  ansible.builtin.set_fact:
+    ciscat_final: "{{ '-assessor-' in ciscat_package_windows }}"
+
+# set before a final package is unpacked: its files then inherit these rights, not those of C:\
 - name: C:\CIS owned by Administrators, writable only by SYSTEM and Administrators
   ansible.windows.win_shell: |
     New-Item -ItemType Directory -Force "C:\CIS\install\{{ ciscat_version }}" | Out-Null
@@ -23,20 +28,26 @@
 - name: Unpack the agent package
   ansible.windows.win_shell: >-
     Expand-Archive -Force -Path "C:\CIS\install\{{ ciscat_version }}\{{ ciscat_package_windows }}"
-    -DestinationPath "C:\CIS\install\{{ ciscat_version }}"
+    -DestinationPath "{{ 'C:\\' if ciscat_final else 'C:\\CIS\\install\\' + ciscat_version }}"
   changed_when: false
+
+- name: Master public key pinned for the bootstrap (final package), from the master
+  ansible.windows.win_copy:
+    content: '{{ ciscat_master_keys.results[1].content | b64decode }}'
+    dest: "C:\\Program Files (x86)\\ossec-agent\\active-response\\bin\\ciscat-manifest.pub.xml"
+  when: ciscat_final and ciscat_master_host | length > 0
 
 - name: Master public key next to the installer, from the master
   ansible.windows.win_copy:
     content: '{{ ciscat_master_keys.results[1].content | b64decode }}'
     dest: "C:\\CIS\\install\\{{ ciscat_version }}\\agent-windows\\ciscat-manifest.pub.xml"
-  when: ciscat_master_host | length > 0
+  when: not ciscat_final and ciscat_master_host | length > 0
 
 - name: Master public key next to the installer, from the release folder
   ansible.windows.win_copy:
     src: '{{ ciscat_pubkey_windows }}'
     dest: "C:\\CIS\\install\\{{ ciscat_version }}\\agent-windows\\ciscat-manifest.pub.xml"
-  when: ciscat_master_host | length == 0 and ciscat_pin_pubkey | bool
+  when: not ciscat_final and ciscat_master_host | length == 0 and ciscat_pin_pubkey | bool
 
 - name: Install or update (idempotent; the output lists what changed)
   ansible.windows.win_shell: >-
@@ -47,7 +58,9 @@
   register: ciscat_install
   changed_when: true
   failed_when: ciscat_install.rc != 0 or 'RESULT:' not in ciscat_install.stdout
+  when: not ciscat_final
 
 - name: Installer output
   ansible.builtin.debug:
     var: ciscat_install.stdout_lines
+  when: not ciscat_final

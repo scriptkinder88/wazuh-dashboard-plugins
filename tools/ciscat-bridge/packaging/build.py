@@ -6,8 +6,23 @@
   ciscat-agent-linux-<v>.tar.gz  Linux agent: installer (bootstrap embedded), e2e test
 
 With --assessor-windows / --assessor-linux (the CIS-CAT Pro Assessor as downloaded from CIS,
-a .zip or .tar.gz, or its unpacked folder) the agent packages also carry the Assessor, installed
-or updated by the agent installer. The whole Assessor goes in, every folder and file, except the
+a .zip or .tar.gz, or its unpacked folder) the agent packages are final instead: unpacked as
+they are, with no installer to run, they lay down the Assessor and the bridge's agent files.
+
+  ciscat-agent-linux-<v>-assessor-<a>.tar.gz    unpacked in /  (Linux and other Unix-like)
+      opt/ciscat/Assessor/                           the Assessor
+      var/ossec/active-response/bin/ciscat-bootstrap.sh, ciscat-assessor.sha256
+      var/lib/wazuh-ciscat/                          bridge data (and the pinned master key)
+  ciscat-agent-windows-<v>-assessor-<a>.zip     unpacked in C:\
+      CIS/Assessor/                                  the Assessor
+      Program Files (x86)/ossec-agent/active-response/bin/
+                                    ciscat-assessment.cmd, ciscat-bootstrap.ps1,
+                                    ciscat-assessor.sha256 (and the pinned master key)
+
+ciscat-assessor.sha256 lists every file of the Assessor: at its first run with a new package
+the bootstrap checks them (and stops if one differs), moves aside the files of an earlier
+Assessor and sets the owner and rights of the Assessor folder. The whole Assessor goes in,
+every folder and file, except the
 files of its license and benchmarks folders (the master sends both); the build stops if a
 license or benchmark file is still found anywhere in a package. The version is read from the
 archive name (e.g.
@@ -17,7 +32,7 @@ keep them in the internal release store, never in a repository.
   python3 build.py --plugin <plugin zip name> --plugin-sha256 <sha256> [--out DIR]
                    [--assessor-windows ZIP|DIR] [--assessor-linux ZIP|TAR.GZ|DIR]
                    [--assessor-version X.Y.Z | --assessor-version-windows X.Y.Z
-                    --assessor-version-linux X.Y.Z]
+                    --assessor-version-linux X.Y.Z] [--master-keys DIR]
 """
 import argparse
 import base64
@@ -310,6 +325,88 @@ def tar_folder(folder, out):
                     tf.addfile(ti, f)
 
 
+LINUX_BIN = "var/ossec/active-response/bin/"
+WINDOWS_BIN = "Program Files (x86)/ossec-agent/active-response/bin/"
+ASSESSOR_LIST = "ciscat-assessor.sha256"
+# Assessor paths the bootstrap neither checks nor moves: written on the agent (license and
+# benchmarks by the master, reports and logs by CIS-CAT), and the settings
+UNCHECKED_RE = re.compile(r"^(license|benchmarks|reports|logs|config)/|^\.bridge-", re.I)
+
+
+def patch_settings(assessor):
+    """exit.on.invalid.signature=false in the Assessor settings (the tailored benchmark is
+    unsigned), with the file's own line endings."""
+    path = os.path.join(assessor, "config", "assessor-cli.properties")
+    text = ""
+    if os.path.isfile(path):
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8", "replace")
+    eol = "\r\n" if "\r\n" in text else "\n"
+    lines = [x for x in text.splitlines() if not re.match(r"\s*exit\.on\.invalid\.signature\s*=", x)]
+    lines.append("exit.on.invalid.signature=false")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write((eol.join(lines) + eol).encode("utf-8"))
+    set_mode(path, 0o644)
+
+
+def assessor_list(assessor, version):
+    """The list of the Assessor's files the bootstrap checks: sha256, two spaces, path."""
+    lines = ["# CIS-CAT Pro Assessor {0}: files of the package (sha256  path)".format(version)]
+    for p, name, is_dir in walk(assessor):
+        rel = name.split("/", 1)[1] if "/" in name else ""
+        if is_dir or UNCHECKED_RE.search(rel):
+            continue
+        lines.append("{0}  {1}".format(sha(p), rel))
+    return "\n".join(lines) + "\n"
+
+
+def final_package(out, entries, windows):
+    """A package unpacked as it is (in / or C:\\): entries are (name, file or None for a folder,
+    mode, owner, group). Only the folders listed get an entry, so unpacking never changes the
+    rights of a folder that is already there (/var, /var/ossec, ...)."""
+    if windows:
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, path, mode, owner, group in entries:
+                info = zipfile.ZipInfo(name + ("/" if path is None else ""), (2026, 1, 1, 0, 0, 0))
+                if path is None:
+                    info.external_attr = (0o040000 | mode) << 16 | 0x10
+                    zf.writestr(info, b"")
+                    continue
+                info.external_attr = (0o100000 | mode) << 16
+                info.compress_type = zipfile.ZIP_DEFLATED
+                with open(path, "rb") as f:
+                    zf.writestr(info, f.read())
+        return
+    with tarfile.open(out, "w:gz", format=tarfile.GNU_FORMAT) as tf:
+        for name, path, mode, owner, group in entries:
+            ti = tarfile.TarInfo(name)
+            ti.uid = ti.gid = 0
+            ti.uname, ti.gname = owner, group
+            ti.mtime = 1767225600
+            ti.mode = mode
+            if path is None:
+                ti.type = tarfile.DIRTYPE
+                tf.addfile(ti)
+            else:
+                ti.size = os.path.getsize(path)
+                with open(path, "rb") as f:
+                    tf.addfile(ti, f)
+
+
+def assessor_entries(assessor, prefix):
+    """Entries of the Assessor folder under prefix (the Assessor folder itself root only)."""
+    entries = []
+    for p, name, is_dir in walk(assessor):
+        rel = name.split("/", 1)[1] if "/" in name else ""
+        target = prefix + ("/" + rel if rel else "")
+        if is_dir:
+            entries.append((target, None, 0o700 if not rel else 0o755, "root", "root"))
+        else:
+            entries.append((target, p, mode_of(p), "root", "root"))
+    return entries
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--plugin", required=True, help="file name of the dashboard plugin zip")
@@ -321,6 +418,8 @@ def main():
     ap.add_argument("--assessor-version", help="version of both Assessors, e.g. 4.64.0")
     ap.add_argument("--assessor-version-windows", help="version of the Windows Assessor")
     ap.add_argument("--assessor-version-linux", help="version of the Linux Assessor")
+    ap.add_argument("--master-keys", help="folder with the master's ciscat-manifest.pub and "
+                    "ciscat-manifest.pub.xml, pinned in the final agent packages")
     a = ap.parse_args()
     if not re.match(r"^[0-9a-f]{64}$", a.plugin_sha256):
         sys.exit("--plugin-sha256: 64 hex characters expected")
@@ -338,6 +437,13 @@ def main():
     tmp = os.path.join(out, "tmp")
     os.makedirs(tmp)
     removed = {}
+    keys = None
+    if a.master_keys:
+        keys = [os.path.join(a.master_keys, n) for n in ("ciscat-manifest.pub",
+                                                          "ciscat-manifest.pub.xml")]
+        for k in keys:
+            if not os.path.isfile(k):
+                sys.exit("--master-keys: {0} not found".format(k))
 
     # bridge installer (embeds bin/, agent/, rules/)
     subprocess.run([sys.executable, os.path.join(BRIDGE, "installer", "build.py")], check=True,
@@ -369,11 +475,23 @@ def main():
                  BOOT_SHA=sha(os.path.join(AGENT, "ciscat-bootstrap.ps1")).upper())
     for name in ("install-windows-agent.ps1", "ciscat-e2e-windows.ps1", "README.txt"):
         write(os.path.join(w, name), render(os.path.join(src, name), wsubs, crlf=True))
-    if a.assessor_windows:
-        removed["windows"] = copy_assessor(a.assessor_windows, os.path.join(w, "Assessor"), True,
-                                           tmp)
-        write(os.path.join(w, "ASSESSOR_VERSION"), wver + "\r\n")
     sums(w)
+    finals = []
+    if a.assessor_windows:
+        wa = os.path.join(tmp, "windows", "Assessor")
+        removed["windows"] = copy_assessor(a.assessor_windows, wa, True, tmp)
+        patch_settings(wa)
+        write(os.path.join(wa, ".bridge-assessor-version"), wver + "\r\n")
+        wlist = os.path.join(tmp, "windows", ASSESSOR_LIST)
+        write(wlist, assessor_list(wa, wver).replace("\n", "\r\n"))
+        entries = [("CIS", None, 0o755, "root", "root")] + assessor_entries(wa, "CIS/Assessor")
+        entries += [(WINDOWS_BIN + n, os.path.join(AGENT, n), 0o644, "root", "root")
+                    for n in ("ciscat-assessment.cmd", "ciscat-bootstrap.ps1")]
+        entries.append((WINDOWS_BIN + ASSESSOR_LIST, wlist, 0o644, "root", "root"))
+        if keys:
+            entries.append((WINDOWS_BIN + "ciscat-manifest.pub.xml", keys[1], 0o644, "root", "root"))
+        finals.append(("windows", os.path.join(out, "ciscat-agent-windows-{0}-assessor-{1}.zip"
+                                               .format(v, wver)), entries))
 
     # Linux agent
     li = os.path.join(work, "agent-linux")
@@ -383,18 +501,40 @@ def main():
     for name, mode in (("install-linux-agent.sh", 0o755), ("ciscat-e2e-linux.sh", 0o755),
                        ("README.txt", 0o644)):
         write(os.path.join(li, name), render(os.path.join(src, name), lsubs), mode)
-    if a.assessor_linux:
-        removed["linux"] = copy_assessor(a.assessor_linux, os.path.join(li, "Assessor"), False, tmp)
-        write(os.path.join(li, "ASSESSOR_VERSION"), lver + "\n")
     sums(li)
+    if a.assessor_linux:
+        la = os.path.join(tmp, "linux", "Assessor")
+        removed["linux"] = copy_assessor(a.assessor_linux, la, False, tmp)
+        patch_settings(la)
+        write(os.path.join(la, ".bridge-assessor-version"), lver + "\n")
+        llist = os.path.join(tmp, "linux", ASSESSOR_LIST)
+        write(llist, assessor_list(la, lver))
+        entries = [("opt/ciscat", None, 0o755, "root", "root")]
+        entries += assessor_entries(la, "opt/ciscat/Assessor")
+        entries += [("var/lib/wazuh-ciscat", None, 0o700, "root", "root"),
+                    (LINUX_BIN + "ciscat-bootstrap.sh", boot, 0o750, "root", "wazuh"),
+                    (LINUX_BIN + ASSESSOR_LIST, llist, 0o640, "root", "wazuh")]
+        if keys:
+            entries.append(("var/lib/wazuh-ciscat/ciscat-manifest.pub", keys[0], 0o644, "root",
+                            "root"))
+        finals.append(("linux", os.path.join(out, "ciscat-agent-linux-{0}-assessor-{1}.tar.gz"
+                                             .format(v, lver)), entries))
 
-    results = [
-        (m, os.path.join(out, "ciscat-master-{0}.zip".format(v)), zip_folder),
-        (w, os.path.join(out, "ciscat-agent-windows-{0}{1}.zip".format(
-            v, "-assessor-" + wver if wver else "")), zip_folder),
-        (li, os.path.join(out, "ciscat-agent-linux-{0}{1}.tar.gz".format(
-            v, "-assessor-" + lver if lver else "")), tar_folder),
-    ]
+    results = [(m, os.path.join(out, "ciscat-master-{0}.zip".format(v)), zip_folder)]
+    if not wver:
+        results.append((w, os.path.join(out, "ciscat-agent-windows-{0}.zip".format(v)),
+                        zip_folder))
+    if not lver:
+        results.append((li, os.path.join(out, "ciscat-agent-linux-{0}.tar.gz".format(v)),
+                        tar_folder))
+    for platform, path, entries in finals:
+        results.append((entries, path, lambda e, p, w=(platform == "windows"):
+                        final_package(p, e, w)))
+        # the end-to-end test of the platform, next to its final package
+        e2e = os.path.join(w if platform == "windows" else li, "ciscat-e2e-{0}.{1}".format(
+            platform, "ps1" if platform == "windows" else "sh"))
+        shutil.copy(e2e, out)
+        set_mode(os.path.join(out, os.path.basename(e2e)), mode_of(e2e))
     lines = []
     for folder, path, pack in results:
         pack(folder, path)

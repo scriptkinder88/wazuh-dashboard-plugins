@@ -55,17 +55,29 @@ then run `/opt/ciscat/bin/ciscat-fleet.py apply`. The agents get the benchmarks 
 only from the master: the Assessor of the agent packages has empty `benchmarks` and `license`
 folders. `apply` warns when a benchmark refers to an OVAL or CPE file that is not there.
 
-**Linux agents**: unpack `ciscat-agent-linux-<version>.tar.gz` in
-`/opt/ciscat/install/<version>` and run `sh install-linux-agent.sh` in `agent-linux/`.
+**Agents, final packages** (with CIS-CAT Pro, built from the CIS downloads, see
+`packaging/README.md`; distributed through Satellite or Ansible):
 
-**Windows agents**: unpack `ciscat-agent-windows-<version>.zip` in `C:\CIS\install\<version>`
-and run `powershell -ExecutionPolicy Bypass -File .\install-windows-agent.ps1` in
-`agent-windows\`, as administrator.
+- Linux and other Unix-like: `tar -xzpf ciscat-agent-linux-<version>-assessor-<a>.tar.gz -C /` as
+  root. It lays down `/opt/ciscat/Assessor` and the bootstrap in
+  `/var/ossec/active-response/bin`; nothing else to run.
+- Windows: `Expand-Archive -Path ciscat-agent-windows-<version>-assessor-<a>.zip -DestinationPath C:\ -Force`
+  as Administrator. It lays down `C:\CIS\Assessor` and the launcher and bootstrap in
+  `C:\Program Files (x86)\ossec-agent\active-response\bin`.
+
+At its first run the bootstrap checks the Assessor against the package (`Assessor checked against
+the agent package` in the Active Response log), moves aside the files of an earlier Assessor and,
+on Windows, makes `C:\CIS` writable only by SYSTEM and Administrators.
+
+**Agents without the Assessor in the package** (light packages): unpack
+`ciscat-agent-linux-<version>.tar.gz` in `/opt/ciscat/install/<version>` and run
+`sh install-linux-agent.sh` in `agent-linux/`; on Windows unpack
+`ciscat-agent-windows-<version>.zip` in `C:\CIS\install\<version>` and run
+`powershell -ExecutionPolicy Bypass -File .\install-windows-agent.ps1` in `agent-windows\`, as
+administrator. Both end with `RESULT: OK` and never install from a home or temporary folder.
 
 **Many agents**: the Ansible role in `packaging/ansible` does the same on Linux and Windows
-(WinRM). See `packaging/README.md`.
-
-Both agent installers end with `RESULT: OK`. They never install in a home or temporary folder.
+(WinRM), unpacking a final package or running the installer. See `packaging/README.md`.
 
 **End-to-end test** on one Linux and one Windows agent:
 
@@ -133,13 +145,13 @@ tail -50 /opt/ciscat/log/ciscat-scheduler.log
 
 ## 5. Updates
 
-| What changes                | What to do                                                                                                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bridge (new release)        | Run the master setup of the new package; agents get the new scripts by themselves                                                                                                                            |
-| Launcher or bootstrap       | Roll out the new agent package (by hand or Ansible)                                                                                                                                                          |
-| CIS benchmark (new version) | Copy the file to `/opt/ciscat/benchmarks`; it shows up in the dashboard within the hour                                                                                                                      |
-| CIS-CAT Pro Assessor        | Build the full agent packages from the CIS downloads, load them into Satellite, roll them out (`packaging/README.md`); the licence and the benchmarks are kept, a version that does not start is rolled back |
-| Licence renewal             | Replace `/opt/ciscat/license/license.xml`, run `ciscat-fleet.py apply`                                                                                                                                       |
+| What changes                | What to do                                                                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bridge (new release)        | Run the master setup of the new package; agents get the new scripts by themselves                                                                                                                                              |
+| Launcher or bootstrap       | Roll out the new agent package (by hand or Ansible)                                                                                                                                                                            |
+| CIS benchmark (new version) | Copy the file to `/opt/ciscat/benchmarks`; it shows up in the dashboard within the hour                                                                                                                                        |
+| CIS-CAT Pro Assessor        | Build the final agent packages from the CIS downloads, load them into Satellite, roll them out (`packaging/README.md`); the licence and the benchmarks stay, the files of the earlier Assessor are moved aside at the next run |
+| Licence renewal             | Replace `/opt/ciscat/license/license.xml`, run `ciscat-fleet.py apply`                                                                                                                                                         |
 
 Every master installation makes a backup in `/opt/ciscat/backup`. To go back:
 `sh ciscat-bridge-install-<version>.sh --rollback /opt/ciscat/backup/ciscat-bridge-<date>.tgz`.
@@ -149,17 +161,18 @@ Response log), so agents with an older Assessor are easy to find.
 
 ## 6. Common problems
 
-| Symptom                                            | Likely cause and check                                                                                         |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Agent not assessed, job says "platform"            | A Windows benchmark on a Linux agent or the reverse; check the agent's groups                                  |
-| Agent not assessed, job says "status disconnected" | Agent disconnected at run time; it runs at the next schedule                                                   |
-| Agent not assessed, "in no group of an active …"   | The agent is in no OS group; `ciscat-fleet.py assign` shows where it would go                                  |
-| `REFUSED (signature …)` in the agent log           | The agent keeps another master key; see section 3                                                              |
-| `no ciscat-manifest-*.csv` in the agent log        | Group files not synchronised yet; wait a few minutes or restart the agent                                      |
-| Results in CIS-CAT but not in the dashboard        | SCA reads them at its next scan (every hour); restart the agent to read them now                               |
-| Alert 100950                                       | Assessor or licence missing on the agent; reinstall the agent package or the licence                           |
-| Windows run never starts                           | `shared\ar.conf` on the agent must map `ciscat-assessment0` (check W2 of the e2e test)                         |
-| Two scores for one server                          | The Wazuh default SCA policy is still on; it is switched off at the next `apply` unless `keep_default_sca=yes` |
+| Symptom                                            | Likely cause and check                                                                                            |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Agent not assessed, job says "platform"            | A Windows benchmark on a Linux agent or the reverse; check the agent's groups                                     |
+| Agent not assessed, job says "status disconnected" | Agent disconnected at run time; it runs at the next schedule                                                      |
+| Agent not assessed, "in no group of an active …"   | The agent is in no OS group; `ciscat-fleet.py assign` shows where it would go                                     |
+| `REFUSED (signature …)` in the agent log           | The agent keeps another master key; see section 3                                                                 |
+| `no ciscat-manifest-*.csv` in the agent log        | Group files not synchronised yet; wait a few minutes or restart the agent                                         |
+| Results in CIS-CAT but not in the dashboard        | SCA reads them at its next scan (every hour); restart the agent to read them now                                  |
+| Alert 100950                                       | Assessor or licence missing on the agent; reinstall the agent package or the licence                              |
+| Windows run never starts                           | `shared\ar.conf` on the agent must map `ciscat-assessment0` (check W2 of the e2e test)                            |
+| `REFUSED (Assessor file differs from the package)` | The Assessor was changed after unpacking, or unpacked only in part: unpack the agent package again (alert 100951) |
+| Two scores for one server                          | The Wazuh default SCA policy is still on; it is switched off at the next `apply` unless `keep_default_sca=yes`    |
 
 For anything else, the end-to-end scripts point to the step that failed.
 
