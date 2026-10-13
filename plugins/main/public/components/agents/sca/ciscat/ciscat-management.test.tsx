@@ -402,9 +402,7 @@ describe('CIS-CAT management tab', () => {
       fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
       expect(within(box).getByText('001 · web-01 (rhel)')).toBeTruthy();
     });
-    expect(
-      within(box).getByText('003 · win-01 (windows)'),
-    ).toBeTruthy();
+    expect(within(box).getByText('003 · win-01 (windows)')).toBeTruthy();
     expect(screen.getByText('Unknown agents: nope')).toBeTruthy();
     fireEvent.click(screen.getByTestId('ciscat-save-job'));
     await waitFor(() =>
