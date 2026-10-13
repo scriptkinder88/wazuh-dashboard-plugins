@@ -176,6 +176,42 @@ describe('EditAgentsGroupsModal component', () => {
     );
   });
 
+  test('should create a group typed twice only once', async () => {
+    (useGetGroups as jest.Mock).mockReturnValue({
+      isLoading: false,
+      groups: ['default'],
+    });
+    (createGroupService as jest.Mock)
+      .mockClear()
+      .mockResolvedValue({ data: { error: 0 } });
+    (addAgentsToGroupService as jest.Mock).mockClear().mockResolvedValue({
+      data: {
+        /* eslint-disable camelcase */
+        data: {
+          affected_items: ['001'],
+          failed_items: [],
+          total_failed_items: 0,
+        },
+        /* eslint-enable camelcase */
+        error: 0,
+        message: 'All selected agents were assigned',
+      },
+    });
+
+    const { getByRole, baseElement } = renderAddModal();
+    typeGroup('web-prod');
+    typeGroup('web-prod');
+    const selected = Array.from(
+      baseElement.querySelectorAll('.euiBadge__text'),
+    ).filter(badge => badge.textContent === 'web-prod');
+    expect(selected).toHaveLength(1);
+
+    fireEvent.click(getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(addAgentsToGroupService).toHaveBeenCalled());
+    expect(createGroupService).toHaveBeenCalledTimes(1);
+    expect(addAgentsToGroupService).toHaveBeenCalledTimes(1);
+  });
+
   test('should refuse an invalid or existing group name', () => {
     (useGetGroups as jest.Mock).mockReturnValue({
       isLoading: false,

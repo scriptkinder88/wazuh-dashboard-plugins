@@ -21,7 +21,7 @@ def profile(pid, selects):
     return "\n".join(lines + ["</xccdf:Profile>"])
 
 
-BENCH = "<xccdf:Benchmark>\n{0}\n<xccdf:Rule id=\"x\"/>\n</xccdf:Benchmark>\n".format("\n".join([
+BENCH = "<xccdf:Benchmark xmlns:xccdf=\"http://checklists.nist.gov/xccdf/1.2\">\n{0}\n<xccdf:Rule id=\"x\"/>\n</xccdf:Benchmark>\n".format("\n".join([
     profile("SEVERITY_CAT_I", [("1.1", True), ("1.2", False), ("2.1", False)]),
     profile("SEVERITY_CAT_II", [("1.1", False), ("1.2", True), ("2.1", False)]),
     profile("SEVERITY_CAT_III", [("3.1", True)]),
@@ -72,7 +72,7 @@ class BaseProfiles(unittest.TestCase):
             self.assertEqual(f.read().count("<xccdf:Profile "), 4)
 
     def test_missing_profile(self):
-        with self.assertRaises(SystemExit) as err:
+        with self.assertRaises(conv.TailoringError) as err:
             self.build([], profiles=["Level_1"])
         self.assertIn("['Level_1'] not found", str(err.exception))
 

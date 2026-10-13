@@ -8,13 +8,17 @@ The test is skipped without it.
 """
 import json
 import os
+
+os.environ.setdefault("CISCAT_MIN_WAVE_PAUSE_S", "0")  # no minimum pause in tests
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+AGENT_DIR = os.path.join(HERE, "..", "agent", "active-response")
 BIN = os.path.join(HERE, "..", "bin")
 sys.path.insert(0, BIN)
 sys.path.insert(0, HERE)
@@ -24,6 +28,13 @@ from fake_wazuh_api import FakeWazuh  # noqa: E402
 BENCH_DIR = os.environ.get("CISCAT_TEST_BENCHMARKS", "")
 LINUX = "CIS_Ubuntu_Linux_20.04_LTS_Benchmark_v2.0.1-xccdf.xml"
 WIN = "CIS_Microsoft_Windows_Server_2025_Benchmark_v1.0.0-xccdf.xml"
+
+
+def companions(bench_dir, xccdf):
+    """Small stand-ins for the OVAL/CPE files that come with a benchmark (apply requires them)."""
+    for suf in ("-oval.xml", "-cpe-oval.xml", "-cpe-dictionary.xml"):
+        with open(os.path.join(bench_dir, xccdf[:-len("-xccdf.xml")] + suf), "w") as f:
+            f.write("<x/>")
 
 
 def excl(**kw):
@@ -37,6 +48,7 @@ def excl(**kw):
 class FleetIntegration(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
         p = {k: os.path.join(self.root, k) for k in
              ("exclusions_dir", "benchmarks_dir", "shared_dir", "work_dir", "lists_dir", "run_dir")}
         for d in p.values():
@@ -46,6 +58,7 @@ class FleetIntegration(unittest.TestCase):
             os.symlink(os.path.join(BENCH_DIR, f), os.path.join(p["benchmarks_dir"], f))
         with open(os.path.join(p["benchmarks_dir"], WIN[:-10] + "-oval.xml"), "w") as f:
             f.write("<oval_definitions/>")
+        companions(p["benchmarks_dir"], LINUX)
         etc = os.path.join(self.root, "etc")
         os.makedirs(etc)
         lib = {
@@ -69,7 +82,8 @@ class FleetIntegration(unittest.TestCase):
             "003": {"name": "db-01", "status": "disconnected", "group": ["os-rhel7", "app-sap"]},
             "004": {"name": "win-01", "status": "active", "group": ["os-windows_server_2025"]},
         })
-        self.env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_PATHS_JSON=json.dumps(p),
+        self.env = dict(os.environ, CISCAT_ETC_DIR=etc,
+                        CISCAT_PATHS_JSON=json.dumps(dict(p, agent_dir=AGENT_DIR)),
                         CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
 
     def tearDown(self):
@@ -136,10 +150,11 @@ class FleetIntegration(unittest.TestCase):
         self.assertIn("ciscat-rhel7-base", a["002"]["group"])
         self.assertNotIn(stale, self.fake.groups)
 
-        out = self.fleet("trigger", "--targets", "rhel7", "--wave-size", "1", "--job", "j1")
+        out = self.fleet("trigger", "--targets", "rhel7", "--wave-size", "1", "--wave-pause", "0",
+                         "--job", "j1")
         cmds = [c for c, _ in self.fake.ar]
-        self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 2, out)  # 001 and 002, one per wave
-        self.assertNotIn("!ciscat-assessment0", cmds)
+        self.assertEqual(cmds.count("ciscat-refresh-linux0"), 2, out)  # 001 and 002, one per wave
+        self.assertNotIn("ciscat-assessment0", cmds)
         status, _ = store.read_list(store.STATUS, self.paths["lists_dir"])
         self.assertEqual((status["job-j1"]["sent"], status["job-j1"]["skipped"]), (2, ["003"]))
 
@@ -180,7 +195,7 @@ class FleetDiscovery(FleetIntegration):
 
     def test_sync_apply_combos_and_trigger(self):
         u = self.UBUNTU
-        out = self.fleet("sync")
+        out = self.fleet("sync", "-v")
         self.assertIn(u + ": new OS from " + LINUX, out)
         oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
         ubuntu = oskeys[u]
@@ -196,7 +211,9 @@ class FleetDiscovery(FleetIntegration):
             excl(os_key=u, scope="host", scope_value="web-02", rule="1.1.1.2"),
         ]), self.paths["lists_dir"])
         out = self.fleet("apply")
-        self.assertIn("[skip] group os-windows_server_2022_v9_9_9 does not exist", out)
+        self.assertRegex(out, r"\[skip\] \d+ OS without their group yet.*os-windows_server_2022_v9_9_9")
+        self.assertIn("[skip] group os-windows_server_2022_v9_9_9 does not exist",
+                      self.fleet("plan", "-v"))
         self.assertNotIn("os-windows_server_2022_v9_9_9", self.fake.groups)
         pid = "cis_{0}_tailored_l1_server".format(u)
         base = self.policy_rules("ciscat-{0}-base".format(u), pid)
@@ -205,7 +222,7 @@ class FleetDiscovery(FleetIntegration):
         gdir = os.path.join(self.paths["shared_dir"], "os-" + u)
         with open(os.path.join(gdir, "ciscat-manifest.csv")) as f:
             self.assertIn(u + "-custom-xccdf.xml", f.read())
-        with open(os.path.join(gdir, "refresh.conf")) as f:
+        with open(os.path.join(gdir, "ciscat-refresh-{0}.conf".format(u))) as f:
             self.assertIn('PROFILE_LIST="l1_server|TAILORED L1 - Server (os-{0})"'.format(u), f.read())
         # the combo groups load the policy, since nothing else does for a discovered OS
         with open(os.path.join(self.paths["shared_dir"], "ciscat-{0}-base".format(u), "agent.conf")) as f:
@@ -214,7 +231,8 @@ class FleetDiscovery(FleetIntegration):
         with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
                                "ciscat-params.txt")) as f:
             self.assertEqual(f.read(), "Profile=xccdf_org.cisecurity.benchmarks_profile_TAILORED_"
-                                       "Level_1_-_Member_Server\nFlatName=x.flat\n")
+                                       "Level_1_-_Member_Server\nFlatName=x.flat\n"
+                                       "CustomXccdf=cis_win2025_tailored_l1_ms-custom.xml\n")
         # the OVAL the XCCDF checks reference goes with it, under its original name
         with open(os.path.join(self.paths["shared_dir"], "os-windows_server_2025",
                                "ciscat-manifest.csv")) as f:
@@ -222,8 +240,8 @@ class FleetDiscovery(FleetIntegration):
 
         out = self.fleet("trigger")
         cmds = [c for c, _ in self.fake.ar]
-        self.assertEqual(cmds.count("!ciscat-refresh-linux0"), 1, out)  # 001 and 002 in one wave
-        self.assertEqual(cmds.count("!ciscat-assessment0"), 1, out)     # 004
+        self.assertEqual(cmds.count("ciscat-refresh-linux0"), 1, out)  # 001 and 002 in one wave
+        self.assertEqual(cmds.count("ciscat-assessment0"), 1, out)     # 004
 
         # the dashboard moves this benchmark to another group: its agents take over the combos
         store.write_list(store.TARGETS, {u: {"v": 1, "group": "linux-prod", "updated_by": "alice"}},
@@ -253,6 +271,7 @@ class FleetStig(FleetIntegration):
             data = data.replace("benchmarks_profile_" + old + '"', "benchmarks_profile_" + new + '"')
         with open(os.path.join(self.paths["benchmarks_dir"], self.STIG), "w", encoding="utf-8") as f:
             f.write(data)
+        companions(self.paths["benchmarks_dir"], self.STIG)
         lib_file = os.path.join(self.env["CISCAT_ETC_DIR"], "os-library.json")
         with open(lib_file) as f:
             lib = json.load(f)
@@ -268,7 +287,7 @@ class FleetStig(FleetIntegration):
         import benchmark_to_sheet as sheet
         import xccdf_to_sca_policy as gen
         k = self.KEY
-        out = self.fleet("sync")
+        out = self.fleet("sync", "-v")
         self.assertIn("{0}: new OS from {1} (role STIG, profiles SEVERITY_CAT_I + SEVERITY_CAT_II)"
                       .format(k, self.STIG), out)
         oskeys, _ = store.read_list(store.OSKEYS, self.paths["lists_dir"])
@@ -276,8 +295,7 @@ class FleetStig(FleetIntegration):
 
         path = os.path.join(self.paths["benchmarks_dir"], self.STIG)
         _, _, _, _, profiles, _, _ = sheet.extract(path)
-        with open(path, encoding="utf-8") as f:
-            manual = gen.manual_rule_numbers(f.read())
+        manual = gen.manual_rule_numbers(gen.xccdf.load(path))
         cat1 = profiles["SEVERITY_CAT_I"] - manual
         cat2_only = profiles["SEVERITY_CAT_II"] - profiles["SEVERITY_CAT_I"] - manual
         self.assertTrue(cat1 and cat2_only)
@@ -288,6 +306,7 @@ class FleetStig(FleetIntegration):
         rules = {r.replace("\\", "") for r in self.policy_rules(
             "ciscat-{0}-base".format(k), "cis_{0}_tailored_l1_stig".format(k))}
         self.assertEqual(rules, (cat1 | cat2_only) - {excluded})
-        with open(os.path.join(self.paths["shared_dir"], "os-" + k, "refresh.conf")) as f:
+        with open(os.path.join(self.paths["shared_dir"], "os-" + k,
+                               "ciscat-refresh-{0}.conf".format(k))) as f:
             self.assertIn('PROFILE_LIST="l1_stig|TAILORED L1 - STIG (os-{0})"'.format(k), f.read())
 

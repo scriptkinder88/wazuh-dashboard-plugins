@@ -37,7 +37,22 @@ All notable changes to the Wazuh app project will be documented in this file.
 ### Added
 
 - Support for Wazuh 4.14.7
+- Added PDF report generation for Security Configuration Assessment [#2090](https://github.com/wazuh/wazuh-dashboard-plugins/issues/2090)
+- Added complete SCA control results and compliance mappings to PDF reports while preserving configured report branding
+- Added multi-server SCA PDF reporting with a selectable server list and one complete section per selected server
+- Changed multi-server SCA PDF collection to read indexed SCA events through OpenSearch, matching the PCI DSS reporting model and avoiding per-agent SCA API rate limits
+- Verify reconstructed indexed SCA checks against the latest scan `total_checks` and withhold scores when index history is incomplete or unverified
 - Added sanitization in markdown component [#8713](https://github.com/wazuh/wazuh-dashboard-plugins/pull/8713)
+- Added CIS-CAT runs and schedules on chosen agents, lists of agents and OS or custom agent groups, a "No group" choice for a benchmark, and a warning when several benchmarks apply to one group
+- Added a PDF export of the CIS-CAT exclusion register (reason, ticket, owner, who changed each and when) to the CIS-CAT tab, with the configured report branding
+
+### Fixed
+
+- Fixed the SCA PDF report including agents the user cannot read in the Wazuh server API, and limited it to 500 agents
+- Fixed FIM rule changes restarting agents of unchanged groups, the change preview closing while it is applied, and the FIM history growing without limit; restoring a saved version now asks to check its diff
+- Fixed the FIM rules and CIS-CAT tabs showing editing actions to users without the permissions to change them
+- Fixed FIM rule changes failing once the FIM history existed, and rules with "&" in a path or option that could not be changed
+- Updated dompurify to 3.4.16, and form-data, ws and lodash pulled by jsdom to their fixed versions (known advisories)
 
 ## Wazuh v4.14.6 - OpenSearch Dashboards 2.19.5 - Revision 02
 

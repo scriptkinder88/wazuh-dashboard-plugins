@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { i18n } from '@osd/i18n';
 import {
   EuiBasicTable,
   EuiButton,
@@ -17,6 +18,7 @@ import {
   EuiText,
 } from '@elastic/eui';
 import { WzRequest } from '../../../../react-services';
+import { SCA_REPORT_MAX_AGENTS } from '../../../../../common/sca/report-limits';
 
 const AGENTS_PAGE_SIZE = 100;
 
@@ -32,6 +34,17 @@ type ScaReportAgentSelectorProps = {
     agentIds: string[],
     options: ScaReportOptions,
   ) => Promise<void> | void;
+};
+
+const selectedText = (count: number) => {
+  if (count === 1) {
+    return i18n.translate('wazuh.scaReport.selector.selectedOne', {
+      defaultMessage: 'server selected',
+    });
+  }
+  return i18n.translate('wazuh.scaReport.selector.selectedMany', {
+    defaultMessage: 'servers selected',
+  });
 };
 
 export const ScaReportAgentSelector = ({
@@ -91,7 +104,12 @@ export const ScaReportAgentSelector = ({
         }
       } catch (error) {
         if (active) {
-          setLoadError(error?.message || 'Unable to load agents.');
+          setLoadError(
+            error?.message ||
+              i18n.translate('wazuh.scaReport.selector.loadError', {
+                defaultMessage: 'Unable to load agents.',
+              }),
+          );
         }
       } finally {
         if (active) {
@@ -152,8 +170,9 @@ export const ScaReportAgentSelector = ({
     ]);
   };
 
+  const tooManyAgents = selectedAgentIds.length > SCA_REPORT_MAX_AGENTS;
   const generateReport = async () => {
-    if (!selectedAgentIds.length || generating) {
+    if (!selectedAgentIds.length || tooManyAgents || generating) {
       return;
     }
 
@@ -174,27 +193,38 @@ export const ScaReportAgentSelector = ({
           id={`sca-report-agent-${agent.id}`}
           checked={selectedAgentIdSet.has(String(agent.id))}
           onChange={() => toggleAgent(String(agent.id))}
-          aria-label={`Select ${agent.name || agent.id}`}
+          aria-label={i18n.translate('wazuh.scaReport.selector.selectAgent', {
+            defaultMessage: 'Select {agent}',
+            values: { agent: agent.name || agent.id },
+          })}
         />
       ),
     },
     {
       field: 'id',
-      name: 'ID',
+      name: i18n.translate('wazuh.scaReport.selector.id', {
+        defaultMessage: 'ID',
+      }),
       width: '80px',
     },
     {
       field: 'name',
-      name: 'Server',
+      name: i18n.translate('wazuh.scaReport.selector.server', {
+        defaultMessage: 'Server',
+      }),
     },
     {
-      name: 'Operating system',
+      name: i18n.translate('wazuh.scaReport.selector.os', {
+        defaultMessage: 'Operating system',
+      }),
       render: agent =>
         [agent?.os?.name, agent?.os?.version].filter(Boolean).join(' ') || '-',
     },
     {
       field: 'status',
-      name: 'Status',
+      name: i18n.translate('wazuh.scaReport.selector.status', {
+        defaultMessage: 'Status',
+      }),
       width: '120px',
     },
   ];
@@ -203,20 +233,28 @@ export const ScaReportAgentSelector = ({
     <EuiModal onClose={onCancel} maxWidth={900}>
       <EuiModalHeader>
         <EuiModalHeaderTitle>
-          Select servers for the SCA report
+          {i18n.translate('wazuh.scaReport.selector.title', {
+            defaultMessage: 'Select servers for the SCA report',
+          })}
         </EuiModalHeaderTitle>
       </EuiModalHeader>
 
       <EuiModalBody>
         <EuiText size='s'>
-          Select all servers that must be included in this PDF. Each selected
-          server will get its own SCA policy summary and complete control list.
+          {i18n.translate('wazuh.scaReport.selector.description', {
+            defaultMessage:
+              'Select all servers that must be included in this PDF. Each selected ' +
+              'server will get its own SCA policy summary and complete control list.',
+          })}
         </EuiText>
 
         <EuiSpacer size='m' />
 
         <EuiFieldSearch
-          placeholder='Filter by ID, server name, operating system or status'
+          placeholder={i18n.translate('wazuh.scaReport.selector.search', {
+            defaultMessage:
+              'Filter by ID, server name, operating system or status',
+          })}
           value={search}
           onChange={event => {
             setSearch(event.target.value);
@@ -234,7 +272,10 @@ export const ScaReportAgentSelector = ({
               onClick={selectFilteredAgents}
               isDisabled={!filteredAgents.length}
             >
-              Select all filtered ({filteredAgents.length})
+              {i18n.translate('wazuh.scaReport.selector.selectFiltered', {
+                defaultMessage: 'Select all filtered ({count})',
+                values: { count: filteredAgents.length },
+              })}
             </EuiButtonEmpty>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
@@ -243,21 +284,52 @@ export const ScaReportAgentSelector = ({
               onClick={() => setSelectedAgentIds([])}
               isDisabled={!selectedAgentIds.length}
             >
-              Clear selection
+              {i18n.translate('wazuh.scaReport.selector.clear', {
+                defaultMessage: 'Clear selection',
+              })}
             </EuiButtonEmpty>
           </EuiFlexItem>
           <EuiFlexItem>
             <EuiText textAlign='right' size='s'>
-              <strong>{selectedAgentIds.length}</strong> server
-              {selectedAgentIds.length === 1 ? '' : 's'} selected
+              <strong>{selectedAgentIds.length}</strong>{' '}
+              {selectedText(selectedAgentIds.length)}
             </EuiText>
           </EuiFlexItem>
         </EuiFlexGroup>
 
         <EuiSpacer size='s' />
 
+        {tooManyAgents && (
+          <>
+            <EuiCallOut
+              title={i18n.translate('wazuh.scaReport.selector.tooManyTitle', {
+                defaultMessage: 'Select at most {max} servers',
+                values: { max: SCA_REPORT_MAX_AGENTS },
+              })}
+              color='warning'
+              iconType='alert'
+              data-test-subj='sca-report-too-many-agents'
+            >
+              <p>
+                {i18n.translate('wazuh.scaReport.selector.tooMany', {
+                  defaultMessage:
+                    'A report includes up to {max} servers. Narrow the selection or ' +
+                    'generate several reports.',
+                  values: { max: SCA_REPORT_MAX_AGENTS },
+                })}
+              </p>
+            </EuiCallOut>
+            <EuiSpacer size='s' />
+          </>
+        )}
+
         {loadError ? (
-          <EuiCallOut title='Unable to load servers' color='danger'>
+          <EuiCallOut
+            title={i18n.translate('wazuh.scaReport.selector.cannotLoad', {
+              defaultMessage: 'Unable to load servers',
+            })}
+            color='danger'
+          >
             <p>{loadError}</p>
           </EuiCallOut>
         ) : (
@@ -284,21 +356,35 @@ export const ScaReportAgentSelector = ({
         <EuiCheckbox
           id='sca-report-include-details'
           data-test-subj='sca-report-include-details'
-          label='Include detailed results by server (every control, larger report)'
+          label={i18n.translate('wazuh.scaReport.selector.details', {
+            defaultMessage:
+              'Include detailed results by server (every control, larger report)',
+          })}
           checked={includeDetails}
           onChange={event => setIncludeDetails(event.target.checked)}
         />
-        <EuiButtonEmpty onClick={onCancel}>Cancel</EuiButtonEmpty>
+        <EuiButtonEmpty onClick={onCancel}>
+          {i18n.translate('wazuh.scaReport.selector.cancel', {
+            defaultMessage: 'Cancel',
+          })}
+        </EuiButtonEmpty>
         <EuiButton
           fill
           iconType='document'
           onClick={generateReport}
           isLoading={generating}
           isDisabled={
-            loadingAgents || Boolean(loadError) || !selectedAgentIds.length
+            loadingAgents ||
+            Boolean(loadError) ||
+            !selectedAgentIds.length ||
+            tooManyAgents
           }
+          data-test-subj='sca-report-generate'
         >
-          Generate report ({selectedAgentIds.length})
+          {i18n.translate('wazuh.scaReport.selector.generate', {
+            defaultMessage: 'Generate report ({count})',
+            values: { count: selectedAgentIds.length },
+          })}
         </EuiButton>
       </EuiModalFooter>
     </EuiModal>

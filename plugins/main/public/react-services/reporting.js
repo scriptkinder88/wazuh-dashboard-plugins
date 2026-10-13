@@ -159,12 +159,10 @@ export class ReportingService {
 
       const indexPattern = dataSourceContext?.indexPattern;
 
-      // Preserve the dashboard query and RBAC filters when an OpenSearch data
-      // source is available, but remove only the currently pinned agent. The
-      // The SCA inventory page in Wazuh 4.14.x is API-backed and can
-      // legitimately have no data-source index pattern. In that case the
-      // backend falls back to the configured Wazuh alerts pattern and applies
-      // the selected agent IDs plus SCA filters server-side.
+      // Keep the dashboard query and filters, except the pinned agent: the
+      // report covers the agents chosen in the selector. Without a data
+      // source the server queries the configured alerts index pattern, and
+      // it only reads the agents the user can access in the Wazuh server API.
       const filters = (dataSourceContext?.filters || []).filter(
         filter =>
           filter?.meta?.controlledBy !==
@@ -228,6 +226,36 @@ export class ReportingService {
         },
       };
       getErrorOrchestrator().handleError(options);
+    }
+  }
+
+  /** PDF of the CIS-CAT exclusion register (audit evidence). */
+  async startCiscatExclusionsReport() {
+    try {
+      const response = await WzRequest.genericReq(
+        'POST',
+        '/reports/ciscat/exclusions',
+        {
+          browserTimezone: moment.tz.guess(true),
+          apiId: JSON.parse(AppState.getCurrentAPI()).id,
+        },
+        { checkCurrentApiIsUp: false },
+      );
+      this.renderSucessReportsToast({ filename: response.data.filename });
+      return true;
+    } catch (error) {
+      getErrorOrchestrator().handleError({
+        context: `${ReportingService.name}.startCiscatExclusionsReport`,
+        level: UI_LOGGER_LEVELS.ERROR,
+        severity: UI_ERROR_SEVERITIES.BUSINESS,
+        store: true,
+        error: {
+          error: error,
+          message: error.message || error,
+          title: `Error creating the report`,
+        },
+      });
+      return false;
     }
   }
 

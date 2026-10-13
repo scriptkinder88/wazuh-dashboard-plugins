@@ -167,6 +167,47 @@ describe('editAgentConf', () => {
   });
 });
 
+describe('special characters', () => {
+  it('keeps "&" and entities as they are, like the Wazuh XML reader', () => {
+    const imported = `<agent_config>
+  <syscheck>
+    <directories restrict="a&amp;b|c&d">C:\\R&D</directories>
+  </syscheck>
+</agent_config>
+`;
+    const [dir] = parseRules(imported);
+    expect(dir.path).toBe('C:\\R&D');
+    expect(dir.attrs.restrict).toBe('a&amp;b|c&d');
+    expect(validateRule({ ...dir, meta })).toEqual([]);
+
+    // changing an option rewrites the values unchanged
+    const changed = editAgentConf(imported, {
+      remove: [ruleKey(dir)],
+      add: [{ ...dir, attrs: { ...dir.attrs, realtime: 'yes' }, meta }],
+    });
+    const [after] = parseRules(changed);
+    expect(after.path).toBe('C:\\R&D');
+    expect(after.attrs).toEqual({ realtime: 'yes', restrict: 'a&amp;b|c&d' });
+    expect(changed).toContain('restrict="a&amp;b|c&d"');
+  });
+
+  it('writes a path with "&" that reads back the same', () => {
+    const out = editAgentConf(CONF, {
+      add: [rule({ path: '/srv/R&D/"quoted"' })],
+    });
+    expect(parseRules(out).map(r => r.path)).toContain('/srv/R&D/"quoted"');
+  });
+
+  it('refuses characters that would end the value', () => {
+    expect(validateRule(rule({ path: '/a>b' }))).toEqual([
+      'the path cannot contain < > or line breaks',
+    ]);
+    expect(validateRule(rule({ attrs: { restrict: 'a"b' } }))).toEqual([
+      'invalid attribute restrict',
+    ]);
+  });
+});
+
 describe('validateRule', () => {
   it('checks path, recursion level, tags and reason', () => {
     expect(validateRule(rule())).toEqual([]);
