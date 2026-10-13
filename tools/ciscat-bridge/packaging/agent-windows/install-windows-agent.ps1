@@ -112,10 +112,14 @@ if ((Test-Path -LiteralPath (Join-Path $pkgAssessor "Assessor-CLI.bat")) -and (T
             $oldDir = Join-Path $backup "Assessor"
             if (Test-Path -LiteralPath $oldDir) { $oldDir = Join-Path $backup ("Assessor." + (Get-Date -Format "HHmmss") + "." + $PID) }
             Move-Item -LiteralPath $assessorDir -Destination $oldDir
-            # the license stays
-            $oldLic = Join-Path $oldDir "license"
-            if ((Test-Path -LiteralPath $oldLic) -and -not (Get-ChildItem -LiteralPath (Join-Path $newDir "license") -File -ErrorAction SilentlyContinue)) {
-                Copy-Item -LiteralPath $oldLic -Destination $newDir -Recurse -Force
+            # the license and the benchmarks sent by the master stay (the package has neither)
+            foreach ($keep in "license", "benchmarks") {
+                $oldKeep = Join-Path $oldDir $keep
+                $newKeep = Join-Path $newDir $keep
+                if ((Test-Path -LiteralPath $oldKeep) -and -not (Get-ChildItem -LiteralPath $newKeep -File -ErrorAction SilentlyContinue)) {
+                    if (Test-Path -LiteralPath $newKeep) { Remove-Item -LiteralPath $newKeep -Recurse -Force }
+                    Copy-Item -LiteralPath $oldKeep -Destination $newDir -Recurse -Force
+                }
             }
         }
         Move-Item -LiteralPath $newDir -Destination $assessorDir

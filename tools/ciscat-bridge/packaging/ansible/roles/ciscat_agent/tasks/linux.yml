@@ -13,6 +13,26 @@
     dest: '/opt/ciscat/install/{{ ciscat_version }}'
     owner: root
     group: root
+  when: ciscat_package_url | length == 0
+
+- name: Download the agent package (SHA-256 checked)
+  ansible.builtin.get_url:
+    url: '{{ ciscat_package_url | regex_replace("/+$", "") }}/{{ ciscat_package_linux }}'
+    dest: '/opt/ciscat/install/{{ ciscat_version }}/{{ ciscat_package_linux }}'
+    checksum: 'sha256:{{ ciscat_package_sha256_linux }}'
+    owner: root
+    group: root
+    mode: '0600'
+  when: ciscat_package_url | length > 0
+
+- name: Unpack the downloaded agent package
+  ansible.builtin.unarchive:
+    src: '/opt/ciscat/install/{{ ciscat_version }}/{{ ciscat_package_linux }}'
+    dest: '/opt/ciscat/install/{{ ciscat_version }}'
+    remote_src: true
+    owner: root
+    group: root
+  when: ciscat_package_url | length > 0
 
 - name: Master public key next to the installer, from the master
   ansible.builtin.copy:

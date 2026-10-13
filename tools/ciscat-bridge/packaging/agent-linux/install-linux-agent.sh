@@ -76,13 +76,16 @@ if [ -x "$HERE/Assessor/Assessor-CLI.sh" ] && [ -s "$HERE/ASSESSOR_VERSION" ]; t
             old_dir="$BACKUP/Assessor"
             [ -e "$old_dir" ] && old_dir="$BACKUP/Assessor.$(date +%H%M%S).$$"
             mv "$ASSESSOR" "$old_dir" || stop "cannot move the old Assessor to $old_dir"
-            # the license and the files CIS-CAT does not ship stay
-            if [ -d "$old_dir/license" ] && ! ls "$ASSESSOR.new/license"/* >/dev/null 2>&1; then
-                cp -a "$old_dir/license" "$ASSESSOR.new/"
-            fi
+            # the license and the benchmarks sent by the master stay (the package has neither)
+            for keep in license benchmarks; do
+                if [ -d "$old_dir/$keep" ] && ! ls "$ASSESSOR.new/$keep"/* >/dev/null 2>&1; then
+                    rm -rf "$ASSESSOR.new/$keep"
+                    cp -a "$old_dir/$keep" "$ASSESSOR.new/"
+                fi
+            done
         fi
         mv "$ASSESSOR.new" "$ASSESSOR"
-        chmod +x "$ASSESSOR/Assessor-CLI.sh" "$ASSESSOR"/jre/bin/* 2>/dev/null
+        chmod +x "$ASSESSOR/Assessor-CLI.sh" "$ASSESSOR"/jre/bin/* "$ASSESSOR"/jre/lib/jspawnhelper 2>/dev/null
         if "$ASSESSOR/jre/bin/java" -version >/dev/null 2>&1; then
             printf '%s\n' "$new_ver" > "$ASSESSOR/.bridge-assessor-version"
             say "   Assessor $new_ver installed${old_dir:+ (previous one in $old_dir)}"

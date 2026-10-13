@@ -1,11 +1,18 @@
 ---
 # Bridge version of the packages, and the folder holding the release attachments on the
 # controller: the agent packages (and master/agent-keys/ciscat-manifest.pub{,.xml} when pinned)
-ciscat_version: '2.3.0'
+ciscat_version: '2.3.1'
 ciscat_release_dir: '{{ playbook_dir }}/release'
 # package file names (the full packages carry the Assessor: -assessor-<version>)
 ciscat_package_linux: 'ciscat-agent-linux-{{ ciscat_version }}.tar.gz'
 ciscat_package_windows: 'ciscat-agent-windows-{{ ciscat_version }}.zip'
+# Download the packages on each agent from this URL (e.g. a Red Hat Satellite file repository:
+# https://<satellite>/pulp/content/<org>/<environment>/<content view>/custom/<product>/<repo>)
+# instead of copying them from ciscat_release_dir. The SHA-256 of each package (SHA256SUMS of
+# the release) is then required: a package that does not match is not installed.
+ciscat_package_url: ''
+ciscat_package_sha256_linux: ''
+ciscat_package_sha256_windows: ''
 # The master's public key, which every manifest must be signed with. With ciscat_master_host
 # (a host of the inventory, reached as root) it is read on the master and installed with each
 # agent: pinned before the first sync, nothing to copy by hand. Recommended.

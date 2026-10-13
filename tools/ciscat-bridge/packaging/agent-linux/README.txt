@@ -16,8 +16,8 @@ The installer stops when the folder is in a home or temporary folder, or writabl
 2. Install or update, root, in the agent-linux/ folder:
      sh install-linux-agent.sh
    - CIS-CAT Pro in /opt/ciscat/Assessor: installed or updated from the package when it carries
-     the Assessor (ASSESSOR_VERSION), keeping the license; a new version whose Java does not
-     start is rolled back; /opt/ciscat and the Assessor owned by root;
+     the Assessor (ASSESSOR_VERSION), keeping the license and the benchmarks; a new version
+     whose Java does not start is rolled back; /opt/ciscat and the Assessor owned by root;
    - exit.on.invalid.signature=false (the tailored benchmark is unsigned);
    - ciscat-bootstrap.sh (root:wazuh 0750) in active-response/bin (and the public key in
      /var/lib/wazuh-ciscat when given);
