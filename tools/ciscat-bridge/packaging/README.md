@@ -37,8 +37,10 @@ python3 build.py --plugin <plugin zip name> --plugin-sha256 <sha256> --out /srv/
 - The build stops if a license or benchmark file is still found anywhere in a package (read back
   from the package itself), if an Assessor is not for its platform (`jre/bin/java.exe` on
   Windows, `jre/bin/java` on Linux), or if an archive holds an absolute or `..` path or a link.
-- On Linux the launcher, `jre/bin/*` and `jre/lib/jspawnhelper` are made executable (archives
-  made on Windows carry no exec bits).
+- The file modes in the packages are set by the build, not read from the disk: the launcher,
+  the scripts and the JRE of the Linux package are executable (also when the archive, made on
+  Windows, carries no exec bits), everything else is 0644. The build gives the same packages
+  on Linux and on Windows (MobaXterm, Cygwin).
 - Output: `ciscat-agent-windows-<v>-assessor-<a>.zip`, `ciscat-agent-linux-<v>-assessor-<a>.tar.gz`
   and `SHA256SUMS`.
 
