@@ -28,6 +28,7 @@ import {
   benchListName,
 } from '../../../../../common/ciscat/store';
 import { getToasts } from '../../../../kibana-services';
+import { ReportingService } from '../../../../react-services/reporting';
 import {
   Bench,
   KeyedExclusions,
@@ -85,6 +86,16 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
   const [page, setPage] = useState({ index: 0, size: 50 });
   const [flyoutRules, setFlyoutRules] = useState<string[]>();
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  // the saved register, read again by the server: unsaved changes are not in it
+  const exportRegister = async () => {
+    setExporting(true);
+    try {
+      await new ReportingService().startCiscatExclusionsReport();
+    } finally {
+      setExporting(false);
+    }
+  };
   // Wazuh group each benchmark applies to (ciscat-targets), as edited here
   const [targets, setTargets] = useState<Record<string, string>>(() =>
     savedTargets(data),
@@ -356,6 +367,17 @@ export const ExclusionsPanel = ({ data, user, onSaved }: Props) => {
             onClick={() => setFlyoutRules(Array.from(selected))}
           >
             {messages.excludeSelected(selected.size)}
+          </EuiButton>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <EuiButton
+            size='s'
+            iconType='document'
+            isLoading={exporting}
+            onClick={exportRegister}
+            data-test-subj='ciscat-export-register'
+          >
+            {messages.exportRegister()}
           </EuiButton>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>

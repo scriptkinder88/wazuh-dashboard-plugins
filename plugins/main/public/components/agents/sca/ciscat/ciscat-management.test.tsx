@@ -68,6 +68,13 @@ jest.mock('../../../../kibana-services', () => ({
   getHttp: () => ({ get: jest.fn() }),
 }));
 
+const mockReport = jest.fn(() => Promise.resolve(true));
+jest.mock('../../../../react-services/reporting', () => ({
+  ReportingService: jest.fn(() => ({
+    startCiscatExclusionsReport: mockReport,
+  })),
+}));
+
 jest.mock('./lib/lists-api', () => {
   const store = jest.requireActual('../../../../../common/ciscat/store');
   const read = (name: string) => {
@@ -237,6 +244,15 @@ describe('CIS-CAT management tab', () => {
       ]),
     );
     expect(mockToasts.addDanger).toHaveBeenCalledTimes(1);
+  });
+
+  it('exports the exclusion register as a PDF report', async () => {
+    render(<CiscatManagement />);
+    const button = await screen.findByTestId('ciscat-export-register');
+    fireEvent.click(button);
+    await waitFor(() => expect(mockReport).toHaveBeenCalledTimes(1));
+    // reading the register needs no write permission
+    expect(button.getAttribute('data-permissions')).toBeNull();
   });
 
   it('requires lists:update for the buttons that change the lists', async () => {

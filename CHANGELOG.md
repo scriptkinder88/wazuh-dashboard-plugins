@@ -14,6 +14,7 @@ All notable changes to the Wazuh app project will be documented in this file.
 - Verify reconstructed indexed SCA checks against the latest scan `total_checks` and withhold scores when index history is incomplete or unverified
 - Added sanitization in markdown component [#8713](https://github.com/wazuh/wazuh-dashboard-plugins/pull/8713)
 - Added CIS-CAT runs and schedules on chosen agents, lists of agents and OS or custom agent groups, a "No group" choice for a benchmark, and a warning when several benchmarks apply to one group
+- Added a PDF export of the CIS-CAT exclusion register (reason, ticket, owner, who changed each and when) to the CIS-CAT tab, with the configured report branding
 
 ### Fixed
 

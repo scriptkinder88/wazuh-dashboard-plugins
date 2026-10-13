@@ -28,6 +28,10 @@ import {
 import { ReportPrinter } from '../lib/reporting/printer';
 import { addScaChecksToReport } from '../lib/reporting/sca-report';
 import {
+  addExclusionRegisterToReport,
+  fetchExclusionRegister,
+} from '../lib/reporting/ciscat-exclusions-report';
+import {
   ScaReportAgentsError,
   filterAuthorizedAgentIds,
 } from '../lib/reporting/sca-authorized-agents';
@@ -1045,6 +1049,53 @@ export class WazuhReportingCtrl {
       },
       ({ params: { agentID } }) =>
         `wazuh-agent-configuration-${agentID}-${this.generateReportTimestamp()}.pdf`,
+    );
+
+  /**
+   * CIS-CAT exclusion register (audit evidence), in the layout of the other
+   * reports: logo, header and footer from the reporting settings.
+   */
+  createReportCiscatExclusions =
+    this.checkReportsUserDirectoryIsValidRouteDecorator(
+      async (
+        context: RequestHandlerContext,
+        request: OpenSearchDashboardsRequest,
+        response: OpenSearchDashboardsResponseFactory,
+      ) => {
+        try {
+          const { browserTimezone, apiId } = request.body;
+          const printer = new ReportPrinter(
+            context.wazuh.logger.get('report-printer'),
+            context.wazuh_core.configuration,
+          );
+          context.wazuh_core.dataPathService.createDataDirectoryIfNotExists(
+            `downloads/reports/${context.wazuhEndpointParams.hashUsername}`,
+          );
+          const register = await fetchExclusionRegister(context, apiId);
+          let generatedAt;
+          try {
+            generatedAt = new Date().toLocaleString('en-GB', {
+              timeZone: browserTimezone,
+              timeZoneName: 'short',
+            });
+          } catch {
+            generatedAt = new Date().toISOString();
+          }
+          addExclusionRegisterToReport(printer, register, generatedAt);
+          await printer.print(context.wazuhEndpointParams.pathFilename);
+          return response.ok({
+            body: {
+              success: true,
+              message: `Report ${context.wazuhEndpointParams.filename} was created`,
+              filename: context.wazuhEndpointParams.filename,
+            },
+          });
+        } catch (error) {
+          context.wazuh.logger.debug(error.message || error);
+          return ErrorResponse(error.message || error, 5029, 500, response);
+        }
+      },
+      () => `wazuh-ciscat-exclusions-${this.generateReportTimestamp()}.pdf`,
     );
 
   /**

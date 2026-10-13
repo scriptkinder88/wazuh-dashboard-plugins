@@ -229,6 +229,36 @@ export class ReportingService {
     }
   }
 
+  /** PDF of the CIS-CAT exclusion register (audit evidence). */
+  async startCiscatExclusionsReport() {
+    try {
+      const response = await WzRequest.genericReq(
+        'POST',
+        '/reports/ciscat/exclusions',
+        {
+          browserTimezone: moment.tz.guess(true),
+          apiId: JSON.parse(AppState.getCurrentAPI()).id,
+        },
+        { checkCurrentApiIsUp: false },
+      );
+      this.renderSucessReportsToast({ filename: response.data.filename });
+      return true;
+    } catch (error) {
+      getErrorOrchestrator().handleError({
+        context: `${ReportingService.name}.startCiscatExclusionsReport`,
+        level: UI_LOGGER_LEVELS.ERROR,
+        severity: UI_ERROR_SEVERITIES.BUSINESS,
+        store: true,
+        error: {
+          error: error,
+          message: error.message || error,
+          title: `Error creating the report`,
+        },
+      });
+      return false;
+    }
+  }
+
   async startVis2Png(
     tab,
     /** @type {Agent['id'] | false} */ agents = false,

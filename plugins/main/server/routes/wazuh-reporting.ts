@@ -114,6 +114,20 @@ export function WazuhReportingRoutes(router: IRouter) {
 
   router.post(
     {
+      path: '/reports/ciscat/exclusions',
+      validate: {
+        body: schema.object({
+          browserTimezone: schema.string({ maxLength: 64 }),
+          apiId: schema.string({ maxLength: 256 }),
+        }),
+      },
+    },
+    (context, request, response) =>
+      ctrl.createReportCiscatExclusions(context, request, response),
+  );
+
+  router.post(
+    {
       path: '/reports/groups/{groupID}',
       validate: {
         body: schema.object({

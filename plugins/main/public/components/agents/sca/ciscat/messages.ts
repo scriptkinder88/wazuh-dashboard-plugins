@@ -236,6 +236,10 @@ export const messages = {
     i18n.translate('wazuh.ciscat.exclusions.scored', {
       defaultMessage: 'Scored (automated)',
     }),
+  exportRegister: () =>
+    i18n.translate('wazuh.ciscat.exclusions.exportRegister', {
+      defaultMessage: 'Export register (PDF)',
+    }),
   excludeSelected: (count: number) =>
     i18n.translate('wazuh.ciscat.exclusions.excludeSelected', {
       defaultMessage: 'Exclude selected ({count})',
