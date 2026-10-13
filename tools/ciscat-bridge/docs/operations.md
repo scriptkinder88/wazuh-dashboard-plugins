@@ -9,20 +9,20 @@ All commands run as root on the Wazuh master unless the section says otherwise.
 
 **Master**
 
-| Path                                                  | What                                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `/opt/ciscat/bin`                                     | bridge scripts (`ciscat-fleet.py`, `ciscat-scheduler.py`, …)       |
-| `/opt/ciscat/benchmarks`                              | CIS benchmark files (licensed, never in the repository)            |
-| `/opt/ciscat/license/license.xml`                     | CIS-CAT Pro licence, sent to the agents (root, 0600)               |
-| `/opt/ciscat/etc/ciscat-orchestrator.conf`            | settings: API user, password file, `auto_assign`, `keep_default_sca` |
-| `/opt/ciscat/etc/manifest-signing.key`                | private signing key (root only, never copied)                      |
-| `/opt/ciscat/etc/ciscat-manifest.pub{,.xml}`          | public keys for Linux and Windows agents                           |
-| `/opt/ciscat/log`                                     | scheduler log and one log per job                                  |
-| `/opt/ciscat/backup`                                  | backups made by every installation                                 |
-| `/opt/ciscat/install/<version>`                       | unpacked release packages (kept for rollback and audit)            |
-| `/var/ossec/etc/lists/ciscat-*`                       | exclusions, schedules, status, coverage history (from the dashboard) |
-| `/var/ossec/etc/shared/os-*`, `ciscat-*`              | group files published to the agents                                |
-| `/etc/cron.d/ciscat-scheduler`                        | scheduler, every 5 minutes                                         |
+| Path                                         | What                                                                 |
+| -------------------------------------------- | -------------------------------------------------------------------- |
+| `/opt/ciscat/bin`                            | bridge scripts (`ciscat-fleet.py`, `ciscat-scheduler.py`, …)         |
+| `/opt/ciscat/benchmarks`                     | CIS benchmark files (licensed, never in the repository)              |
+| `/opt/ciscat/license/license.xml`            | CIS-CAT Pro licence, sent to the agents (root, 0600)                 |
+| `/opt/ciscat/etc/ciscat-orchestrator.conf`   | settings: API user, password file, `auto_assign`, `keep_default_sca` |
+| `/opt/ciscat/etc/manifest-signing.key`       | private signing key (root only, never copied)                        |
+| `/opt/ciscat/etc/ciscat-manifest.pub{,.xml}` | public keys for Linux and Windows agents                             |
+| `/opt/ciscat/log`                            | scheduler log and one log per job                                    |
+| `/opt/ciscat/backup`                         | backups made by every installation                                   |
+| `/opt/ciscat/install/<version>`              | unpacked release packages (kept for rollback and audit)              |
+| `/var/ossec/etc/lists/ciscat-*`              | exclusions, schedules, status, coverage history (from the dashboard) |
+| `/var/ossec/etc/shared/os-*`, `ciscat-*`     | group files published to the agents                                  |
+| `/etc/cron.d/ciscat-scheduler`               | scheduler, every 5 minutes                                           |
 
 **Linux agent**: CIS-CAT Pro in `/opt/ciscat/Assessor`, bridge data and results in
 `/var/lib/wazuh-ciscat`, bootstrap in `/var/ossec/active-response/bin/ciscat-bootstrap.sh`,
@@ -107,7 +107,7 @@ time it receives it and from then on only accepts packages signed with that key.
    - **100950**: CIS-CAT Pro or its licence missing on an agent.
    - **100951**: an agent refused a file from the master (signature, checksum or destination).
    - **100952**: an agent received a public key different from the one it keeps.
-   100951 and 100952 must never appear in normal operation: treat them as security events.
+     100951 and 100952 must never appear in normal operation: treat them as security events.
 
 **Monthly**: `ciscat-fleet.py report` (scores per agent) and a review of the exclusions
 (`ciscat-fleet.py exclusions > exclusions-<date>.csv`): each should still have a valid reason,
@@ -123,13 +123,13 @@ tail -50 /opt/ciscat/log/ciscat-scheduler.log
 
 ## 5. Updates
 
-| What changes                         | What to do                                                                    |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| Bridge (new release)                 | Run the master setup of the new package; agents get the new scripts by themselves |
-| Launcher or bootstrap                | Roll out the new agent package (by hand or Ansible)                           |
-| CIS benchmark (new version)          | Copy the file to `/opt/ciscat/benchmarks`; it shows up in the dashboard within the hour |
-| CIS-CAT Pro Assessor                 | Roll out the full agent package (with `ASSESSOR_VERSION`); the licence is kept, a version that does not start is rolled back |
-| Licence renewal                      | Replace `/opt/ciscat/license/license.xml`, run `ciscat-fleet.py apply`        |
+| What changes                | What to do                                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Bridge (new release)        | Run the master setup of the new package; agents get the new scripts by themselves                                            |
+| Launcher or bootstrap       | Roll out the new agent package (by hand or Ansible)                                                                          |
+| CIS benchmark (new version) | Copy the file to `/opt/ciscat/benchmarks`; it shows up in the dashboard within the hour                                      |
+| CIS-CAT Pro Assessor        | Roll out the full agent package (with `ASSESSOR_VERSION`); the licence is kept, a version that does not start is rolled back |
+| Licence renewal             | Replace `/opt/ciscat/license/license.xml`, run `ciscat-fleet.py apply`                                                       |
 
 Every master installation makes a backup in `/opt/ciscat/backup`. To go back:
 `sh ciscat-bridge-install-<version>.sh --rollback /opt/ciscat/backup/ciscat-bridge-<date>.tgz`.
@@ -139,17 +139,17 @@ Response log), so agents with an older Assessor are easy to find.
 
 ## 6. Common problems
 
-| Symptom                                             | Likely cause and check                                                                   |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Agent not assessed, job says "platform"             | A Windows benchmark on a Linux agent or the reverse; check the agent's groups            |
-| Agent not assessed, job says "status disconnected"  | Agent disconnected at run time; it runs at the next schedule                             |
-| Agent not assessed, "in no group of an active …"    | The agent is in no OS group; `ciscat-fleet.py assign` shows where it would go             |
-| `REFUSED (signature …)` in the agent log            | The agent keeps another master key; see section 3                                        |
-| `no ciscat-manifest-*.csv` in the agent log         | Group files not synchronised yet; wait a few minutes or restart the agent                |
-| Results in CIS-CAT but not in the dashboard         | SCA reads them at its next scan (every hour); restart the agent to read them now         |
-| Alert 100950                                        | Assessor or licence missing on the agent; reinstall the agent package or the licence     |
-| Windows run never starts                            | `shared\ar.conf` on the agent must map `ciscat-assessment0` (check W2 of the e2e test)   |
-| Two scores for one server                           | The Wazuh default SCA policy is still on; it is switched off at the next `apply` unless `keep_default_sca=yes` |
+| Symptom                                            | Likely cause and check                                                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Agent not assessed, job says "platform"            | A Windows benchmark on a Linux agent or the reverse; check the agent's groups                                  |
+| Agent not assessed, job says "status disconnected" | Agent disconnected at run time; it runs at the next schedule                                                   |
+| Agent not assessed, "in no group of an active …"   | The agent is in no OS group; `ciscat-fleet.py assign` shows where it would go                                  |
+| `REFUSED (signature …)` in the agent log           | The agent keeps another master key; see section 3                                                              |
+| `no ciscat-manifest-*.csv` in the agent log        | Group files not synchronised yet; wait a few minutes or restart the agent                                      |
+| Results in CIS-CAT but not in the dashboard        | SCA reads them at its next scan (every hour); restart the agent to read them now                               |
+| Alert 100950                                       | Assessor or licence missing on the agent; reinstall the agent package or the licence                           |
+| Windows run never starts                           | `shared\ar.conf` on the agent must map `ciscat-assessment0` (check W2 of the e2e test)                         |
+| Two scores for one server                          | The Wazuh default SCA policy is still on; it is switched off at the next `apply` unless `keep_default_sca=yes` |
 
 For anything else, the end-to-end scripts point to the step that failed.
 
