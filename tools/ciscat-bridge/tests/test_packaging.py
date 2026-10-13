@@ -148,12 +148,46 @@ class Packaging(unittest.TestCase):
         r, out = self.run_build("--assessor-linux", win)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("not the Linux Assessor", r.stdout)
+        # both JREs in one folder (or a shell that finds java.exe when asked for java)
+        both = self.download("CIS-CAT-Assessor-linux-v4.64.2.zip", False,
+                             extra=["jre/bin/java.exe"])
+        r, out = self.run_build("--assessor-linux", both)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("java and java.exe", r.stdout)
         bad = self.download("CIS-CAT-Assessor-linux-v4.64.0.zip", False,
                             extra=["../../escape.sh"])
         r, out = self.run_build("--assessor-linux", bad)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("unsafe path", r.stdout)
         self.assertFalse(os.path.exists(os.path.join(self.d, "escape.sh")))
+
+    def test_package_modes_do_not_depend_on_the_disk(self):
+        """As on Cygwin/MobaXterm: chmod does nothing and the disk shows every file as 0644."""
+        lin = self.download("CIS-CAT-Assessor-linux-v4.64.0.zip", False, modes=False)
+        with zipfile.ZipFile(lin, "a") as z:
+            info = zipfile.ZipInfo("Assessor/misc/helper")
+            info.external_attr = 0o100755 << 16
+            z.writestr(info, "x")
+        out = os.path.join(self.d, "out")
+        code = ("import os, runpy, sys; sys.platform = 'cygwin'; "
+                "os.chmod = lambda *a, **k: None; sys.argv = sys.argv[1:]; "
+                "runpy.run_path(sys.argv[0], run_name='__main__')")
+        r = subprocess.run([sys.executable, "-c", code, BUILD, "--plugin", "plugin.zip",
+                            "--plugin-sha256", SHA, "--out", out, "--assessor-linux", lin],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        with tarfile.open(os.path.join(out, "ciscat-agent-linux-2.3.1-assessor-4.64.0.tar.gz")) as t:
+            modes = {m.name: m.mode & 0o777 for m in t.getmembers()}
+        for name, mode in (("install-linux-agent.sh", 0o755), ("ciscat-e2e-linux.sh", 0o755),
+                           ("README.txt", 0o644), ("Assessor/Assessor-CLI.sh", 0o755),
+                           ("Assessor/jre/bin/java", 0o755), ("Assessor/jre/lib/jspawnhelper", 0o755),
+                           ("Assessor/misc/helper", 0o755), ("Assessor/lib/assessor.jar", 0o644),
+                           ("Assessor", 0o755)):
+            self.assertEqual(modes["agent-linux/" + name], mode, name)
+        with zipfile.ZipFile(os.path.join(out, "ciscat-master-2.3.1.zip")) as z:
+            info = z.getinfo("master/ciscat-master-setup.sh")
+        self.assertEqual((info.external_attr >> 16) & 0o777, 0o755)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,10 @@ SKIP_DIRS = {"license", "benchmarks", "reports", "logs"}
 LICENSED_RE = re.compile(
     r"^(license|benchmarks)/|(^|/)license\.xml$|\.lic$|(^|/)CIS_[^/]*\.(xml|zip)$|"
     r"-(xccdf|oval|cpe-dictionary|cpe-oval)\.xml$", re.I)
+# File modes in the packages come from the build, not from the disk: on Windows (Cygwin,
+# MobaXterm, Git Bash) the disk does not keep them. Paths not listed get 0644 there.
+MODES = {}
+TRUST_DISK_MODES = sys.platform not in ("cygwin", "msys", "win32")
 VERSION_RE = re.compile(r"(?<![0-9.])v?(\d+\.\d+\.\d+)(?![0-9])")
 
 
@@ -77,11 +81,23 @@ def render(src, subs, crlf=False):
     return text
 
 
+def set_mode(path, mode):
+    MODES[os.path.abspath(path)] = mode
+    os.chmod(path, mode)
+
+
+def mode_of(path):
+    path = os.path.abspath(path)
+    if path in MODES:
+        return MODES[path]
+    return os.stat(path).st_mode & 0o777 if TRUST_DISK_MODES else 0o644
+
+
 def write(path, text, mode=0o644):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
-    os.chmod(path, mode)
+    set_mode(path, mode)
 
 
 def sums(folder):
@@ -116,7 +132,7 @@ def unpack(archive, dest):
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with zf.open(info) as src, open(path, "wb") as f:
                     shutil.copyfileobj(src, f)
-                os.chmod(path, (mode & 0o755) or 0o644)
+                set_mode(path, 0o755 if mode & 0o111 else 0o644)
     elif tarfile.is_tarfile(archive):
         with tarfile.open(archive) as tf:
             for ti in tf.getmembers():
@@ -127,7 +143,7 @@ def unpack(archive, dest):
                     os.makedirs(os.path.dirname(path), exist_ok=True)
                     with tf.extractfile(ti) as src, open(path, "wb") as f:
                         shutil.copyfileobj(src, f)
-                    os.chmod(path, (ti.mode & 0o755) or 0o644)
+                    set_mode(path, 0o755 if ti.mode & 0o111 else 0o644)
                 else:
                     sys.exit("link or special file in {0}: {1}".format(archive, ti.name))
     else:
@@ -152,10 +168,14 @@ def copy_assessor(src, dest, windows, tmp):
         unpack(src, folder)
         src = folder
     root = assessor_root(src, "Assessor-CLI.bat" if windows else "Assessor-CLI.sh")
-    java = os.path.join(root, "jre", "bin", "java.exe" if windows else "java")
-    if not os.path.isfile(java):
-        sys.exit("{0}: no {1}: not the {2} Assessor".format(
-            src, os.path.relpath(java, root), "Windows" if windows else "Linux"))
+    # exact names from the folder listing: Cygwin finds java.exe when asked for java
+    bindir = os.path.join(root, "jre", "bin")
+    names = set(os.listdir(bindir)) if os.path.isdir(bindir) else set()
+    want, other = ("java.exe", "java") if windows else ("java", "java.exe")
+    if want not in names or other in names:
+        sys.exit("{0}: jre/bin holds {1}: not the {2} Assessor".format(
+            src, " and ".join(sorted(names & {"java", "java.exe"})) or "no java",
+            "Windows" if windows else "Linux"))
     left_out = []
     for name in sorted(os.listdir(root)):
         if name.lower() in SKIP_DIRS and os.path.isdir(os.path.join(root, name)):
@@ -166,15 +186,16 @@ def copy_assessor(src, dest, windows, tmp):
         return [n for n in names if os.path.abspath(folder) == os.path.abspath(root)
                 and n.lower() in SKIP_DIRS]
     shutil.copytree(root, dest, ignore=ignore, symlinks=False)
-    if not windows:
-        # archives made on Windows carry no exec bits: the launcher and the JRE need them
-        execs = [os.path.join(dest, "Assessor-CLI.sh"),
-                 os.path.join(dest, "jre", "lib", "jspawnhelper")]
-        bindir = os.path.join(dest, "jre", "bin")
-        execs += [os.path.join(bindir, n) for n in os.listdir(bindir)]
-        for p in execs:
-            if os.path.isfile(p):
-                os.chmod(p, 0o755)
+    # modes of the source (archive or disk); on Linux the launcher, the scripts and the JRE are
+    # executable whatever the source says (archives made on Windows carry no exec bits)
+    for r, dirs, files in os.walk(dest):
+        for f in files:
+            rel = os.path.relpath(os.path.join(r, f), dest).replace(os.sep, "/")
+            mode = 0o755 if mode_of(os.path.join(root, rel)) & 0o111 else 0o644
+            if not windows and (rel.endswith(".sh") or rel.startswith("jre/bin/")
+                                or rel in ("jre/lib/jspawnhelper", "jre/lib/jexec")):
+                mode = 0o755
+            set_mode(os.path.join(r, f), mode)
     licensed(dest, [os.path.relpath(os.path.join(r, f), dest)
                     for r, dirs, files in os.walk(dest) for f in files])
     return left_out
@@ -199,28 +220,46 @@ def assessor_version(given, src):
     return m.group(1)
 
 
+def walk(folder):
+    """(path, name in the package, is a folder) under folder, sorted; names always with /."""
+    base = os.path.dirname(folder)
+    yield folder, os.path.basename(folder), True
+    for root, dirs, files in os.walk(folder):
+        dirs.sort()
+        for name in dirs:
+            p = os.path.join(root, name)
+            yield p, os.path.relpath(p, base).replace(os.sep, "/"), True
+        for name in sorted(files):
+            p = os.path.join(root, name)
+            yield p, os.path.relpath(p, base).replace(os.sep, "/"), False
+
+
 def zip_folder(folder, out):
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(folder):
-            dirs.sort()
-            for name in sorted(files):
-                p = os.path.join(root, name)
-                info = zipfile.ZipInfo(os.path.relpath(p, os.path.dirname(folder)),
-                                       (2026, 1, 1, 0, 0, 0))
-                info.external_attr = (os.stat(p).st_mode & 0o777) << 16
-                info.compress_type = zipfile.ZIP_DEFLATED
-                with open(p, "rb") as f:
-                    zf.writestr(info, f.read())
+        for p, name, is_dir in walk(folder):
+            if is_dir:
+                continue
+            info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
+            info.external_attr = (0o100000 | mode_of(p)) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(p, "rb") as f:
+                zf.writestr(info, f.read())
 
 
 def tar_folder(folder, out):
-    def norm(ti):
-        ti.uid = ti.gid = 0
-        ti.uname = ti.gname = "root"
-        ti.mtime = 1767225600
-        return ti
     with tarfile.open(out, "w:gz") as tf:
-        tf.add(folder, arcname=os.path.basename(folder), filter=norm)
+        for p, name, is_dir in walk(folder):
+            ti = tarfile.TarInfo(name)
+            ti.uid = ti.gid = 0
+            ti.uname = ti.gname = "root"
+            ti.mtime = 1767225600
+            if is_dir:
+                ti.type, ti.mode = tarfile.DIRTYPE, 0o755
+                tf.addfile(ti)
+            else:
+                ti.size, ti.mode = os.path.getsize(p), mode_of(p)
+                with open(p, "rb") as f:
+                    tf.addfile(ti, f)
 
 
 def main():
@@ -261,6 +300,7 @@ def main():
     m = os.path.join(work, "master")
     os.makedirs(m)
     shutil.copy(installer, m)
+    set_mode(os.path.join(m, os.path.basename(installer)), 0o755)
     src = os.path.join(HERE, "master")
     msubs = dict(subs, INSTALLER=os.path.basename(installer), PLUGIN=a.plugin,
                  PLUGIN_SHA=a.plugin_sha256)
