@@ -228,9 +228,10 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
 ## Changes
 
 - **2.3.1:** full agent packages built from the CIS-CAT Pro downloads as they are (zip or
-  tar.gz): license, benchmarks, reports and logs left out, the build stops if a license or
-  benchmark file is left in a package, and records what it left out. An Assessor update keeps the
-  benchmarks sent by the master as well as the license. The Ansible role can download the
+  tar.gz): the whole Assessor but the files of its license and benchmarks folders (the master
+  sends both), the build stops if a license or benchmark file is left in a package and records
+  what it left out; same packages when built on Windows (Cygwin). An Assessor update keeps the
+  license and the benchmarks sent by the master. The Ansible role can download the
   packages from a Red Hat Satellite file repository (SHA-256 checked), and no longer fails
   without `ciscat_master_host` on recent Ansible versions.
 - **2.3.0:** runs on chosen agents, lists of agents and OS or custom groups, from the dashboard

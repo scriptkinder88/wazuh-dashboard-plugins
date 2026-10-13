@@ -49,8 +49,11 @@ cd master && sh ciscat-master-setup.sh --auto-assign
 
 The setup asks once for a Wazuh API administrator to create the `ciscat-bridge` API user; that
 password is not stored. Expected result: `RESULT: OK`. Copy the CIS benchmarks to
-`/opt/ciscat/benchmarks` and the licence to `/opt/ciscat/license/license.xml`, then run
-`/opt/ciscat/bin/ciscat-fleet.py apply`.
+`/opt/ciscat/benchmarks`, each XCCDF with its OVAL and CPE files (`…-oval.xml`,
+`…-cpe-oval.xml`, `…-cpe-dictionary.xml`), and the licence to `/opt/ciscat/license/license.xml`,
+then run `/opt/ciscat/bin/ciscat-fleet.py apply`. The agents get the benchmarks and the licence
+only from the master: the Assessor of the agent packages has empty `benchmarks` and `license`
+folders. `apply` warns when a benchmark refers to an OVAL or CPE file that is not there.
 
 **Linux agents**: unpack `ciscat-agent-linux-<version>.tar.gz` in
 `/opt/ciscat/install/<version>` and run `sh install-linux-agent.sh` in `agent-linux/`.

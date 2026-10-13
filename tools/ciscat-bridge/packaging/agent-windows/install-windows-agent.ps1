@@ -112,13 +112,14 @@ if ((Test-Path -LiteralPath (Join-Path $pkgAssessor "Assessor-CLI.bat")) -and (T
             $oldDir = Join-Path $backup "Assessor"
             if (Test-Path -LiteralPath $oldDir) { $oldDir = Join-Path $backup ("Assessor." + (Get-Date -Format "HHmmss") + "." + $PID) }
             Move-Item -LiteralPath $assessorDir -Destination $oldDir
-            # the license and the benchmarks sent by the master stay (the package has neither)
+            # the license and the benchmarks sent by the master stay, added to the package's
             foreach ($keep in "license", "benchmarks") {
                 $oldKeep = Join-Path $oldDir $keep
                 $newKeep = Join-Path $newDir $keep
-                if ((Test-Path -LiteralPath $oldKeep) -and -not (Get-ChildItem -LiteralPath $newKeep -File -ErrorAction SilentlyContinue)) {
-                    if (Test-Path -LiteralPath $newKeep) { Remove-Item -LiteralPath $newKeep -Recurse -Force }
-                    Copy-Item -LiteralPath $oldKeep -Destination $newDir -Recurse -Force
+                if (Test-Path -LiteralPath $oldKeep) {
+                    New-Item -ItemType Directory -Force -Path $newKeep | Out-Null
+                    & robocopy.exe $oldKeep $newKeep /E /NFL /NDL /NJH /NJS /NP | Out-Null
+                    if ($LASTEXITCODE -ge 8) { Stop "copy of $oldKeep failed (robocopy exit $LASTEXITCODE)" }
                 }
             }
         }
