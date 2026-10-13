@@ -28,8 +28,14 @@ type IWzButtonPermissionsProps = Omit<
   'children' | 'additionalPropsFunction'
 > &
   React.ButtonHTMLAttributes<HTMLButtonElement> &
-  EuiButtonProps & {
+  Omit<EuiButtonProps, 'size'> & {
     buttonType?: 'default' | 'empty' | 'icon' | 'link' | 'switch';
+    /** 'xs' is available for the empty and icon buttons. */
+    size?: EuiButtonProps['size'] | 'xs';
+    /** Props of the switch (buttonType 'switch'). */
+    checked?: boolean;
+    label?: React.ReactNode;
+    showLabel?: boolean;
   };
 
 export const WzButtonPermissions = ({

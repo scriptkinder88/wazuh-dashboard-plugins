@@ -19,26 +19,23 @@ import {
 } from '@elastic/eui';
 import { validateJob } from '../../../../../common/ciscat/store';
 import {
+  SCHEDULER_STALE_MINUTES,
   masterTime,
   pendingRequests,
   recentRuns,
   schedulerHealth,
 } from './lib/status';
+import { STATE_COLOR as RUN_COLOR, formatDate } from './lib/schedule';
 import type { CiscatData } from './ciscat-management';
-
-const formatDate = (date?: Date) => (date ? date.toLocaleString() : '—');
+import { messages } from './messages';
 
 const HEALTH = {
-  ok: { color: 'success', text: 'Running' },
-  stale: { color: 'danger', text: 'Not running (no tick for 15 minutes)' },
-  unknown: { color: 'subdued', text: 'Never ran' },
-};
-
-const RUN_COLOR: Record<string, string> = {
-  ok: 'success',
-  error: 'danger',
-  running: 'primary',
-  starting: 'primary',
+  ok: { color: 'success', text: messages.running },
+  stale: {
+    color: 'danger',
+    text: () => messages.notRunning(SCHEDULER_STALE_MINUTES),
+  },
+  unknown: { color: 'subdued', text: messages.neverRan },
 };
 
 export const StatusPanel = ({ data }: { data: CiscatData }) => {
@@ -71,7 +68,7 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
         <EuiFlexItem>
           <EuiPanel hasBorder paddingSize='m'>
             <EuiTitle size='xs'>
-              <h3>Scheduler</h3>
+              <h3>{messages.scheduler()}</h3>
             </EuiTitle>
             <EuiSpacer size='s' />
             <EuiDescriptionList
@@ -79,34 +76,34 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
               type='column'
               listItems={[
                 {
-                  title: 'State',
+                  title: messages.state(),
                   description: (
                     <EuiHealth color={HEALTH[health.state].color}>
-                      {HEALTH[health.state].text}
+                      {HEALTH[health.state].text()}
                     </EuiHealth>
                   ),
                 },
                 {
-                  title: 'Last tick',
+                  title: messages.lastTick(),
                   description: formatDate(health.lastTick),
                 },
                 {
-                  title: 'Benchmarks published',
+                  title: messages.benchmarksPublished(),
                   description: formatDate(
                     masterTime(scheduler.last_sync, offset),
                   ),
                 },
                 {
-                  title: 'Manager time zone',
+                  title: messages.managerTimeZone(),
                   description: scheduler.tz
                     ? `${scheduler.tz} (UTC${scheduler.utc_offset})`
                     : '—',
                 },
                 {
-                  title: 'Pending requests',
+                  title: messages.pendingRequests(),
                   description: pending.length
-                    ? `${pending.length} (handled at the next tick)`
-                    : 'none',
+                    ? messages.pendingCount(pending.length)
+                    : messages.none(),
                 },
               ]}
             />
@@ -115,7 +112,7 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
         <EuiFlexItem>
           <EuiPanel hasBorder paddingSize='m'>
             <EuiTitle size='xs'>
-              <h3>Last apply</h3>
+              <h3>{messages.lastApply()}</h3>
             </EuiTitle>
             <EuiSpacer size='s' />
             <EuiDescriptionList
@@ -123,7 +120,7 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
               type='column'
               listItems={[
                 {
-                  title: 'Result',
+                  title: messages.result(),
                   description: apply.state ? (
                     <EuiHealth
                       color={RUN_COLOR[String(apply.state)] || 'subdued'}
@@ -131,21 +128,21 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
                       {String(apply.state)}
                     </EuiHealth>
                   ) : (
-                    'never applied from the dashboard'
+                    messages.neverApplied()
                   ),
                 },
                 {
-                  title: 'Started',
+                  title: messages.started(),
                   description: formatDate(masterTime(apply.started_at, offset)),
                 },
                 {
-                  title: 'Finished',
+                  title: messages.finished(),
                   description: formatDate(
                     masterTime(apply.finished_at, offset),
                   ),
                 },
                 {
-                  title: 'Bridge version',
+                  title: messages.bridgeVersion(),
                   description: String(apply.version || '—'),
                 },
               ]}
@@ -159,13 +156,9 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
           <EuiCallOut
             color='danger'
             iconType='alert'
-            title='The scheduler is not running'
+            title={messages.notRunningTitle()}
           >
-            <p>
-              Check the cron entry /etc/cron.d/ciscat-scheduler and
-              /opt/ciscat/log/ciscat-scheduler.log on the manager. Saved changes
-              and schedules wait until it runs again.
-            </p>
+            <p>{messages.notRunningHelp()}</p>
           </EuiCallOut>
         </>
       )}
@@ -175,7 +168,7 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
           <EuiCallOut
             color='warning'
             iconType='alert'
-            title='Reported by the last apply'
+            title={messages.reportedByApply()}
           >
             <ul>
               {errors.map(e => (
@@ -187,42 +180,40 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
       )}
       <EuiSpacer size='m' />
       <EuiTitle size='xs'>
-        <h3>Policies per OS</h3>
+        <h3>{messages.policiesPerOs()}</h3>
       </EuiTitle>
       <EuiText size='xs' color='subdued'>
-        Agents with the same agent or group exclusions share a combination
-        (group ciscat-&lt;os&gt;-&lt;combination&gt;); &quot;base&quot; has
-        none.
+        {messages.combinationsHelp('ciscat-<os>-<combination>')}
       </EuiText>
       <EuiBasicTable
         items={perOs}
         columns={[
-          { field: 'osKey', name: 'OS' },
-          { field: 'agents', name: 'Agents' },
-          { field: 'exclusions', name: 'Exclusions' },
-          { field: 'combos', name: 'Combinations' },
+          { field: 'osKey', name: messages.columnOs() },
+          { field: 'agents', name: messages.columnAgents() },
+          { field: 'exclusions', name: messages.columnExclusions() },
+          { field: 'combos', name: messages.columnCombinations() },
           {
             field: 'checks',
-            name: 'Checks per combination',
+            name: messages.columnChecks(),
             render: (checks: Record<string, number> = {}) =>
               Object.entries(checks)
                 .map(([combo, n]) => `${combo}: ${n}`)
                 .join(', ') || '—',
           },
         ]}
-        noItemsMessage='No apply yet'
+        noItemsMessage={messages.noApply()}
       />
       <EuiSpacer size='m' />
       <EuiTitle size='xs'>
-        <h3>Recent runs</h3>
+        <h3>{messages.recentRuns()}</h3>
       </EuiTitle>
       <EuiBasicTable
         items={runs}
         columns={[
-          { field: 'label', name: 'Run' },
+          { field: 'label', name: messages.columnRun() },
           {
             field: 'state',
-            name: 'State',
+            name: messages.state(),
             render: (state: string) => (
               <EuiHealth color={RUN_COLOR[state] || 'subdued'}>
                 {state}
@@ -231,19 +222,19 @@ export const StatusPanel = ({ data }: { data: CiscatData }) => {
           },
           {
             field: 'lastRun',
-            name: 'Started',
+            name: messages.started(),
             render: (d?: Date) => formatDate(d),
           },
           {
             field: 'finishedAt',
-            name: 'Finished',
+            name: messages.finished(),
             render: (d?: Date) => formatDate(d),
           },
-          { field: 'sent', name: 'Agents triggered' },
-          { field: 'failed', name: 'Failed' },
-          { field: 'skipped', name: 'Skipped (disconnected)' },
+          { field: 'sent', name: messages.columnAgentsTriggered() },
+          { field: 'failed', name: messages.columnFailed() },
+          { field: 'skipped', name: messages.columnSkipped() },
         ]}
-        noItemsMessage='No run yet'
+        noItemsMessage={messages.noRun()}
       />
     </>
   );

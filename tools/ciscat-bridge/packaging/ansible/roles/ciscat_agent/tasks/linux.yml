@@ -1,0 +1,45 @@
+---
+- name: Package folder, root only
+  ansible.builtin.file:
+    path: '/opt/ciscat/install/{{ ciscat_version }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Unpack the agent package
+  ansible.builtin.unarchive:
+    src: '{{ ciscat_release_dir }}/{{ ciscat_package_linux }}'
+    dest: '/opt/ciscat/install/{{ ciscat_version }}'
+    owner: root
+    group: root
+
+- name: Master public key next to the installer, from the master
+  ansible.builtin.copy:
+    content: '{{ ciscat_master_keys.results[0].content | b64decode }}'
+    dest: '/opt/ciscat/install/{{ ciscat_version }}/agent-linux/ciscat-manifest.pub'
+    owner: root
+    group: root
+    mode: '0644'
+  when: ciscat_master_host | length > 0
+
+- name: Master public key next to the installer, from the release folder
+  ansible.builtin.copy:
+    src: '{{ ciscat_pubkey_linux }}'
+    dest: '/opt/ciscat/install/{{ ciscat_version }}/agent-linux/ciscat-manifest.pub'
+    owner: root
+    group: root
+    mode: '0644'
+  when: ciscat_master_host | length == 0 and ciscat_pin_pubkey | bool
+
+- name: Install or update (idempotent; the output lists what changed)
+  ansible.builtin.command:
+    cmd: sh install-linux-agent.sh
+    chdir: '/opt/ciscat/install/{{ ciscat_version }}/agent-linux'
+  register: ciscat_install
+  changed_when: true
+  failed_when: ciscat_install.rc != 0 or 'RESULT:' not in ciscat_install.stdout
+
+- name: Installer output
+  ansible.builtin.debug:
+    var: ciscat_install.stdout_lines
