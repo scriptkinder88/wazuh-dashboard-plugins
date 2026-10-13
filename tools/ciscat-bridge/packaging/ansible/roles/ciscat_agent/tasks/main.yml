@@ -1,0 +1,8 @@
+---
+- name: Linux agent
+  ansible.builtin.include_tasks: linux.yml
+  when: ansible_os_family != "Windows"
+
+- name: Windows agent
+  ansible.builtin.include_tasks: windows.yml
+  when: ansible_os_family == "Windows"

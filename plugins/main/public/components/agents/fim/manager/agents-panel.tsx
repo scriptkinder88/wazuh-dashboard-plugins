@@ -21,7 +21,11 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { AgentInfo, GroupConf, hostGroup } from './lib/plan';
+import { isMonitorKind } from './lib/agent-conf';
 import { ActiveSyscheck, fetchActiveSyscheck } from './lib/fim-api';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
+import { messages } from './messages';
 
 export interface ActivePath {
   kind: 'directories' | 'windows_registry';
@@ -46,7 +50,7 @@ export const activePaths = (
   const defined = new Map<string, string[]>();
   agent.groups.forEach(group => {
     (groups[group]?.rules || [])
-      .filter(r => r.kind === 'directories' || r.kind === 'windows_registry')
+      .filter(r => isMonitorKind(r.kind))
       .forEach(r =>
         r.path.split(',').forEach(p => {
           const key = `${r.kind}|${normalize(p, windows)}`;
@@ -104,27 +108,18 @@ const ActiveConfigFlyout = ({
     >
       <EuiFlyoutHeader hasBorder>
         <EuiTitle size='s'>
-          <h3>
-            Active FIM configuration: {agent.name} ({agent.id})
-          </h3>
+          <h3>{messages.activeTitle(agent.name, agent.id)}</h3>
         </EuiTitle>
       </EuiFlyoutHeader>
       <EuiFlyoutBody>
         <EuiText size='s' color='subdued'>
-          <p>
-            What the agent is running now. Paths not defined by any of its
-            groups come from its local ossec.conf: they cannot be removed
-            centrally, but they can be ignored on this server.
-          </p>
+          <p>{messages.activeDescription()}</p>
         </EuiText>
         <EuiSpacer size='m' />
         {error && (
-          <EuiCallOut
-            color='danger'
-            title='Cannot read the agent configuration'
-          >
+          <EuiCallOut color='danger' title={messages.cannotReadActive()}>
             <p>{error}</p>
-            <p>The agent must be active.</p>
+            <p>{messages.agentMustBeActive()}</p>
           </EuiCallOut>
         )}
         {!paths && !error && <EuiLoadingSpinner size='l' />}
@@ -133,17 +128,17 @@ const ActiveConfigFlyout = ({
             items={paths}
             columns={[
               {
-                name: 'Path',
+                name: messages.columnPath(),
                 render: (p: ActivePath) => <code>{p.path}</code>,
               },
               {
-                name: 'Options',
+                name: messages.columnOptions(),
                 render: (p: ActivePath) => (
                   <EuiText size='xs'>{p.options.join(', ')}</EuiText>
                 ),
               },
               {
-                name: 'Source',
+                name: messages.columnSource(),
                 render: (p: ActivePath) =>
                   p.groups.length ? (
                     p.groups.map(g => (
@@ -152,7 +147,7 @@ const ActiveConfigFlyout = ({
                       </EuiBadge>
                     ))
                   ) : (
-                    <EuiBadge color='warning'>local</EuiBadge>
+                    <EuiBadge color='warning'>{messages.local()}</EuiBadge>
                   ),
               },
               {
@@ -160,18 +155,20 @@ const ActiveConfigFlyout = ({
                 width: '170px',
                 render: (p: ActivePath) =>
                   !p.groups.length && (
-                    <EuiButtonEmpty
+                    <WzButtonPermissions
+                      buttonType='empty'
+                      permissions={FIM_WRITE_PERMISSIONS}
                       size='xs'
                       iconType='eyeClosed'
                       onClick={() => onIgnore(agent, p)}
                       data-test-subj='fim-ignore-local'
                     >
-                      Ignore on this server
-                    </EuiButtonEmpty>
+                      {messages.ignoreOnServer()}
+                    </WzButtonPermissions>
                   ),
               },
             ]}
-            noItemsMessage='No monitored paths'
+            noItemsMessage={messages.noMonitoredPaths()}
           />
         )}
       </EuiFlyoutBody>
@@ -209,7 +206,7 @@ export const AgentsPanel = ({
     <>
       <EuiFieldSearch
         fullWidth
-        placeholder='Server, id, group, platform…'
+        placeholder={messages.agentsSearch()}
         value={search}
         onChange={e => setSearch(e.target.value)}
       />
@@ -220,9 +217,12 @@ export const AgentsPanel = ({
         itemId='id'
         data-test-subj='fim-agents-table'
         columns={[
-          { name: 'Server', render: (a: AgentInfo) => `${a.name} (${a.id})` },
           {
-            name: 'Status',
+            name: messages.columnServer(),
+            render: (a: AgentInfo) => `${a.name} (${a.id})`,
+          },
+          {
+            name: messages.columnStatus(),
             width: '120px',
             render: (a: AgentInfo) => (
               <EuiHealth color={a.status === 'active' ? 'success' : 'subdued'}>
@@ -231,12 +231,12 @@ export const AgentsPanel = ({
             ),
           },
           {
-            name: 'Platform',
+            name: messages.columnPlatform(),
             width: '110px',
             render: (a: AgentInfo) => a.platform,
           },
           {
-            name: 'Groups with FIM rules',
+            name: messages.columnFimGroups(),
             render: (a: AgentInfo) =>
               fimGroups(a).map(g => (
                 <EuiBadge
@@ -248,14 +248,14 @@ export const AgentsPanel = ({
               )),
           },
           {
-            name: 'Configuration',
+            name: messages.columnConfiguration(),
             width: '130px',
             render: (a: AgentInfo) =>
               a.configStatus === 'synced' ? (
-                <EuiHealth color='success'>synced</EuiHealth>
+                <EuiHealth color='success'>{messages.synced()}</EuiHealth>
               ) : (
                 <EuiHealth color='warning'>
-                  {a.configStatus || 'unknown'}
+                  {a.configStatus || messages.unknownStatus()}
                 </EuiHealth>
               ),
           },
@@ -270,12 +270,12 @@ export const AgentsPanel = ({
                 isDisabled={a.status !== 'active'}
                 data-test-subj='fim-agent-active'
               >
-                Active config
+                {messages.activeConfig()}
               </EuiButtonEmpty>
             ),
           },
         ]}
-        message='No agents'
+        message={messages.noAgents()}
       />
       {selected && (
         <ActiveConfigFlyout

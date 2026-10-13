@@ -1,0 +1,14 @@
+---
+# Installs or updates the CIS-CAT bridge on Wazuh agents from the release packages.
+#   ansible-playbook -i inventory.ini ciscat-agents.yml -e ciscat_release_dir=/path/to/release
+# Run the master setup first: it makes the public keys (master/agent-keys) the agents need.
+- name: CIS-CAT bridge on Linux agents
+  hosts: ciscat_linux
+  become: true
+  roles:
+    - ciscat_agent
+
+- name: CIS-CAT bridge on Windows agents
+  hosts: ciscat_windows
+  roles:
+    - ciscat_agent

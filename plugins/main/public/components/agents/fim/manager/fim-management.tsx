@@ -4,7 +4,13 @@
  * through the Wazuh API. Only the <syscheck> rules are touched; every change is
  * previewed, and the previous version of each file is kept in fim-history.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   EuiButtonEmpty,
   EuiCallOut,
@@ -19,7 +25,7 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { getToasts } from '../../../../kibana-services';
-import { fetchCurrentUserName } from '../../sca/ciscat/lib/lists-api';
+import { fetchCurrentUserName } from '../../../../services/dashboard-user';
 import {
   HistoryEntry,
   fetchAgents,
@@ -46,6 +52,7 @@ import { isTerraformManaged } from './lib/path-checks';
 import { PlanModal } from './plan-modal';
 import { ActivePath, AgentsPanel } from './agents-panel';
 import { HistoryPanel } from './history-panel';
+import { messages } from './messages';
 
 interface FimData {
   groups: Record<string, GroupConf>;
@@ -56,14 +63,16 @@ interface FimData {
 interface PendingPlan {
   title: string;
   steps: GroupStep[];
+  /** The plan restores a saved version. */
+  restore?: boolean;
 }
 
 type TabId = 'rules' | 'agents' | 'history';
 
-const TABS: Array<{ id: TabId; name: string }> = [
-  { id: 'rules', name: 'Rules' },
-  { id: 'agents', name: 'Agents' },
-  { id: 'history', name: 'History' },
+const TABS: Array<{ id: TabId; name: () => string }> = [
+  { id: 'rules', name: messages.tabRules },
+  { id: 'agents', name: messages.tabAgents },
+  { id: 'history', name: messages.tabHistory },
 ];
 
 export const FimManagement = () => {
@@ -75,7 +84,18 @@ export const FimManagement = () => {
   const [editing, setEditing] = useState<{ row?: RuleRow; preset?: RuleRow }>();
   const [plan, setPlan] = useState<PendingPlan>();
 
+  // only the latest load updates the state, and none after unmounting
+  const loadId = useRef(0);
+  useEffect(
+    () => () => {
+      loadId.current = -1;
+    },
+    [],
+  );
+
   const load = useCallback(async () => {
+    const id = ++loadId.current;
+    const current = () => loadId.current === id;
     setLoading(true);
     setError('');
     try {
@@ -84,18 +104,28 @@ export const FimManagement = () => {
         fetchAgents(),
         readHistory(),
       ]);
-      const groups = await loadGroupConfs(groupList.map(g => g.name));
-      setData({ groups, agents, history });
+      const groups = await loadGroupConfs(groupList);
+      if (current()) {
+        setData({ groups, agents, history });
+      }
     } catch (e) {
-      setError((e as Error).message || String(e));
+      if (current()) {
+        setError((e as Error).message || String(e));
+      }
     } finally {
-      setLoading(false);
+      if (current()) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     load();
-    fetchCurrentUserName().then(setUser);
+    fetchCurrentUserName().then(name => {
+      if (loadId.current >= 0) {
+        setUser(name);
+      }
+    });
   }, [load]);
 
   const rows = useMemo(
@@ -124,7 +154,7 @@ export const FimManagement = () => {
       setEditing(undefined);
     } catch (e) {
       getToasts().addDanger({
-        title: 'This change cannot be prepared',
+        title: messages.cannotPrepare(),
         text: (e as Error).message || String(e),
       });
     }
@@ -145,8 +175,9 @@ export const FimManagement = () => {
       after: entry.content,
     };
     setPlan({
-      title: `Restore ${entry.group} as of ${when}`,
+      title: messages.restoreTitle(entry.group, when),
       steps: current?.raw === entry.content ? [] : [step],
+      restore: true,
     });
   };
 
@@ -170,12 +201,10 @@ export const FimManagement = () => {
       <EuiFlexGroup alignItems='center' gutterSize='s' responsive={false}>
         <EuiFlexItem>
           <EuiTitle size='s'>
-            <h2>FIM rules</h2>
+            <h2>{messages.title()}</h2>
           </EuiTitle>
           <EuiText size='xs' color='subdued'>
-            Paths and registry keys monitored on groups of agents or on single
-            servers. Changes are written to the groups&apos; agent.conf; agents
-            apply them within a few minutes.
+            {messages.description()}
           </EuiText>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
@@ -185,7 +214,7 @@ export const FimManagement = () => {
             isLoading={loading}
             data-test-subj='fim-reload'
           >
-            Reload
+            {messages.reload()}
           </EuiButtonEmpty>
         </EuiFlexItem>
       </EuiFlexGroup>
@@ -198,14 +227,14 @@ export const FimManagement = () => {
             onClick={() => setTab(t.id)}
             data-test-subj={`fim-tab-${t.id}`}
           >
-            {t.name}
+            {t.name()}
           </EuiTab>
         ))}
       </EuiTabs>
       <EuiSpacer size='m' />
       {error && (
         <>
-          <EuiCallOut color='danger' iconType='alert' title='FIM rules'>
+          <EuiCallOut color='danger' iconType='alert' title={messages.title()}>
             <p>{error}</p>
           </EuiCallOut>
           <EuiSpacer size='m' />
@@ -220,7 +249,9 @@ export const FimManagement = () => {
           onAdd={() => setEditing({})}
           onEdit={row => setEditing({ row })}
           onRemove={row =>
-            review(`Remove ${row.rule.kind} ${row.rule.path}`, { before: row })
+            review(messages.removeTitle(row.rule.kind, row.rule.path), {
+              before: row,
+            })
           }
         />
       )}
@@ -246,9 +277,10 @@ export const FimManagement = () => {
           onClose={() => setEditing(undefined)}
           onSubmit={change =>
             review(
-              `${editing.row ? 'Change' : 'Add'} ${change.after!.rule.kind} ${
-                change.after!.rule.path
-              }`,
+              (editing.row ? messages.changeTitle : messages.addTitle)(
+                change.after!.rule.kind,
+                change.after!.rule.path,
+              ),
               change,
             )
           }
@@ -262,6 +294,7 @@ export const FimManagement = () => {
           affected={affectedAgents(data.agents, plan.steps)}
           conflicts={findConflicts(data.groups, data.agents, plan.steps)}
           user={user}
+          restore={plan.restore}
           onClose={changed => {
             setPlan(undefined);
             if (changed) {
