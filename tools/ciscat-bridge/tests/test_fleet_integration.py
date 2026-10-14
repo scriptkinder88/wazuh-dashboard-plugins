@@ -84,7 +84,7 @@ class FleetIntegration(unittest.TestCase):
         })
         self.env = dict(os.environ, CISCAT_ETC_DIR=etc,
                         CISCAT_PATHS_JSON=json.dumps(dict(p, agent_dir=AGENT_DIR)),
-                        CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
+                        CISCAT_API_URL=self.fake.serve(), CISCAT_API_MAX_PER_MINUTE="0", WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
 
     def tearDown(self):
         self.fake.server.shutdown()

@@ -288,6 +288,29 @@ def ssl_context(ca):
     return ssl._create_unverified_context()
 
 
+API_TRIES = 5
+# The Wazuh API takes max_request_per_minute requests (300 by default) for ALL its users: past
+# that it refuses every request, the dashboard's too, until the minute ends. The bridge keeps
+# to a share of it (api_max_per_minute in ciscat-orchestrator.conf, 0 = no limit).
+API_DEFAULT_PER_MINUTE = 100
+_API_SENT = []
+
+
+def api_pace():
+    limit = API.get("per_minute", API_DEFAULT_PER_MINUTE)
+    if not limit:
+        return
+    while True:
+        now = time.monotonic()
+        while _API_SENT and now - _API_SENT[0] >= 60:
+            _API_SENT.pop(0)
+        if len(_API_SENT) < limit:
+            _API_SENT.append(now)
+            return
+        time.sleep(60 - (now - _API_SENT[0]) + 0.05)
+API_WAIT = int(os.environ.get("CISCAT_API_WAIT", "15"))  # seconds, times the attempt number
+
+
 def api_call(method, endpoint, token=None, body=None, raw=None):
     ctx = ssl_context(API["ca"])
     req = urllib.request.Request(API["url"] + endpoint, method=method)
@@ -302,8 +325,18 @@ def api_call(method, endpoint, token=None, body=None, raw=None):
     elif raw is not None:  # an agent.conf: the API only takes it as XML
         req.add_header("Content-Type", "application/xml")
         req.data = raw.encode()
-    with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
-        return r.read().decode()
+    for attempt in range(1, API_TRIES + 1):
+        api_pace()
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
+                return r.read().decode()
+        except urllib.error.HTTPError as e:
+            # the Wazuh API takes a limited number of requests per minute
+            # (max_request_per_minute of api.yaml): wait for the next minute and go on
+            if e.code != 429 or attempt == API_TRIES:
+                raise
+            print("    API busy (429 Too Many Requests): waiting {0}s".format(API_WAIT * attempt))
+            time.sleep(API_WAIT * attempt)
 
 
 def api_json(method, endpoint, token, body=None, raw=None):
@@ -531,6 +564,18 @@ def own_dir(gdir):
             own(path)
 
 
+def ensure_agent_conf(gdir):
+    """An OS group made outside the Wazuh API (a folder created or copied by hand) has no
+    agent.conf, and the API then refuses to read the group (the dashboard cannot manage it):
+    give it the empty one Wazuh writes for a new group. An existing agent.conf is never changed."""
+    path = os.path.join(gdir, "agent.conf")
+    if os.path.lexists(path):
+        return
+    write_atomic(path, "<agent_config>\n\n</agent_config>\n")
+    own(path, 0o660)
+    print("    created empty agent.conf (the group had none)")
+
+
 def group_dir(group):
     """The shared folder of a group, created if missing; refused when it is a link or not a
     folder of the shared directory (the wazuh user can write there)."""
@@ -644,6 +689,7 @@ def build(os_key, cfg, exc_csv, host, app_groups, out_dir):
 def publish_linux(os_key, cfg, art):
     """Publishes the files, then the manifest that lists them. Returns the missing sources."""
     gdir = group_dir(cfg["group"])
+    ensure_agent_conf(gdir)
     base, pfx = cfg["base"], cfg["companion_prefix"]
     bdir = PATHS["benchmarks_dir"]
     dest_bench = "/opt/ciscat/Assessor/benchmarks"
@@ -698,6 +744,7 @@ def publish_windows(os_key, cfg, art, exc_csv):
     benchmarks folder, the assessment and conversion scripts into C:\\CIS\\bin); the parameters
     and the tailoring are read from the shared folder. Returns the missing sources."""
     gdir = group_dir(cfg["group"])
+    ensure_agent_conf(gdir)
     custom = cfg["base"] + "-custom.xml"
     copy_for_windows(art["custom"], os.path.join(gdir, custom))
     tailoring = "tailoring-{0}.csv".format(os_key)
@@ -1597,6 +1644,12 @@ def load_api_credentials(args):
     api_ca in the conf turns on TLS verification of the API with that CA file."""
     conf = read_conf()
     API["ca"] = conf.get("api_ca") or None
+    per_minute = os.environ.get("CISCAT_API_MAX_PER_MINUTE") or conf.get("api_max_per_minute")
+    if per_minute:
+        try:
+            API["per_minute"] = max(0, int(per_minute))
+        except ValueError:
+            sys.exit("api_max_per_minute must be a number of requests per minute (0: no limit)")
     if args.user:
         API["user"] = args.user
     elif conf.get("api_user") and not args.password_file:

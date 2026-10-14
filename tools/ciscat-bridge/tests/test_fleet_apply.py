@@ -84,7 +84,7 @@ class FleetApply(unittest.TestCase):
         self.addCleanup(lambda: self.fake.server.shutdown())
         self.env = dict(os.environ, CISCAT_ETC_DIR=self.etc,
                         CISCAT_PATHS_JSON=json.dumps(dict(self.paths, agent_dir=AGENT_DIR)),
-                        CISCAT_API_URL=self.fake.serve(),
+                        CISCAT_API_URL=self.fake.serve(), CISCAT_API_MAX_PER_MINUTE="0",
                         WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
 
     def library(self, lib):
@@ -162,6 +162,21 @@ class FleetApply(unittest.TestCase):
             conf = f.read()
         self.assertIn("<interval>1h</interval>", conf)
         self.assertNotIn("<policies>", conf)
+
+    def test_an_os_group_without_agent_conf_gets_an_empty_one(self):
+        self.companions()
+        conf = os.path.join(self.paths["shared_dir"], "os-rhel7", "agent.conf")
+        if os.path.exists(conf):
+            os.remove(conf)
+        self.fleet("apply")
+        with open(conf) as f:
+            self.assertEqual(f.read(), "<agent_config>\n\n</agent_config>\n")
+        # an agent.conf already there is left as it is
+        with open(conf, "w") as f:
+            f.write("<agent_config><syscheck><directories>/etc</directories></syscheck></agent_config>")
+        self.fleet("apply")
+        with open(conf) as f:
+            self.assertIn("<directories>/etc</directories>", f.read())
 
     def test_wazuh_sca_policies_are_switched_off_on_assessed_agents(self):
         self.companions()
@@ -268,14 +283,20 @@ class FleetApply(unittest.TestCase):
         self.companions()
         with open(os.path.join(self.paths["run_dir"], "apply.lock"), "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            p = subprocess.Popen([sys.executable, FLEET, "apply"], env=self.env,
+            p = subprocess.Popen([sys.executable, FLEET, "apply"],
+                                 env=dict(self.env, PYTHONUNBUFFERED="1"),
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            time.sleep(1.5)
+            # the lock is released only once the second apply says it waits for it
+            seen = []
+            for line in p.stdout:
+                seen.append(line)
+                if "another apply is running" in line:
+                    break
+            self.assertIn("another apply is running", "".join(seen))
             self.assertIsNone(p.poll())
             self.assertNotIn("apply", self.status())  # nothing written while it waits
         out, _ = p.communicate(timeout=60)
-        self.assertEqual(p.returncode, 0, out)
-        self.assertIn("another apply is running", out)
+        self.assertEqual(p.returncode, 0, "".join(seen) + out)
         self.assertEqual(self.status()["apply"]["state"], "ok")
 
     def test_trigger_renews_the_token_and_skips_disconnected_agents(self):
@@ -381,7 +402,8 @@ class FleetApply(unittest.TestCase):
                                                     group_source="dashboard"), "win": win})
         out = self.fleet("apply")
         self.assertIn("group os-rhel7 also gets aks, win", out)
-        self.assertEqual(sorted(os.listdir(aks_dir)), ["operator-notes.txt"])
+        # agent.conf is the group's own (Wazuh needs it): it stays with the operator's files
+        self.assertEqual(sorted(os.listdir(aks_dir)), ["agent.conf", "operator-notes.txt"])
         files = os.listdir(rhel_dir)
         for name in ("rhel7-custom-xccdf.xml", "aks-custom-xccdf.xml", "ciscat-refresh-rhel7.conf",
                      "ciscat-refresh-aks.conf", "ciscat-params-win.txt", "ciscat-manifest-win.csv"):
@@ -486,7 +508,7 @@ class Credentials(unittest.TestCase):
                 f.write(conf)
             with open(os.path.join(etc, "os-library.json"), "w") as f:
                 json.dump({}, f)
-            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url,
+            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url, CISCAT_API_MAX_PER_MINUTE="0",
                        CISCAT_PATHS_JSON=json.dumps({"lists_dir": d, "run_dir": d}))
             env.pop("WAZUH_API_PASSWORD", None)
             if env_password:

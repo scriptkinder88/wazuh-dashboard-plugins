@@ -20,6 +20,7 @@ class FakeWazuh:
         self.calls = []
         self.ar = []
         self.reject_auth = False
+        self.throttle = 0  # the next N requests get 429 Too Many Requests
         self.sca = {}  # {agent id: {policy id: end_scan}}
         self.confs = {}  # {group: agent.conf}
         for g in self.groups:
@@ -104,6 +105,12 @@ class FakeWazuh:
                     body = data.decode()  # agent.conf upload
                 else:
                     body = json.loads(data) if n else None
+                if fake.throttle > 0:
+                    fake.throttle -= 1
+                    self.send_response(429)
+                    self.end_headers()
+                    self.wfile.write(b'{"title": "Too Many Requests"}')
+                    return
                 if fake.reject_auth and u.path == "/security/user/authenticate":
                     self.send_response(401)
                     self.end_headers()

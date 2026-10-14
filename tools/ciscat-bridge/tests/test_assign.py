@@ -135,7 +135,7 @@ class FleetAssign(unittest.TestCase):
             "007": {"name": "new", "status": "never_connected", "group": ["default"], "os": {}},
         })
         self.env = dict(os.environ, CISCAT_ETC_DIR=self.etc, CISCAT_PATHS_JSON=json.dumps(paths),
-                        CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x")
+                        CISCAT_API_URL=self.fake.serve(), CISCAT_API_MAX_PER_MINUTE="0", WAZUH_API_PASSWORD="x")
 
     def tearDown(self):
         self.fake.server.shutdown()

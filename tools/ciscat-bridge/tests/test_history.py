@@ -53,7 +53,7 @@ class History(unittest.TestCase):
         self.fake.sca = {"001": {"cis_rhel7": ago(2)}, "002": {"cis_rhel7": ago(50)},
                          "004": {"cis_win": ago(40), "other": ago(1)}}
         self.env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_PATHS_JSON=json.dumps(self.paths),
-                        CISCAT_API_URL=self.fake.serve(), WAZUH_API_PASSWORD="x")
+                        CISCAT_API_URL=self.fake.serve(), CISCAT_API_MAX_PER_MINUTE="0", WAZUH_API_PASSWORD="x")
 
     def tearDown(self):
         self.fake.server.shutdown()
