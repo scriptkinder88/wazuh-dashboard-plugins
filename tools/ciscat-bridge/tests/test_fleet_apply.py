@@ -163,6 +163,21 @@ class FleetApply(unittest.TestCase):
         self.assertIn("<interval>1h</interval>", conf)
         self.assertNotIn("<policies>", conf)
 
+    def test_an_os_group_without_agent_conf_gets_an_empty_one(self):
+        self.companions()
+        conf = os.path.join(self.paths["shared_dir"], "os-rhel7", "agent.conf")
+        if os.path.exists(conf):
+            os.remove(conf)
+        self.fleet("apply")
+        with open(conf) as f:
+            self.assertEqual(f.read(), "<agent_config>\n\n</agent_config>\n")
+        # an agent.conf already there is left as it is
+        with open(conf, "w") as f:
+            f.write("<agent_config><syscheck><directories>/etc</directories></syscheck></agent_config>")
+        self.fleet("apply")
+        with open(conf) as f:
+            self.assertIn("<directories>/etc</directories>", f.read())
+
     def test_wazuh_sca_policies_are_switched_off_on_assessed_agents(self):
         self.companions()
         self.fake.sca = {"001": {"cis_rhel7_linux": "t", "cis_rhel7_tailored_l1_server": "t",
@@ -387,7 +402,8 @@ class FleetApply(unittest.TestCase):
                                                     group_source="dashboard"), "win": win})
         out = self.fleet("apply")
         self.assertIn("group os-rhel7 also gets aks, win", out)
-        self.assertEqual(sorted(os.listdir(aks_dir)), ["operator-notes.txt"])
+        # agent.conf is the group's own (Wazuh needs it): it stays with the operator's files
+        self.assertEqual(sorted(os.listdir(aks_dir)), ["agent.conf", "operator-notes.txt"])
         files = os.listdir(rhel_dir)
         for name in ("rhel7-custom-xccdf.xml", "aks-custom-xccdf.xml", "ciscat-refresh-rhel7.conf",
                      "ciscat-refresh-aks.conf", "ciscat-params-win.txt", "ciscat-manifest-win.csv"):

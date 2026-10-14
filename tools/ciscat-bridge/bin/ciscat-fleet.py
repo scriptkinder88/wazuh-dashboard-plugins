@@ -544,6 +544,18 @@ def own_dir(gdir):
             own(path)
 
 
+def ensure_agent_conf(gdir):
+    """An OS group made outside the Wazuh API (a folder created or copied by hand) has no
+    agent.conf, and the API then refuses to read the group (the dashboard cannot manage it):
+    give it the empty one Wazuh writes for a new group. An existing agent.conf is never changed."""
+    path = os.path.join(gdir, "agent.conf")
+    if os.path.lexists(path):
+        return
+    write_atomic(path, "<agent_config>\n\n</agent_config>\n")
+    own(path, 0o660)
+    print("    created empty agent.conf (the group had none)")
+
+
 def group_dir(group):
     """The shared folder of a group, created if missing; refused when it is a link or not a
     folder of the shared directory (the wazuh user can write there)."""
@@ -657,6 +669,7 @@ def build(os_key, cfg, exc_csv, host, app_groups, out_dir):
 def publish_linux(os_key, cfg, art):
     """Publishes the files, then the manifest that lists them. Returns the missing sources."""
     gdir = group_dir(cfg["group"])
+    ensure_agent_conf(gdir)
     base, pfx = cfg["base"], cfg["companion_prefix"]
     bdir = PATHS["benchmarks_dir"]
     dest_bench = "/opt/ciscat/Assessor/benchmarks"
@@ -711,6 +724,7 @@ def publish_windows(os_key, cfg, art, exc_csv):
     benchmarks folder, the assessment and conversion scripts into C:\\CIS\\bin); the parameters
     and the tailoring are read from the shared folder. Returns the missing sources."""
     gdir = group_dir(cfg["group"])
+    ensure_agent_conf(gdir)
     custom = cfg["base"] + "-custom.xml"
     copy_for_windows(art["custom"], os.path.join(gdir, custom))
     tailoring = "tailoring-{0}.csv".format(os_key)
