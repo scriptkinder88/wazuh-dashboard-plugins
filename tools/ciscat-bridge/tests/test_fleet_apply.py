@@ -342,6 +342,16 @@ class FleetApply(unittest.TestCase):
                          ("ok", 2, ["001", "004", "999"], []))
         self.assertEqual(st["skipped_reasons"], {"999": "unknown agent"})
 
+    def test_a_command_line_trigger_is_listed_as_a_job(self):
+        self.mixed_fleet()
+        self.fleet("trigger", "--agents", "001", "--wave-pause", "0")
+        jobs = {k: v for k, v in self.status().items() if k.startswith("job-m")}
+        self.assertEqual(len(jobs), 1, self.status())
+        st = list(jobs.values())[0]
+        self.assertEqual((st["state"], st["sent"], st["agents"]), ("ok", 1, ["001"]))
+        self.assertTrue(st["label"].startswith("Command line ("))
+        self.assertTrue(st["last_run"])
+
     def test_trigger_on_a_custom_group_runs_each_agent_with_its_os(self):
         self.mixed_fleet()
         self.fleet("trigger", "--groups", "test,missing", "--wave-pause", "0", "--job", "r2")
