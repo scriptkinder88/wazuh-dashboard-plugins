@@ -107,14 +107,19 @@ CIS downloads: `kit/build-capture-kit.sh ciscat-master-<v>.zip` makes
 dashboard plugins changed from the `wazuh-dashboard` package, and `align-prod.sh`. API
 passwords and settings, signing keys, agent status and history never travel.
 
-On the master to align, `sh align-prod.sh` checks first and changes nothing when the Wazuh plugin
-of its dashboard has local changes (e.g. a customized PCI DSS report) that the bundle's plugin
-would replace, or when a custom plugin would replace a different one; `--no-dashboard-plugins`
-then aligns everything else and leaves every dashboard plugin as it is. It saves what it
-replaces in `/opt/ciscat/backup/prod-before-<date>`, puts the files in place, runs the master
-setup and `ciscat-fleet.py apply`, and ends by checking that the dashboard settings
-(`wazuh.yml`), `/etc/wazuh-dashboard`, the Wazuh rules and decoders and the agent groups not
-managed by the bridge are unchanged.
+On the master to align, `sh align-prod.sh` (on a separate dashboard host also
+`sh align-prod.sh --dashboard-only`) keeps the site's PCI DSS reporting as it is: the rules and
+the `<ruleset>` that set `rule.pci_dss`, and `wazuh.yml` (report header, footer, `customization.*`)
+are not touched; the report logo and custom images (`plugins/wazuh/public/assets/custom/images`,
+wiped by a plugin reinstall) and the requirement texts of the Wazuh plugin
+(`server/integration-files/pci-requirements-pdfmake.js`,
+`common/compliance-requirements/pci-requirements.js`) are saved and put back after the new
+plugin. It stops, changing nothing, when the Wazuh plugin has other local changes or a custom
+plugin would replace a different one; `--no-dashboard-plugins` then aligns everything else and
+leaves every dashboard plugin as it is. It saves what it replaces in
+`/opt/ciscat/backup/prod-before-<date>`, puts the files in place, runs the master setup and
+`ciscat-fleet.py apply`, and ends by checking every protected file against its checksum from
+before.
 
 ### Distribution through Red Hat Satellite
 

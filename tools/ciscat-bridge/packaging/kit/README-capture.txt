@@ -24,18 +24,35 @@ Two steps, two files.
      install -d -m 0700 /opt/ciscat/install/bundle
      tar -xzf ciscat-prod-2.3.1-<date>.tar.gz -C /opt/ciscat/install/bundle
      cd /opt/ciscat/install/bundle/ciscat-prod-2.3.1 && sh align-prod.sh
-   First it checks, changing nothing. It stops when the Wazuh plugin of the dashboard has
-   local changes (a customized PCI DSS report, for instance) that the plugin of the bundle
-   would replace; then
+   When the Wazuh dashboard runs on another host, copy the same archive there and run
+     sh align-prod.sh --dashboard-only
+   Recommended before (Wazuh upgrade guide): export the saved objects (Dashboard management >
+   Dashboards Management > Saved objects > Export all objects); the script does not touch them.
+
+   PCI DSS reporting of this site, part by part (Wazuh 4.14 documentation and plugin code):
+     rule.pci_dss of the alerts: rules in /var/ossec/etc/rules (overwrite="yes" rules too),
+       /var/ossec/ruleset, <ruleset> of ossec.conf          not touched, checked at the end
+     report header, footer, customization.* settings:
+       /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml   not touched, checked at the end
+     report logo and other custom images: inside the Wazuh plugin folder,
+       plugins/wazuh/public/assets/custom/images (a plugin reinstall wipes them)   put back
+     requirement texts (e.g. updated to PCI DSS 4.0.1), inside the Wazuh plugin folder:
+       server/integration-files/pci-requirements-pdfmake.js (PDF report),
+       common/compliance-requirements/pci-requirements.js                          put back
+     dashboards and visualizations (saved objects, in the indexer)                not touched
+   It stops before changing anything when the Wazuh plugin has other local changes (e.g. the
+   module pages edited in the plugin bundles: those cannot be carried over), or a custom plugin
+   of the bundle would replace a different one; then
      sh align-prod.sh --no-dashboard-plugins
    aligns everything else and leaves every dashboard plugin as it is.
-   It saves what it replaces in /opt/ciscat/backup/prod-before-<date>, puts the files in place
-   (benchmarks and tailoring files the other master does not have are moved to the backup),
-   runs the master setup and publishes the groups. The only question: the first time, a Wazuh
-   API administrator, to create the bridge's own API user (never stored).
-   At the end it checks that the dashboard settings (wazuh.yml: report header, footer, logos),
-   /etc/wazuh-dashboard, the Wazuh rules and decoders and the agent groups not managed by the
-   bridge are as before: "RESULT: OK". "RESULT: CHECK" lists a file that changed.
+
+   It saves what it replaces in /opt/ciscat/backup/prod-before-<date> (pci-keep/: this site's
+   PCI DSS files of the plugin), puts the files in place (benchmarks and tailoring files the
+   other master does not have are moved to the backup), runs the master setup, publishes the
+   groups, puts this site's PCI DSS files back and restarts the dashboard. The only question:
+   the first time, a Wazuh API administrator, to create the bridge's own API user (never
+   stored). At the end it compares every protected file with its checksum from before:
+   "RESULT: OK", or "RESULT: CHECK" with the file that changed.
 
 The agent packages stay the ones already built: they carry no key, the agents take the key
 of their master.

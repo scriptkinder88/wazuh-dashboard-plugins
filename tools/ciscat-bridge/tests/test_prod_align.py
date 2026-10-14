@@ -22,11 +22,24 @@ case "$*" in
 esac
 exit 3
 """
+# a plugin reinstall: the folder is replaced, custom images gone, stock PCI DSS texts
+REINSTALL = """
+W="$CISCAT_TEST_ROOT/usr/share/wazuh-dashboard/plugins/wazuh"
+rm -rf "$W"
+mkdir -p "$W/server/lib/reporting" "$W/server/integration-files" "$W/common/compliance-requirements" "$W/public/assets"
+echo bridge > "$W/server/lib/reporting/sca-report.js"
+echo "PCI DSS 3.2.1" > "$W/server/integration-files/pci-requirements-pdfmake.js"
+echo "PCI DSS 3.2.1" > "$W/common/compliance-requirements/pci-requirements.js"
+"""
 SETUP = """#!/bin/sh
 echo "$*" > "$CISCAT_TEST_ROOT/setup-args"
+case "$*" in *--no-dashboard*) ;; *) """ + REINSTALL + """ ;; esac
 [ -z "${STUB_TOUCH:-}" ] || echo changed >> "$CISCAT_TEST_ROOT/$STUB_TOUCH"
 echo setup done
 """
+INSTALLER = """#!/bin/sh
+echo "$*" > "$CISCAT_TEST_ROOT/installer-args"
+""" + REINSTALL
 FLEET = """#!/bin/sh
 echo "fleet $*" >> "$CISCAT_TEST_ROOT/fleet-calls"
 """
@@ -79,6 +92,12 @@ class Align(unittest.TestCase):
         pr = self.prod
         write(pr + "/" + DASH + "/data/wazuh/config/wazuh.yml", "customization.reports.header: Bank\n")
         write(pr + "/" + DASH + "/plugins/wazuh/target/a.js", "stock plugin")
+        write(pr + "/" + DASH + "/plugins/wazuh/server/integration-files/pci-requirements-pdfmake.js",
+              "PCI DSS 4.0.1 site texts")
+        write(pr + "/" + DASH + "/plugins/wazuh/public/assets/custom/images/"
+              "customization.logo.reports.png", "BANK LOGO")
+        write(pr + "/var/ossec/etc/ossec.conf", "<ossec_config><ruleset><rule_dir>etc/rules</rule_dir>"
+              "</ruleset></ossec_config>\n")
         write(pr + "/" + DASH + "/plugins/stock/index.js", "stock")
         write(pr + "/etc/wazuh-dashboard/opensearch_dashboards.yml", "server.port: 443\n")
         write(pr + "/var/ossec/etc/rules/local_rules.xml", "<pci/>")
@@ -87,7 +106,8 @@ class Align(unittest.TestCase):
         write(pr + "/opt/ciscat/benchmarks/CIS_Win_v2.0.0-xccdf.xml", "older")
         write(pr + "/var/ossec/etc/lists/ciscat-schedule", "prod schedule")
         self.verify_prod = os.path.join(self.d, "verify-prod")
-        write(self.verify_prod, "")
+        write(self.verify_prod, "S.5....T.    /usr/share/wazuh-dashboard/plugins/wazuh/server/"
+                                "integration-files/pci-requirements-pdfmake.js\n")
         # the kit
         self.kit = os.path.join(self.d, "kit")
         os.makedirs(self.kit)
@@ -95,6 +115,7 @@ class Align(unittest.TestCase):
             shutil.copy(os.path.join(KIT, f), self.kit)
         with zipfile.ZipFile(os.path.join(self.kit, "ciscat-master-2.3.1.zip"), "w") as z:
             z.writestr("master/ciscat-master-setup.sh", SETUP)
+            z.writestr("master/ciscat-bridge-install-2.3.1.sh", INSTALLER)
         plugin = os.path.join(self.kit, "wazuh-dashboard-plugins_wazuh_4.14.7-01_f7ccb4e (1).zip")
         write(plugin, "plugin zip")
         self.env["CISCAT_TEST_PLUGIN_SHA"] = sha(plugin)
@@ -187,12 +208,12 @@ class Align(unittest.TestCase):
 
     def test_align_stops_on_a_locally_changed_wazuh_plugin(self):
         _, _, bundle = self.capture()
-        write(self.verify_prod, "S.5....T.    /usr/share/wazuh-dashboard/plugins/wazuh/server/lib/"
-                                "reporting/pci-request.js\n")
+        write(self.verify_prod, "S.5....T.    /usr/share/wazuh-dashboard/plugins/wazuh/target/"
+                                "public/wazuh.plugin.js\n")
         r = self.align(bundle)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("PCI DSS", r.stdout)
-        self.assertIn("pci-request.js", r.stdout)
+        self.assertIn("wazuh.plugin.js", r.stdout)
         self.assertEqual(self.read(self.prod, "var/ossec/etc/lists/ciscat-schedule"), "prod schedule")
         self.assertFalse(os.path.exists(self.prod + "/opt/ciscat/backup"))
         # everything else, the dashboard plugins left as they are
@@ -237,6 +258,41 @@ class Align(unittest.TestCase):
         r = self.align(bundle)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("damaged", r.stdout)
+
+    def test_align_keeps_the_pci_dss_layer_of_the_site(self):
+        _, _, bundle = self.capture()
+        r = self.align(bundle)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("PCI DSS requirement texts customized here", r.stdout)
+        wz = self.prod + "/" + DASH + "/plugins/wazuh/"
+        self.assertTrue(os.path.exists(wz + "server/lib/reporting/sca-report.js"))  # new plugin
+        self.assertEqual(self.read(wz, "server/integration-files/pci-requirements-pdfmake.js"),
+                         "PCI DSS 4.0.1 site texts")
+        self.assertEqual(self.read(wz, "public/assets/custom/images/customization.logo.reports.png"),
+                         "BANK LOGO")
+        self.assertIn("RESULT: OK", r.stdout)
+
+    def test_align_dashboard_only_host(self):
+        _, _, bundle = self.capture()
+        shutil.rmtree(self.prod + "/var/ossec")
+        r = self.align(bundle, "--dashboard-only")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("--plugin-sha256", self.read(self.prod, "installer-args"))
+        self.assertFalse(os.path.exists(self.prod + "/setup-args"))
+        # the CIS-CAT files of the master are not touched on a dashboard host
+        self.assertTrue(os.path.exists(self.prod + "/opt/ciscat/benchmarks/CIS_Win_v2.0.0-xccdf.xml"))
+        self.assertFalse(os.path.exists(self.prod + "/opt/ciscat/benchmarks/CIS_Win_v2.1.0-xccdf.xml"))
+        wz = self.prod + "/" + DASH + "/plugins/wazuh/"
+        self.assertEqual(self.read(wz, "public/assets/custom/images/customization.logo.reports.png"),
+                         "BANK LOGO")
+        self.assertEqual(self.read(wz, "server/integration-files/pci-requirements-pdfmake.js"),
+                         "PCI DSS 4.0.1 site texts")
+
+    def test_align_reports_a_changed_ruleset(self):
+        _, _, bundle = self.capture()
+        r = self.align(bundle, STUB_TOUCH="var/ossec/etc/rules/local_rules.xml")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("local_rules.xml", r.stdout)
 
 
 if __name__ == "__main__":
