@@ -14,9 +14,9 @@ W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 K=$W/ciscat-capture-kit-$VERSION
 mkdir -p "$K"
-cp "$HERE/capture-ittest.sh" "$HERE/align-prod.sh" "$HERE/README-capture.txt" "$1" "$K/"
+cp "$HERE/capture-ittest.sh" "$HERE/align-prod.sh" "$HERE/pci-keep.py" "$HERE/README-capture.txt" "$1" "$K/"
 [ $# -lt 2 ] || cp "$2" "$K/"
-(cd "$K" && sha256sum capture-ittest.sh align-prod.sh README-capture.txt "$(basename "$1")" > SHA256SUMS)
+(cd "$K" && sha256sum capture-ittest.sh align-prod.sh pci-keep.py README-capture.txt "$(basename "$1")" > SHA256SUMS)
 rm -f "$OUT/ciscat-capture-kit-$VERSION.zip"
 (cd "$W" && python3 -m zipfile -c "$OUT/ciscat-capture-kit-$VERSION.zip" "ciscat-capture-kit-$VERSION")
 (cd "$OUT" && sha256sum "ciscat-capture-kit-$VERSION.zip" > "ciscat-capture-kit-$VERSION.zip.sha256")

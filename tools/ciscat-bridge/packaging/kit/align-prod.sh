@@ -38,9 +38,44 @@ FLEET=$R/opt/ciscat/bin/ciscat-fleet.py
 # this site's PCI DSS layer inside the Wazuh plugin folder (paths relative to it)
 PCI_FILES="server/integration-files/pci-requirements-pdfmake.js common/compliance-requirements/pci-requirements.js"
 CUSTOM_IMAGES=public/assets/custom
+# plugin files with this site's PCI DSS report and dashboard customizations (pci-keep.py)
+PCI_CARRIED='server/controllers/wazuh-reporting\.js|server/lib/reporting/(pci-request|printer|extended-information)\.js|server/lib/reporting/summary-tables-definitions/(agents|overview)/index\.js|target/public/[^/]+\.js'
+CARRY=""
 say() { printf '%s\n' "$*"; }
 stop() { say "STOP: $*"; exit 1; }
 own() { [ -n "$R" ] || chown "$@"; }  # tests run without the wazuh users
+# the installed ciscat-fleet.py of 2.3.1 stops at "429 Too Many Requests" of the Wazuh API
+fleet_wait_on_429() {
+    python3 - "$FLEET" <<'PY' || stop "ciscat-fleet.py: wait on 429 not added (see above)"
+import sys
+f = sys.argv[1]
+s = open(f).read()
+OLD = """    with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
+        return r.read().decode()
+
+
+def api_json("""
+NEW = """    for attempt in range(1, 6):
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
+                return r.read().decode()
+        except urllib.error.HTTPError as e:
+            # the Wazuh API takes a limited number of requests per minute: wait and go on
+            if e.code != 429 or attempt == 5:
+                raise
+            print("    API busy (429 Too Many Requests): waiting {0}s".format(15 * attempt))
+            time.sleep(15 * attempt)
+
+
+def api_json("""
+if NEW in s:
+    sys.exit(0)
+if s.count(OLD) != 1:
+    sys.exit("ciscat-fleet.py is not the expected one")
+open(f, "w").write(s.replace(OLD, NEW))
+print("   ciscat-fleet.py: waits when the Wazuh API answers 429")
+PY
+}
 restart_dashboard() { [ -n "$R" ] || systemctl restart wazuh-dashboard; say "   wazuh-dashboard restarted"; }
 
 KEEP_PLUGINS=""; DASH_ONLY=""
@@ -108,8 +143,15 @@ else
         grep '^/usr/share/wazuh-dashboard/plugins/wazuh/' "$W/changed" \
             | grep -Ev "^/usr/share/wazuh-dashboard/plugins/wazuh/($CUSTOM_IMAGES/|server/integration-files/pci-requirements-pdfmake\.js\$|common/compliance-requirements/pci-requirements\.js\$)" \
             > "$W/wazuh-other" || true
+        # the PCI DSS report and dashboard files pci-keep.py carries into the new plugin
+        grep -Ev "^/usr/share/wazuh-dashboard/plugins/wazuh/($PCI_CARRIED)\$" "$W/wazuh-other" \
+            > "$W/wazuh-unknown" || true
         if [ -f "$WZ/server/lib/reporting/sca-report.js" ]; then
             say "   Wazuh plugin: an earlier bridge build, replaced"
+        elif [ -s "$W/wazuh-other" ] && [ ! -s "$W/wazuh-unknown" ] && [ -f "$HERE/pci-keep.py" ]; then
+            CARRY=1
+            say "   Wazuh plugin: replaced; this site's PCI DSS report and dashboard customizations"
+            say "   ($(grep -c . "$W/wazuh-other") file(s)) are carried into the new plugin by pci-keep.py"
         elif [ -s "$W/wazuh-other" ]; then
             say "   the Wazuh plugin of this dashboard differs from the wazuh-dashboard package in $(grep -c . "$W/wazuh-other") other file(s), e.g.:"
             { grep -i 'report\|pci' "$W/wazuh-other" || true; cat "$W/wazuh-other"; } | awk '!s[$0]++' | head -15 | sed 's/^/     /'
@@ -159,7 +201,7 @@ protected() {
             "$R/var/ossec/etc/rules" "$R/var/ossec/etc/decoders" "$R/var/ossec/ruleset/rules" \
             "$R/var/ossec/ruleset/decoders" "$R/var/ossec/etc/shared"; do
         [ -d "$d" ] && find "$d" -type f
-    done | grep -v -e '/ciscat_rules\.xml$' -e '/shared/ciscat-' -e '/shared/ar\.conf$' -e '/merged\.mg$' \
+    done | grep -v -e '/ciscat_rules\.xml$' -e '/shared/ciscat-' -e '/shared/os-' -e '/shared/ar\.conf$' -e '/merged\.mg$' \
         | sort | while IFS= read -r f; do sha256sum "$f"; done
     for f in $PCI_FILES; do
         [ -f "$WZ/$f" ] && sha256sum "$WZ/$f"
@@ -204,6 +246,10 @@ if [ -n "$REPLACE_WAZUH" ]; then
     done
     [ ! -d "$WZ/$CUSTOM_IMAGES" ] || { mkdir -p "$K/$(dirname "$CUSTOM_IMAGES")" && cp -pR "$WZ/$CUSTOM_IMAGES" "$K/$CUSTOM_IMAGES"; }
     say "   PCI DSS layer of the Wazuh plugin: $BACKUP/pci-keep"
+    if [ -n "$CARRY" ]; then
+        cp -a "$WZ" "$BACKUP/wazuh-plugin-before"
+        say "   Wazuh plugin of this dashboard, as it is: $BACKUP/wazuh-plugin-before"
+    fi
 fi
 
 if [ -z "$DASH_ONLY" ]; then
@@ -268,6 +314,7 @@ if [ -z "$DASH_ONLY" ]; then
     [ -n "$REPLACE_WAZUH" ] || SETUP_ARGS="$SETUP_ARGS --no-dashboard"
     say "== master setup ($SETUP_ARGS)"
     (cd "$DEST/master" && sh ciscat-master-setup.sh $SETUP_ARGS) || stop "master setup failed (see above); what was replaced is in $BACKUP"
+    fleet_wait_on_429
     say "== groups published to the agents"
     "$FLEET" apply || stop "ciscat-fleet.py apply failed (see above)"
     "$FLEET" key
@@ -277,6 +324,20 @@ else
         --plugin-sha256 "$(info plugin_sha256)") || stop "plugin installation failed (see above); what was replaced is in $BACKUP"
 fi
 
+if [ -n "$CARRY" ]; then
+    say "== PCI DSS report and dashboard of this site carried into the new Wazuh plugin"
+    if python3 "$HERE/pci-keep.py" "$BACKUP/wazuh-plugin-before" "$WZ"; then
+        own -R wazuh-dashboard:wazuh-dashboard "$WZ"
+    else
+        say "   the new plugin could not take this site's PCI DSS customizations: the plugin of this"
+        say "   dashboard is put back as it was"
+        rm -rf "${WZ:?}"
+        cp -a "$BACKUP/wazuh-plugin-before" "$WZ"
+        own -R wazuh-dashboard:wazuh-dashboard "$WZ"
+        restart_dashboard
+        stop "Wazuh plugin of this dashboard restored as it was (the bridge is installed; see above)"
+    fi
+fi
 if [ -n "$REPLACE_WAZUH" ]; then
     say "== PCI DSS layer of this site put back into the Wazuh plugin"
     K=$BACKUP/pci-keep

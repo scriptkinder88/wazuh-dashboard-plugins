@@ -148,7 +148,7 @@ else
 fi
 
 say "== bundle"
-for f in "$HERE/align-prod.sh" "$HERE/ciscat-master-$VERSION.zip"; do
+for f in "$HERE/align-prod.sh" "$HERE/pci-keep.py" "$HERE/ciscat-master-$VERSION.zip"; do
     [ -f "$f" ] || stop "$(basename "$f") missing from the kit"
     cp "$f" "$B/"
 done

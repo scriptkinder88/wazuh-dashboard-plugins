@@ -26,11 +26,41 @@ exit 3
 REINSTALL = """
 W="$CISCAT_TEST_ROOT/usr/share/wazuh-dashboard/plugins/wazuh"
 rm -rf "$W"
-mkdir -p "$W/server/lib/reporting" "$W/server/integration-files" "$W/common/compliance-requirements" "$W/public/assets"
+mkdir -p "$W/server/lib/reporting/summary-tables-definitions/agents" \
+    "$W/server/lib/reporting/summary-tables-definitions/overview" "$W/server/controllers" \
+    "$W/server/integration-files" "$W/common/compliance-requirements" "$W/public/assets" "$W/target/public"
 echo bridge > "$W/server/lib/reporting/sca-report.js"
 echo "PCI DSS 3.2.1" > "$W/server/integration-files/pci-requirements-pdfmake.js"
 echo "PCI DSS 3.2.1" > "$W/common/compliance-requirements/pci-requirements.js"
+for f in pci-request extended-information summary-tables-definitions/agents/index summary-tables-definitions/overview/index; do
+    echo "exports.stock = 1;" > "$W/server/lib/reporting/$f.js"
+done
+printf 'class P {\n  addTimeRangeAndFilters(from, to, filters, timeZone) {\n    this.band = 1;\n  }\n}\n' > "$W/server/lib/reporting/printer.js"
+printf 'function r(printer, array, agents, moduleID) {\n  printer.addVisualizations(array, agents, moduleID);\n}\n' > "$W/server/controllers/wazuh-reporting.js"
+cat > "$W/target/public/wazuh.chunk.9.js" <<'JS'
+const a=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-requirements",title:"Top 10 PCI DSS requirements",type:"line"});const b=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-Agents",title:"Top 10 agents by alerts count",type:"pie"});const c=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-Requirements-Agents-heatmap",title:"Last alerts",type:"heatmap"});const d=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-Requirements-by-agent",title:"Requirements by agent",type:"histogram"});
+class R{async getVisualizationsFromDOM(){return[]}}
+JS
+[ -z "${STUB_BROKEN:-}" ] || sed -i 's/getVisualizationsFromDOM/somethingElse/' "$W/target/public/wazuh.chunk.9.js"
 """
+# the prod plugin with its own PCI DSS report and dashboard (synthetic texts)
+PROD_PLUGIN = {
+    "server/lib/reporting/pci-request.js": "exports.site = 'site pci request';\n",
+    "server/lib/reporting/extended-information.js": "exports.site = 'site sections';\n",
+    "server/lib/reporting/summary-tables-definitions/agents/index.js": "exports.site = 1;\n",
+    "server/lib/reporting/summary-tables-definitions/overview/index.js": "exports.site = 1;\n",
+    "server/lib/reporting/printer.js": "exports.site = 1;\n",
+    "server/controllers/wazuh-reporting.js": "exports.site = 1;\n",
+    "target/public/wazuh.chunk.2.js": (
+        'const a=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-requirements",title:"Site areas",'
+        'type:"histogram",params:{x:"f(1)"}});const b=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-Agents",'
+        'title:"Site systems",type:"histogram"});const c=indexPatternId=>({id:'
+        '"Wazuh-App-Overview-PCI-DSS-Requirements-Agents-heatmap",title:"Site evidence",type:"table"});'
+        'const d=indexPatternId=>({id:"Wazuh-App-Overview-PCI-DSS-Requirements-by-agent",'
+        'title:"Site distribution",type:"table"});\n'),
+}
+CARRIED_VERIFY = "".join("S.5....T.    /usr/share/wazuh-dashboard/plugins/wazuh/" + f + "\n"
+                         for f in PROD_PLUGIN)
 SETUP = """#!/bin/sh
 echo "$*" > "$CISCAT_TEST_ROOT/setup-args"
 case "$*" in *--no-dashboard*) ;; *) """ + REINSTALL + """ ;; esac
@@ -40,9 +70,11 @@ echo setup done
 INSTALLER = """#!/bin/sh
 echo "$*" > "$CISCAT_TEST_ROOT/installer-args"
 """ + REINSTALL
-FLEET = """#!/bin/sh
-echo "fleet $*" >> "$CISCAT_TEST_ROOT/fleet-calls"
-"""
+with open(os.path.join(KIT, "align-prod.sh")) as _f:
+    _align = _f.read()
+# a fleet stub that already waits on 429 (align-prod.sh leaves it as it is)
+FLEET = ("#!/bin/sh\necho \"fleet $*\" >> \"$CISCAT_TEST_ROOT/fleet-calls\"\nexit 0\n" +
+         _align[_align.index('NEW = """') + 9:_align.index('"""', _align.index('NEW = """') + 9)])
 
 
 def write(path, text, mode=0o644):
@@ -111,7 +143,7 @@ class Align(unittest.TestCase):
         # the kit
         self.kit = os.path.join(self.d, "kit")
         os.makedirs(self.kit)
-        for f in ("capture-ittest.sh", "align-prod.sh"):
+        for f in ("capture-ittest.sh", "align-prod.sh", "pci-keep.py"):
             shutil.copy(os.path.join(KIT, f), self.kit)
         with zipfile.ZipFile(os.path.join(self.kit, "ciscat-master-2.3.1.zip"), "w") as z:
             z.writestr("master/ciscat-master-setup.sh", SETUP)
@@ -119,7 +151,7 @@ class Align(unittest.TestCase):
         plugin = os.path.join(self.kit, "wazuh-dashboard-plugins_wazuh_4.14.7-01_f7ccb4e (1).zip")
         write(plugin, "plugin zip")
         self.env["CISCAT_TEST_PLUGIN_SHA"] = sha(plugin)
-        subprocess.run("sha256sum capture-ittest.sh align-prod.sh ciscat-master-2.3.1.zip > SHA256SUMS",
+        subprocess.run("sha256sum capture-ittest.sh align-prod.sh pci-keep.py ciscat-master-2.3.1.zip > SHA256SUMS",
                        shell=True, cwd=self.kit, check=True)
 
     def master(self, name):
@@ -208,12 +240,12 @@ class Align(unittest.TestCase):
 
     def test_align_stops_on_a_locally_changed_wazuh_plugin(self):
         _, _, bundle = self.capture()
-        write(self.verify_prod, "S.5....T.    /usr/share/wazuh-dashboard/plugins/wazuh/target/"
-                                "public/wazuh.plugin.js\n")
+        write(self.verify_prod, "S.5....T.    /usr/share/wazuh-dashboard/plugins/wazuh/server/"
+                                "routes/wazuh-api.js\n")
         r = self.align(bundle)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("PCI DSS", r.stdout)
-        self.assertIn("wazuh.plugin.js", r.stdout)
+        self.assertIn("wazuh-api.js", r.stdout)
         self.assertEqual(self.read(self.prod, "var/ossec/etc/lists/ciscat-schedule"), "prod schedule")
         self.assertFalse(os.path.exists(self.prod + "/opt/ciscat/backup"))
         # everything else, the dashboard plugins left as they are
@@ -293,6 +325,45 @@ class Align(unittest.TestCase):
         r = self.align(bundle, STUB_TOUCH="var/ossec/etc/rules/local_rules.xml")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("local_rules.xml", r.stdout)
+
+    def prod_pci_plugin(self):
+        for f, text in PROD_PLUGIN.items():
+            write(self.prod + "/" + DASH + "/plugins/wazuh/" + f, text)
+        write(self.verify_prod, CARRIED_VERIFY)
+
+    def test_align_carries_the_pci_customizations_into_the_new_plugin(self):
+        _, _, bundle = self.capture()
+        self.prod_pci_plugin()
+        r = self.align(bundle)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("carried into the new plugin by pci-keep.py", r.stdout)
+        wz = self.prod + "/" + DASH + "/plugins/wazuh/"
+        self.assertTrue(os.path.exists(wz + "server/lib/reporting/sca-report.js"))  # new plugin
+        self.assertEqual(self.read(wz, "server/lib/reporting/extended-information.js"),
+                         "exports.site = 'site sections';\n")
+        self.assertIn("return; // this site's reports have no time range",
+                      self.read(wz, "server/lib/reporting/printer.js"))
+        self.assertIn("moduleID === 'pci'", self.read(wz, "server/controllers/wazuh-reporting.js"))
+        chunk = self.read(wz, "target/public/wazuh.chunk.9.js")
+        for title in ("Site areas", "Site systems", "Site evidence", "Site distribution"):
+            self.assertIn(title, chunk)
+        self.assertIn("siteAllVisualizationsFromDOM", chunk)
+        self.assertEqual(self.read(wz, "public/assets/custom/images/customization.logo.reports.png"),
+                         "BANK LOGO")
+        self.assertIn("RESULT: OK", r.stdout)
+
+    def test_the_old_plugin_comes_back_when_carrying_fails(self):
+        _, _, bundle = self.capture()
+        self.prod_pci_plugin()
+        r = self.align(bundle, STUB_BROKEN="1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("restored as it was", r.stdout)
+        wz = self.prod + "/" + DASH + "/plugins/wazuh/"
+        self.assertFalse(os.path.exists(wz + "server/lib/reporting/sca-report.js"))
+        self.assertEqual(self.read(wz, "target/public/wazuh.chunk.2.js"),
+                         PROD_PLUGIN["target/public/wazuh.chunk.2.js"])
+        self.assertEqual(self.read(wz, "public/assets/custom/images/customization.logo.reports.png"),
+                         "BANK LOGO")
 
 
 if __name__ == "__main__":
