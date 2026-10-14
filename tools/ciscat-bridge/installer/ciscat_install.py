@@ -56,7 +56,7 @@ DEFAULT_PASS_FILE = "/opt/ciscat/etc/.ciscat_api_pass"
 MANAGED_AGENT = ["ciscat-assessment.cmd", "ciscat-bootstrap.ps1", "ciscat-assessment.ps1",
                  "ciscat-csv-to-flat.ps1"]
 CRON_FILE = "/etc/cron.d/ciscat-scheduler"
-CRON_LINE = ("*/5 * * * * root /usr/bin/python3 /opt/ciscat/bin/ciscat-scheduler.py "
+CRON_LINE = ("* * * * * root /usr/bin/python3 /opt/ciscat/bin/ciscat-scheduler.py "
              ">>/opt/ciscat/log/ciscat-scheduler.log 2>&1\n")
 OLD_CRON_MARK = "ciscat-orchestrator.sh"
 
