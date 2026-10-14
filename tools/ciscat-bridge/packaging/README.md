@@ -95,6 +95,27 @@ setup (`--auto-assign`, with `--import` when a configuration is there) and `cisc
 The only question is, the first time, a Wazuh API administrator to create the bridge's API user
 (never stored).
 
+### Aligning a master to a configured master (one time)
+
+To make a master the same as an already configured one, for everything CIS-CAT, without the
+CIS downloads: `kit/build-capture-kit.sh ciscat-master-<v>.zip` makes
+`ciscat-capture-kit-<v>.zip` (`capture-ittest.sh`, `align-prod.sh`, the master package,
+`README-capture.txt`). On the configured master, `sh capture-ittest.sh` writes one
+`ciscat-prod-<v>-<date>.tar.gz` with the original CIS benchmarks (XCCDF, OVAL, CPE), the license,
+`os-library.json`, the tailoring CSVs, the lists `ciscat-exclusions`, `ciscat-schedule` and
+`ciscat-targets`, the dashboard plugin zip (checked against the release sha256), the other
+dashboard plugins changed from the `wazuh-dashboard` package, and `align-prod.sh`. API
+passwords and settings, signing keys, agent status and history never travel.
+
+On the master to align, `sh align-prod.sh` checks first and changes nothing when the Wazuh plugin
+of its dashboard has local changes (e.g. a customized PCI DSS report) that the bundle's plugin
+would replace, or when a custom plugin would replace a different one; `--no-dashboard-plugins`
+then aligns everything else and leaves every dashboard plugin as it is. It saves what it
+replaces in `/opt/ciscat/backup/prod-before-<date>`, puts the files in place, runs the master
+setup and `ciscat-fleet.py apply`, and ends by checking that the dashboard settings
+(`wazuh.yml`), `/etc/wazuh-dashboard`, the Wazuh rules and decoders and the agent groups not
+managed by the bridge are unchanged.
+
 ### Distribution through Red Hat Satellite
 
 1. In Satellite, a product (e.g. `CIS-CAT bridge`) with a repository of type **file**, upload
