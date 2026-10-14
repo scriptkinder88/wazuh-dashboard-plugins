@@ -28,7 +28,7 @@ class FleetAuth(unittest.TestCase):
             json.dump({}, f)
         url = fake.serve()
         try:
-            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url, CISCAT_API_WAIT="0",
+            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url, CISCAT_API_MAX_PER_MINUTE="0", CISCAT_API_WAIT="0",
                        CISCAT_PATHS_JSON=json.dumps({"lists_dir": d, "run_dir": d}))
             env.pop("WAZUH_API_PASSWORD", None)
             return subprocess.run([sys.executable, os.path.join(HERE, "..", "bin", "ciscat-fleet.py"),
@@ -72,7 +72,7 @@ class FleetAuth(unittest.TestCase):
                 f.write("api_user=wazuh\napi_pass_file={0}\n".format(pw))
             with open(os.path.join(etc, "os-library.json"), "w") as f:
                 json.dump({}, f)
-            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url,
+            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url, CISCAT_API_MAX_PER_MINUTE="0",
                        CISCAT_PATHS_JSON=json.dumps({"lists_dir": d, "run_dir": d}))
             env.pop("WAZUH_API_PASSWORD", None)
             r = subprocess.run([sys.executable, os.path.join(HERE, "..", "bin", "ciscat-fleet.py"), "plan"],

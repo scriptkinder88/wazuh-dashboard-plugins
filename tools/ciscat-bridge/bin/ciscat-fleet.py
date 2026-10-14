@@ -289,6 +289,25 @@ def ssl_context(ca):
 
 
 API_TRIES = 5
+# The Wazuh API takes max_request_per_minute requests (300 by default) for ALL its users: past
+# that it refuses every request, the dashboard's too, until the minute ends. The bridge keeps
+# to a share of it (api_max_per_minute in ciscat-orchestrator.conf, 0 = no limit).
+API_DEFAULT_PER_MINUTE = 100
+_API_SENT = []
+
+
+def api_pace():
+    limit = API.get("per_minute", API_DEFAULT_PER_MINUTE)
+    if not limit:
+        return
+    while True:
+        now = time.monotonic()
+        while _API_SENT and now - _API_SENT[0] >= 60:
+            _API_SENT.pop(0)
+        if len(_API_SENT) < limit:
+            _API_SENT.append(now)
+            return
+        time.sleep(60 - (now - _API_SENT[0]) + 0.05)
 API_WAIT = int(os.environ.get("CISCAT_API_WAIT", "15"))  # seconds, times the attempt number
 
 
@@ -307,6 +326,7 @@ def api_call(method, endpoint, token=None, body=None, raw=None):
         req.add_header("Content-Type", "application/xml")
         req.data = raw.encode()
     for attempt in range(1, API_TRIES + 1):
+        api_pace()
         try:
             with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
                 return r.read().decode()
@@ -1624,6 +1644,12 @@ def load_api_credentials(args):
     api_ca in the conf turns on TLS verification of the API with that CA file."""
     conf = read_conf()
     API["ca"] = conf.get("api_ca") or None
+    per_minute = os.environ.get("CISCAT_API_MAX_PER_MINUTE") or conf.get("api_max_per_minute")
+    if per_minute:
+        try:
+            API["per_minute"] = max(0, int(per_minute))
+        except ValueError:
+            sys.exit("api_max_per_minute must be a number of requests per minute (0: no limit)")
     if args.user:
         API["user"] = args.user
     elif conf.get("api_user") and not args.password_file:

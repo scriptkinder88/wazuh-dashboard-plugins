@@ -84,7 +84,7 @@ class FleetApply(unittest.TestCase):
         self.addCleanup(lambda: self.fake.server.shutdown())
         self.env = dict(os.environ, CISCAT_ETC_DIR=self.etc,
                         CISCAT_PATHS_JSON=json.dumps(dict(self.paths, agent_dir=AGENT_DIR)),
-                        CISCAT_API_URL=self.fake.serve(),
+                        CISCAT_API_URL=self.fake.serve(), CISCAT_API_MAX_PER_MINUTE="0",
                         WAZUH_API_PASSWORD="x", CISCAT_AR_GAP="0")
 
     def library(self, lib):
@@ -508,7 +508,7 @@ class Credentials(unittest.TestCase):
                 f.write(conf)
             with open(os.path.join(etc, "os-library.json"), "w") as f:
                 json.dump({}, f)
-            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url,
+            env = dict(os.environ, CISCAT_ETC_DIR=etc, CISCAT_API_URL=url, CISCAT_API_MAX_PER_MINUTE="0",
                        CISCAT_PATHS_JSON=json.dumps({"lists_dir": d, "run_dir": d}))
             env.pop("WAZUH_API_PASSWORD", None)
             if env_password:
