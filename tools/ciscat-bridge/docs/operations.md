@@ -22,7 +22,7 @@ All commands run as root on the Wazuh master unless the section says otherwise.
 | `/opt/ciscat/install/<version>`              | unpacked release packages (kept for rollback and audit)              |
 | `/var/ossec/etc/lists/ciscat-*`              | exclusions, schedules, status, coverage history (from the dashboard) |
 | `/var/ossec/etc/shared/os-*`, `ciscat-*`     | group files published to the agents                                  |
-| `/etc/cron.d/ciscat-scheduler`               | scheduler, every 5 minutes                                           |
+| `/etc/cron.d/ciscat-scheduler`               | scheduler, every minute                                              |
 
 **Linux agent**: CIS-CAT Pro in `/opt/ciscat/Assessor`, bridge data and results in
 `/var/lib/wazuh-ciscat`, bootstrap in `/var/ossec/active-response/bin/ciscat-bootstrap.sh`,

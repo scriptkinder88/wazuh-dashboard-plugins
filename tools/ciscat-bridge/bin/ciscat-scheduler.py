@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ciscat-scheduler.py - MANAGER side, run by cron every 5 minutes.
+"""ciscat-scheduler.py - MANAGER side, run by cron every minute.
 
 Replaces ciscat-orchestrator.sh. On each tick it:
   1. publishes the benchmark sheets and OS list for the dashboard (at most hourly), and with
@@ -30,7 +30,7 @@ LISTS_DIR = os.environ.get("CISCAT_LISTS_DIR", store.LISTS_DIR)
 RUN_DIR = os.environ.get("CISCAT_RUN_DIR", "/opt/ciscat/run")
 LOG_DIR = os.environ.get("CISCAT_LOG_DIR", "/opt/ciscat/log")
 FLEET = os.environ.get("CISCAT_FLEET_CMD", os.path.join(BIN_DIR, "ciscat-fleet.py"))
-TICK = timedelta(minutes=5)
+TICK = timedelta(minutes=1)
 SYNC_EVERY = timedelta(hours=1)
 RUNNING_LIMIT = timedelta(hours=12)  # a job reported running longer than this is presumed dead
 FMT = "%Y-%m-%dT%H:%M:%S"
@@ -206,11 +206,13 @@ def tick(now_ts):
         nxt = schedule.next_run(job, now) if job["enabled"] else None
         patch["next_run"] = nxt.strftime("%Y-%m-%dT%H:%M") if nxt else ""
         patches[skey] = patch
-    # status of deleted jobs goes; "Run now" results keep the most recent KEEP_RUNS
+    # status of deleted jobs goes; "Run now" and command line results keep the most recent
+    # KEEP_RUNS of each
     remove = [k for k in status if SCHEDULED_KEY.match(k) and k[4:] not in jobs]
-    runs = sorted((k for k in status if k.startswith("job-r")),
-                  key=lambda k: status[k].get("last_run", ""), reverse=True)
-    remove += runs[KEEP_RUNS:]
+    for prefix in ("job-r", "job-m"):
+        runs = sorted((k for k in status if k.startswith(prefix)),
+                      key=lambda k: status[k].get("last_run", ""), reverse=True)
+        remove += runs[KEEP_RUNS:]
 
     sched = {"last_tick": now.strftime(FMT), "last_tick_ts": int(now_ts), "jobs": len(jobs),
              "tz": time.strftime("%Z"), "utc_offset": time.strftime("%z")}

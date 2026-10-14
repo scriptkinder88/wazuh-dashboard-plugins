@@ -53,7 +53,7 @@
 
   <!-- master lane -->
   <rect class="box" x="375" y="235" width="370" height="75"/>
-  <text class="t" x="390" y="258" font-weight="600">ciscat-scheduler.py (cron, every 5 min)</text>
+  <text class="t" x="390" y="258" font-weight="600">ciscat-scheduler.py (cron, every minute)</text>
   <text class="s" x="390" y="277">reads and validates the lists; waves of at most</text>
   <text class="s" x="390" y="293">200 agents, 5 "Run now" per tick</text>
 

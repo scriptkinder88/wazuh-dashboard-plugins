@@ -1316,12 +1316,15 @@ def resolve_run(token, targets=None, agents=None, groups=None):
 
 
 def act_trigger(targets=None, wave_size=store.DEFAULT_WAVE_SIZE,
-                wave_pause=store.DEFAULT_WAVE_PAUSE_S, job=None, agents=None, groups=None):
+                wave_pause=store.DEFAULT_WAVE_PAUSE_S, job=None, agents=None, groups=None,
+                label=None):
     started = now_iso()
     get_token()
     result = {"state": "running", "last_run": started, "sent": 0, "failed": 0, "skipped": [],
               "targets": targets or ([] if agents or groups else ["*"]),
               "agents": agents or [], "groups": groups or []}
+    if label:
+        result["label"] = label
     if job:
         update_status("job-" + job, result)
     plan, skipped, notes = resolve_run(fresh_token(), targets, agents, groups)
@@ -1738,8 +1741,14 @@ def main():
             scope = store.validate_run_scope(scope)
         except store.StoreError as e:
             sys.exit("trigger: {0}".format(e))
-        return act_trigger(scope["targets"], args.wave_size, args.wave_pause, args.job,
-                           agents=scope["agents"], groups=scope["groups"])
+        # a run from the command line is a job too, so the dashboard lists it with the others
+        job, label = args.job, None
+        if not job:
+            job = "m" + time.strftime("%Y%m%d%H%M%S")
+            label = "Command line ({0})".format(
+                os.environ.get("SUDO_USER") or os.environ.get("USER") or "root")
+        return act_trigger(scope["targets"], args.wave_size, args.wave_pause, job,
+                           agents=scope["agents"], groups=scope["groups"], label=label)
     if args.action == "exclusions":
         return act_exclusions()
     if args.action == "assign":
