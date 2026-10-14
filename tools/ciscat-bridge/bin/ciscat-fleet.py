@@ -288,6 +288,10 @@ def ssl_context(ca):
     return ssl._create_unverified_context()
 
 
+API_TRIES = 5
+API_WAIT = int(os.environ.get("CISCAT_API_WAIT", "15"))  # seconds, times the attempt number
+
+
 def api_call(method, endpoint, token=None, body=None, raw=None):
     ctx = ssl_context(API["ca"])
     req = urllib.request.Request(API["url"] + endpoint, method=method)
@@ -302,8 +306,17 @@ def api_call(method, endpoint, token=None, body=None, raw=None):
     elif raw is not None:  # an agent.conf: the API only takes it as XML
         req.add_header("Content-Type", "application/xml")
         req.data = raw.encode()
-    with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
-        return r.read().decode()
+    for attempt in range(1, API_TRIES + 1):
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=120) as r:
+                return r.read().decode()
+        except urllib.error.HTTPError as e:
+            # the Wazuh API takes a limited number of requests per minute
+            # (max_request_per_minute of api.yaml): wait for the next minute and go on
+            if e.code != 429 or attempt == API_TRIES:
+                raise
+            print("    API busy (429 Too Many Requests): waiting {0}s".format(API_WAIT * attempt))
+            time.sleep(API_WAIT * attempt)
 
 
 def api_json(method, endpoint, token, body=None, raw=None):

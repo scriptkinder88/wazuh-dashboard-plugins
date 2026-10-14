@@ -268,14 +268,20 @@ class FleetApply(unittest.TestCase):
         self.companions()
         with open(os.path.join(self.paths["run_dir"], "apply.lock"), "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            p = subprocess.Popen([sys.executable, FLEET, "apply"], env=self.env,
+            p = subprocess.Popen([sys.executable, FLEET, "apply"],
+                                 env=dict(self.env, PYTHONUNBUFFERED="1"),
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            time.sleep(1.5)
+            # the lock is released only once the second apply says it waits for it
+            seen = []
+            for line in p.stdout:
+                seen.append(line)
+                if "another apply is running" in line:
+                    break
+            self.assertIn("another apply is running", "".join(seen))
             self.assertIsNone(p.poll())
             self.assertNotIn("apply", self.status())  # nothing written while it waits
         out, _ = p.communicate(timeout=60)
-        self.assertEqual(p.returncode, 0, out)
-        self.assertIn("another apply is running", out)
+        self.assertEqual(p.returncode, 0, "".join(seen) + out)
         self.assertEqual(self.status()["apply"]["state"], "ok")
 
     def test_trigger_renews_the_token_and_skips_disconnected_agents(self):
