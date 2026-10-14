@@ -1,0 +1,27 @@
+---
+# Bridge version of the packages, and the folder holding the release attachments on the
+# controller: the agent packages (and master/agent-keys/ciscat-manifest.pub{,.xml} when pinned)
+ciscat_version: '2.3.1'
+ciscat_release_dir: '{{ playbook_dir }}/release'
+# package file names. A final package (with the Assessor: -assessor-<version>) is unpacked as
+# it is in / or C:\ (no installer); the others are unpacked and their installer run.
+ciscat_package_linux: 'ciscat-agent-linux-{{ ciscat_version }}.tar.gz'
+ciscat_package_windows: 'ciscat-agent-windows-{{ ciscat_version }}.zip'
+# Download the packages on each agent from this URL (e.g. a Red Hat Satellite file repository:
+# https://<satellite>/pulp/content/<org>/<environment>/<content view>/custom/<product>/<repo>)
+# instead of copying them from ciscat_release_dir. The SHA-256 of each package (SHA256SUMS of
+# the release) is then required: a package that does not match is not installed.
+ciscat_package_url: ''
+ciscat_package_sha256_linux: ''
+ciscat_package_sha256_windows: ''
+# The master's public key, which every manifest must be signed with. With ciscat_master_host
+# (a host of the inventory, reached as root) it is read on the master and installed with each
+# agent: pinned before the first sync, nothing to copy by hand. Recommended.
+ciscat_master_host: ''
+# Without a master host: true installs the key files from ciscat_release_dir/agent-keys; false
+# lets each agent keep the first key it receives with the group files (trust on first use).
+ciscat_pin_pubkey: false
+ciscat_pubkey_linux: '{{ ciscat_release_dir }}/agent-keys/ciscat-manifest.pub'
+ciscat_pubkey_windows: '{{ ciscat_release_dir }}/agent-keys/ciscat-manifest.pub.xml'
+# Windows only: CIS-CAT Pro already installed elsewhere on the host, copied to C:\CIS\Assessor
+ciscat_copy_assessor_from: ''

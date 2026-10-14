@@ -12,6 +12,7 @@
 import { WazuhReportingCtrl } from '../controllers';
 import { IRouter } from 'opensearch_dashboards/server';
 import { schema } from '@osd/config-schema';
+import { SCA_REPORT_MAX_AGENTS } from '../../common/sca/report-limits';
 
 export function WazuhReportingRoutes(router: IRouter) {
   const ctrl = new WazuhReportingCtrl();
@@ -71,7 +72,14 @@ export function WazuhReportingRoutes(router: IRouter) {
           serverSideQuery: schema.maybe(schema.any()),
           filters: schema.maybe(schema.any()),
           agents: schema.maybe(
-            schema.oneOf([agentIDValidation, schema.boolean()]),
+            schema.oneOf([
+              agentIDValidation,
+              schema.arrayOf(agentIDValidation, {
+                minSize: 1,
+                maxSize: SCA_REPORT_MAX_AGENTS,
+              }),
+              schema.boolean(),
+            ]),
           ),
           components: schema.maybe(schema.any()),
           searchBar: schema.maybe(schema.string()),
@@ -87,7 +95,12 @@ export function WazuhReportingRoutes(router: IRouter) {
               schema.string(),
             ]),
           ),
-          indexPatternTitle: schema.string(),
+          indexPatternTitle: schema.maybe(schema.string()),
+          scaOptions: schema.maybe(
+            schema.object({
+              details: schema.maybe(schema.boolean()),
+            }),
+          ),
           apiId: schema.string(),
         }),
         params: schema.object({
@@ -97,6 +110,20 @@ export function WazuhReportingRoutes(router: IRouter) {
     },
     (context, request, response) =>
       ctrl.createReportsModules(context, request, response),
+  );
+
+  router.post(
+    {
+      path: '/reports/ciscat/exclusions',
+      validate: {
+        body: schema.object({
+          browserTimezone: schema.string({ maxLength: 64 }),
+          apiId: schema.string({ maxLength: 256 }),
+        }),
+      },
+    },
+    (context, request, response) =>
+      ctrl.createReportCiscatExclusions(context, request, response),
   );
 
   router.post(

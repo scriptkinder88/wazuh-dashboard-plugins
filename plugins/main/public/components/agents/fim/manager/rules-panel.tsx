@@ -1,0 +1,249 @@
+/*
+ * Every FIM rule found in the groups' agent.conf, with the groups and servers
+ * it applies to. Rules can be added, changed and removed from here.
+ */
+import React, { useMemo, useState } from 'react';
+import {
+  EuiBadge,
+  EuiInMemoryTable,
+  EuiCallOut,
+  EuiFieldSearch,
+  EuiFlexGroup,
+  EuiFlexItem,
+  EuiSpacer,
+  EuiText,
+} from '@elastic/eui';
+import { KIND_LABELS } from './lib/agent-conf';
+import { WzButtonPermissions } from '../../../common/permissions/button';
+import { FIM_WRITE_PERMISSIONS } from './lib/permissions';
+import { messages } from './messages';
+import { AgentInfo, GroupConf, RuleRow } from './lib/plan';
+
+const optionBadges = (row: RuleRow) => {
+  const a = row.rule.attrs;
+  const out: string[] = [];
+  if (a.whodata === 'yes') {
+    out.push(messages.optionWhodata());
+  } else if (a.realtime === 'yes') {
+    out.push(messages.optionRealtime());
+  }
+  if (a.report_changes === 'yes') {
+    out.push(messages.optionReportChanges());
+  }
+  if (a.type) {
+    out.push(a.type);
+  }
+  if (a.recursion_level) {
+    out.push(messages.optionRecursion(a.recursion_level));
+  }
+  if (a.restrict) {
+    out.push(messages.optionRestrict(a.restrict));
+  }
+  if (a.arch) {
+    out.push(a.arch);
+  }
+  if (a.tags) {
+    out.push(...a.tags.split(',').map(messages.optionTag));
+  }
+  return out;
+};
+
+const filterText = (row: RuleRow) =>
+  Object.entries(row.rule.filter)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ');
+
+export const RulesPanel = ({
+  rows,
+  groups,
+  agents,
+  onAdd,
+  onEdit,
+  onRemove,
+}: {
+  rows: RuleRow[];
+  groups: Record<string, GroupConf>;
+  agents: AgentInfo[];
+  onAdd: () => void;
+  onEdit: (row: RuleRow) => void;
+  onRemove: (row: RuleRow) => void;
+}) => {
+  const [search, setSearch] = useState('');
+  const agentName = (id: string) => agents.find(a => a.id === id)?.name || id;
+  const unreadable = Object.values(groups).filter(g => g.error);
+
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) {
+      return rows;
+    }
+    return rows.filter(row =>
+      [
+        row.rule.path,
+        KIND_LABELS[row.rule.kind],
+        filterText(row),
+        ...row.groups,
+        ...row.hostIds.map(agentName),
+        ...optionBadges(row),
+        row.rule.meta?.reason || '',
+        row.rule.meta?.ticket || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [rows, search, agents]);
+
+  const columns = [
+    {
+      name: messages.columnType(),
+      width: '130px',
+      render: (row: RuleRow) => KIND_LABELS[row.rule.kind],
+    },
+    {
+      name: messages.columnPath(),
+      render: (row: RuleRow) => (
+        <div>
+          <code>{row.rule.path}</code>
+          {filterText(row) && (
+            <>
+              {' '}
+              <EuiBadge color='hollow'>{filterText(row)}</EuiBadge>
+            </>
+          )}
+        </div>
+      ),
+    },
+    {
+      name: messages.columnOptions(),
+      render: (row: RuleRow) =>
+        optionBadges(row).map(b => (
+          <EuiBadge key={b} color='default'>
+            {b}
+          </EuiBadge>
+        )),
+    },
+    {
+      name: messages.columnAppliesTo(),
+      render: (row: RuleRow) => (
+        <div>
+          {row.groups.map(g => (
+            <EuiBadge key={`g${g}`} color='primary'>
+              {g}
+            </EuiBadge>
+          ))}
+          {row.hostIds.map(id => (
+            <EuiBadge key={`h${id}`} color='accent' iconType='storage'>
+              {agentName(id)}
+            </EuiBadge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      name: messages.columnAudit(),
+      render: (row: RuleRow) => {
+        const meta = row.rule.meta;
+        if (!meta) {
+          return (
+            <EuiText size='xs' color='subdued'>
+              {messages.importedNoAudit()}
+            </EuiText>
+          );
+        }
+        return (
+          <EuiText size='xs'>
+            {meta.reason}
+            {meta.ticket ? ` · ${meta.ticket}` : ''}
+            <br />
+            <span style={{ opacity: 0.7 }}>
+              {meta.by || messages.unknownUser()} ·{' '}
+              {meta.at.slice(0, 16).replace('T', ' ')}
+              {meta.owner ? messages.owner(meta.owner) : ''}
+            </span>
+          </EuiText>
+        );
+      },
+    },
+    {
+      name: messages.columnActions(),
+      width: '80px',
+      render: (row: RuleRow) => (
+        <div>
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={FIM_WRITE_PERMISSIONS}
+            tooltip={{ position: 'top', content: messages.change() }}
+            iconType='pencil'
+            aria-label={messages.change()}
+            onClick={() => onEdit(row)}
+            data-test-subj='fim-rule-edit'
+          />
+          <WzButtonPermissions
+            buttonType='icon'
+            permissions={FIM_WRITE_PERMISSIONS}
+            tooltip={{ position: 'top', content: messages.remove() }}
+            iconType='trash'
+            color='danger'
+            aria-label={messages.remove()}
+            onClick={() => onRemove(row)}
+            data-test-subj='fim-rule-remove'
+          />
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      {unreadable.length > 0 && (
+        <>
+          <EuiCallOut
+            color='warning'
+            iconType='alert'
+            title={messages.unreadableGroups()}
+          >
+            <ul>
+              {unreadable.map(g => (
+                <li key={g.name}>
+                  {g.name}: {g.error}
+                </li>
+              ))}
+            </ul>
+          </EuiCallOut>
+          <EuiSpacer size='m' />
+        </>
+      )}
+      <EuiFlexGroup gutterSize='s' responsive={false}>
+        <EuiFlexItem>
+          <EuiFieldSearch
+            fullWidth
+            placeholder={messages.rulesSearch()}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <WzButtonPermissions
+            fill
+            permissions={FIM_WRITE_PERMISSIONS}
+            iconType='plusInCircle'
+            onClick={onAdd}
+            data-test-subj='fim-rule-add'
+          >
+            {messages.addRule()}
+          </WzButtonPermissions>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+      <EuiSpacer size='m' />
+      <EuiInMemoryTable
+        items={shown}
+        pagination={true}
+        itemId='key'
+        columns={columns}
+        message={messages.noRules()}
+        data-test-subj='fim-rules-table'
+      />
+    </>
+  );
+};

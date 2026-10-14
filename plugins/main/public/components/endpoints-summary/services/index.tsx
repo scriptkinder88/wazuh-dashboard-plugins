@@ -3,6 +3,8 @@ export { removeAgentFromGroupsService } from './remove-agent-from-groups';
 export { removeAgentsFromGroupService } from './remove-agents-from-group';
 export { addAgentToGroupService } from './add-agent-to-group';
 export { addAgentsToGroupService } from './add-agents-to-group';
+export { createGroupService } from './create-group';
+export { groupNameError } from './group-name';
 export { getGroupsService } from './get-groups';
 export { upgradeAgentService } from './upgrade-agent';
 export { upgradeAgentsService } from './upgrade-agents';
