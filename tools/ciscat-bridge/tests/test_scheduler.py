@@ -148,6 +148,16 @@ class Scheduler(unittest.TestCase):
         self.tick("2026-10-01T10:05:00")  # the run-now status is not a deleted job
         self.assertIn("job-r1700000000001bbbb", self.status())
 
+    def test_command_line_runs_keep_the_most_recent(self):
+        runs = {"job-m202610{0:02d}100000".format(d): {"state": "ok", "last_run":
+                "2026-10-{0:02d}T10:00:00".format(d), "label": "Command line (root)"}
+                for d in range(1, 26)}
+        store.write_list(store.STATUS, runs, self.lists)
+        self.tick("2026-10-26T10:00:00")
+        kept = sorted(k for k in self.status() if k.startswith("job-m"))
+        self.assertEqual(len(kept), 20)
+        self.assertEqual(kept[0], "job-m20261006100000")  # the 5 oldest went
+
     def test_fast_trigger_status_is_not_overwritten(self):
         job = store.validate_job({"type": "once", "at": "2026-10-01T10:07"})
         store.write_list(store.SCHEDULE, {"jaaaaaaaaaaaa": job}, self.lists)
