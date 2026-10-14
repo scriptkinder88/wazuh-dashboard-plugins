@@ -162,6 +162,10 @@ API credentials come from `api_user` and `api_pass_file` in
 `--password` still works but is deprecated.
 The API certificate is not verified by default (the local manager API, self-signed); set
 `api_ca=<CA file>` in the same file to verify it.
+The Wazuh API refuses every request, the dashboard's included, for the rest of the minute once
+its `max_request_per_minute` (300 by default) is reached, so the bridge keeps to 100 requests a
+minute: `api_max_per_minute=<n>` in the same file changes it (`0`: no limit). A request refused
+with 429 is sent again later.
 
 ## Commands on the master
 
@@ -237,6 +241,11 @@ on Windows). Linux agents run only the shell scripts, Windows agents only the `.
   stops if a license or benchmark file is left in a package and gives the same packages when
   run on Windows (Cygwin). The Ansible role unpacks the final packages and can download them
   from a Red Hat Satellite file repository (SHA-256 checked).
+  Fixes after the first run on a large fleet: the bridge keeps to a share of the Wazuh API
+  request limit (`api_max_per_minute`, 100 by default) and waits when the API answers 429, so
+  the hourly auto-assign no longer locks the dashboard out; an OS group without `agent.conf`
+  (made by hand) gets the empty one Wazuh writes for a new group; the setup logs the new API user
+  in again when its first token is refused right after its role was set.
 - **2.3.0:** runs on chosen agents, lists of agents and OS or custom groups, from the dashboard
   and `trigger --agents/--groups`; the job status gives the reason for each agent not reached.
   A benchmark only goes to agents of its platform (Windows, or Linux and other Unix-like), for
