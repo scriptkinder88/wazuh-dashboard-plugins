@@ -18,6 +18,7 @@ import secrets
 import ssl
 import string
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -100,6 +101,22 @@ def find(token, kind, name, key):
     return next((i for i in items if i.get(key) == name), None)
 
 
+def check_login(secret, tries=6, wait=2):
+    """The new user can work: log in and read groups and agents. A role or password change
+    revokes the user's tokens issued up to that second, so a token taken in the same second is
+    refused (401 Invalid token): log in again a little later."""
+    for attempt in range(1, tries + 1):
+        try:
+            token = call("POST", "/security/user/authenticate?raw=true", basic=(USER, secret))
+            call("GET", "/groups?limit=1", token)
+            call("GET", "/agents?limit=1&select=id", token)
+            return
+        except SystemExit as e:
+            if attempt == tries or ": 401 " not in str(e):
+                raise
+            time.sleep(wait)
+
+
 def password():
     """Meets the API rules (8-64 characters, upper and lower case, digit, symbol)."""
     symbols = "!#%+-_=.:@"
@@ -142,10 +159,7 @@ def main():
                        {"username": USER, "password": secret})["affected_items"][0]["id"]
     if role_id not in (user or {}).get("roles", []):
         call("POST", "/security/users/{0}/roles?role_ids={1}".format(user_id, role_id), token)
-    # the new user can work: log in and read groups and agents
-    check = call("POST", "/security/user/authenticate?raw=true", basic=(USER, secret))
-    call("GET", "/groups?limit=1", check)
-    call("GET", "/agents?limit=1&select=id", check)
+    check_login(secret)
     os.makedirs(ETC, exist_ok=True)
     old = os.umask(0o077)
     try:
